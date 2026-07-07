@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'package:line_fleet_app/driver/app.dart';
 
-/// 預設入口：司機端（開發用 `flutter run -t lib/main_driver.dart --flavor driver`）
 void main() {
   runApp(const DriverApp());
 }
