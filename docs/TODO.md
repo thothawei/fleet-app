@@ -22,9 +22,9 @@
 - [~] B2. 叫車帶目的地 → `POST /api/rides`：已完成**地址式最小叫車**（GPS 上車點 + 文字目的地，
       帶 `dropoff_address`，打通司機端「導航去目的地」）。地圖選點**接線已鋪好**（google_maps_flutter
       + geocoding 依賴、Manifest/AppDelegate key 佔位、`MapPickerScreen` + 叫車表單「在地圖上選目的地」按鈕；
-      Android debug APK 已可 build）。**待填 key** 才會顯示地圖：AndroidManifest `YOUR_ANDROID_MAPS_API_KEY`、
-      iOS AppDelegate `YOUR_IOS_MAPS_API_KEY`。**未做**：把選到的座標也帶進 `dropoff_lat/lng`（目前只回填地址）、
-      iOS `pod install` + 部署目標。
+      Android debug APK 已可 build）。地圖選點會把精確座標帶進 `dropoff_lat/lng`（手動改地址則退回純地址），
+      body 建構有單元測試覆蓋。**待填 key** 才會顯示地圖：AndroidManifest `YOUR_ANDROID_MAPS_API_KEY`、
+      iOS AppDelegate `YOUR_IOS_MAPS_API_KEY`。**未做**：iOS `pod install` + 部署目標。
 - [~] B4. 行程狀態流：已接 WS 即時訂閱（`ride.accepted`/`driver.arrived`/`ride.picked_up`/
       `ride.completed`/`ride.cancelled` → 立即以 GET active 對帳；15s 輪詢保底）＋ 顯示司機名/ETA
       ＋ App 端取消。**未做**：抵達/上車等更細的分階段畫面。

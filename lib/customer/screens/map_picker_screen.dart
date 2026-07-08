@@ -2,7 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-/// 地圖選點：拖動地圖點一下放釘、反查地址，確定後回傳地址字串。
+/// 地圖選點結果：目的地地址（反查或座標字串）與精確座標。
+class MapPickResult {
+  const MapPickResult({
+    required this.address,
+    required this.lat,
+    required this.lng,
+  });
+
+  final String address;
+  final double lat;
+  final double lng;
+}
+
+/// 地圖選點：拖動地圖點一下放釘、反查地址，確定後回傳地址與座標。
 ///
 /// 需在原生層填入 Google Maps API key（AndroidManifest / iOS AppDelegate）才會
 /// 顯示地圖；key 留空時本畫面地圖為空白，屬預期，叫車表單的文字輸入仍可用。
@@ -102,8 +115,13 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
                     FilledButton(
                       onPressed: (_picked == null || _geocoding)
                           ? null
-                          : () => Navigator.of(context)
-                              .pop(_address ?? _coordLabel(_picked!)),
+                          : () => Navigator.of(context).pop(
+                                MapPickResult(
+                                  address: _address ?? _coordLabel(_picked!),
+                                  lat: _picked!.latitude,
+                                  lng: _picked!.longitude,
+                                ),
+                              ),
                       child: const Text('確定'),
                     ),
                   ],

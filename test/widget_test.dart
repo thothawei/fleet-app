@@ -1,5 +1,9 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:line_fleet_app/core/api/customer_api_client.dart';
 import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/models/models.dart';
 import 'package:line_fleet_app/core/ws/fleet_ws_client.dart';
@@ -164,4 +168,64 @@ void main() {
     expect(find.text('叫車'), findsWidgets);
     expect(find.text('目的地地址'), findsOneWidget);
   });
+
+  group('CustomerApiClient.createRide 送出 body（地圖選點帶座標）', () {
+    CustomerApiClient apiWith(_CaptureAdapter adapter) {
+      final dio = Dio(BaseOptions(baseUrl: 'http://x/api'))
+        ..httpClientAdapter = adapter;
+      return CustomerApiClient(dio: dio);
+    }
+
+    test('有地圖座標時 body 帶 dropoff_lat/lng 與地址', () async {
+      final adapter = _CaptureAdapter();
+      await apiWith(adapter).createRide(
+        pickupLat: 25,
+        pickupLng: 121,
+        pickupAddress: '上車',
+        dropoffAddress: '松山機場',
+        dropoffLat: 25.08,
+        dropoffLng: 121.57,
+      );
+      expect(adapter.lastBody!['dropoff_address'], '松山機場');
+      expect(adapter.lastBody!['dropoff_lat'], 25.08);
+      expect(adapter.lastBody!['dropoff_lng'], 121.57);
+    });
+
+    test('純文字目的地時 body 不含 dropoff_lat/lng', () async {
+      final adapter = _CaptureAdapter();
+      await apiWith(adapter).createRide(
+        pickupLat: 25,
+        pickupLng: 121,
+        pickupAddress: '上車',
+        dropoffAddress: '松山機場',
+      );
+      expect(adapter.lastBody!.containsKey('dropoff_lat'), isFalse);
+      expect(adapter.lastBody!.containsKey('dropoff_lng'), isFalse);
+      expect(adapter.lastBody!['dropoff_address'], '松山機場');
+    });
+  });
+}
+
+/// 攔截 Dio 送出的 request，捕捉 body 供斷言；回固定成功回應。
+class _CaptureAdapter implements HttpClientAdapter {
+  Map<String, dynamic>? lastBody;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    lastBody = options.data as Map<String, dynamic>?;
+    return ResponseBody.fromString(
+      '{"ride_id":1,"status":0}',
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

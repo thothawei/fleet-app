@@ -143,10 +143,13 @@ class CustomerController extends ChangeNotifier {
     }
   }
 
-  /// 叫車：以目前 GPS 為上車點，帶乘客輸入的上車/目的地地址。
+  /// 叫車：以目前 GPS 為上車點，帶乘客輸入的上車/目的地地址；
+  /// 若目的地由地圖選點取得，另帶精確座標（dropoffLat/Lng）。
   Future<void> placeOrder({
     required String pickupAddress,
     required String dropoffAddress,
+    double? dropoffLat,
+    double? dropoffLng,
   }) async {
     if (_busy || _session == null) return;
     _setBusy(true);
@@ -171,6 +174,8 @@ class CustomerController extends ChangeNotifier {
         pickupLng: pos.longitude,
         pickupAddress: pickup,
         dropoffAddress: dropoffAddress.trim(),
+        dropoffLat: dropoffLat,
+        dropoffLng: dropoffLng,
       );
       _activeRide = ride;
       _driverName = null;

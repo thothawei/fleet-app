@@ -56,6 +56,10 @@ class _OrderFormState extends State<_OrderForm> {
   final _pickup = TextEditingController();
   final _dropoff = TextEditingController();
 
+  // 地圖選點得到的目的地座標；手動改地址即失效（避免地址與座標不一致）。
+  double? _dropoffLat;
+  double? _dropoffLng;
+
   @override
   void dispose() {
     _pickup.dispose();
@@ -90,6 +94,15 @@ class _OrderFormState extends State<_OrderForm> {
             const SizedBox(height: 12),
             TextField(
               controller: _dropoff,
+              onChanged: (_) {
+                // 手動編輯地址 → 丟棄地圖座標，改以地址下單
+                if (_dropoffLat != null || _dropoffLng != null) {
+                  setState(() {
+                    _dropoffLat = null;
+                    _dropoffLng = null;
+                  });
+                }
+              },
               decoration: const InputDecoration(
                 labelText: '目的地地址',
                 prefixIcon: Icon(Icons.place),
@@ -116,15 +129,20 @@ class _OrderFormState extends State<_OrderForm> {
 
   Future<void> _pickOnMap(BuildContext context) async {
     final pos = widget.ctrl.lastPosition;
-    final picked = await Navigator.of(context).push<String>(
+    final picked = await Navigator.of(context).push<MapPickResult>(
       MaterialPageRoute(
         builder: (_) => MapPickerScreen(
           initial: pos != null ? LatLng(pos.latitude, pos.longitude) : null,
         ),
       ),
     );
-    if (picked != null && picked.isNotEmpty) {
-      setState(() => _dropoff.text = picked);
+    if (picked != null && picked.address.isNotEmpty) {
+      // 程式化設定 text 不會觸發 onChanged，故座標得以保留
+      setState(() {
+        _dropoff.text = picked.address;
+        _dropoffLat = picked.lat;
+        _dropoffLng = picked.lng;
+      });
     }
   }
 
@@ -138,6 +156,8 @@ class _OrderFormState extends State<_OrderForm> {
     await widget.ctrl.placeOrder(
       pickupAddress: _pickup.text,
       dropoffAddress: _dropoff.text,
+      dropoffLat: _dropoffLat,
+      dropoffLng: _dropoffLng,
     );
   }
 }

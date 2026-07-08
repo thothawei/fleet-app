@@ -63,12 +63,15 @@ class CustomerApiClient {
     }
   }
 
-  /// 下單叫車。dropoff 座標為選填（本 App 走地址，座標留空 → 後端存 NULL point）。
+  /// 下單叫車。dropoff 座標為選填（未由地圖選點時留空 → 後端存 NULL point，
+  /// 司機端仍可用 dropoff_address 導航）。
   Future<CustomerRide> createRide({
     required double pickupLat,
     required double pickupLng,
     required String pickupAddress,
     String? dropoffAddress,
+    double? dropoffLat,
+    double? dropoffLng,
   }) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>('/rides', data: {
@@ -77,6 +80,10 @@ class CustomerApiClient {
         'pickup_address': pickupAddress,
         if (dropoffAddress != null && dropoffAddress.isNotEmpty)
           'dropoff_address': dropoffAddress,
+        if (dropoffLat != null && dropoffLng != null) ...{
+          'dropoff_lat': dropoffLat,
+          'dropoff_lng': dropoffLng,
+        },
       });
       return CustomerRide.fromJson(res.data!);
     } on DioException catch (e) {
