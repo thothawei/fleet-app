@@ -28,8 +28,9 @@
 - [~] B4. 行程狀態流：已接 WS 即時訂閱（`ride.accepted`/`driver.arrived`/`ride.picked_up`/
       `ride.completed`/`ride.cancelled` → 立即以 GET active 對帳；15s 輪詢保底）＋ 顯示司機名/ETA
       ＋ App 端取消。**未做**：抵達/上車等更細的分階段畫面。
-- [~] B3. 即時追蹤：已訂閱 WS 生命週期事件 + 顯示上車 ETA。**未做**：地圖看車移動——
-      需 (1) 後端把 `driver.location` 也發給該 customer（目前僅發 admin 廣播）、(2) 地圖 SDK + API key。
+- [~] B3. 即時追蹤：後端已把 `driver.location`（含 lat/lng/eta_sec/dist_m）推給對應乘客
+      （`NotifyCustomerETA`，受 shouldPushETA 節流）；乘客端收事件即時顯示「司機 距您約 X 公尺 · 約 N 分鐘抵達」，
+      不需地圖。**未做**：真正地圖上看車移動（需地圖 SDK + API key，見 B2 的 key）。
 - [ ] B5. 完成後評分/付款入口（依賴後端 Phase C，先留位）
 - 整體驗收：模擬器「叫車 → 看到司機移動與 ETA → 司機完成 → 收到完成」整條通。
 

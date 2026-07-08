@@ -102,6 +102,18 @@ void main() {
       expect(event.payload?['dropoff_address'], '松山機場');
     });
 
+    test('driver.location 帶 lat/lng/eta_sec/dist_m（乘客即時追蹤）', () {
+      final event = FleetWsEvent.fromJson({
+        'type': FleetEventTypes.driverLocation,
+        'ride_id': 7,
+        'payload': {'lat': 25.0, 'lng': 121.5, 'eta_sec': 300, 'dist_m': 320},
+      });
+      expect(event.type, 'driver.location');
+      expect(event.rideId, 7);
+      expect(event.payload?['dist_m'], 320);
+      expect(event.payload?['eta_sec'], 300);
+    });
+
     test('ride.picked_up / ride.completed / ride.cancelled 皆可正確解析', () {
       for (final type in [
         FleetEventTypes.ridePickedUp,

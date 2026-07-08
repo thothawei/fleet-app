@@ -34,6 +34,8 @@ class CustomerController extends ChangeNotifier {
   Position? _lastPosition;
   CustomerRide? _activeRide;
   String? _driverName;
+  int? _liveEtaSec;
+  int? _liveDistM;
   Timer? _pollTimer;
 
   CustomerSession? get session => _session;
@@ -47,6 +49,10 @@ class CustomerController extends ChangeNotifier {
 
   /// 司機姓名，來自 ride.accepted WS 事件（GET active 不含司機名，故為即時來源）。
   String? get driverName => _driverName;
+
+  /// 司機接近上車點的即時 ETA/距離，來自 driver.location WS 事件（司機移動時更新）。
+  int? get liveEtaSec => _liveEtaSec;
+  int? get liveDistM => _liveDistM;
 
   Future<void> init() async {
     _ws = FleetWsClient(
@@ -121,6 +127,8 @@ class CustomerController extends ChangeNotifier {
     _session = null;
     _activeRide = null;
     _driverName = null;
+    _liveEtaSec = null;
+    _liveDistM = null;
     _api.setToken(null);
     notifyListeners();
   }
@@ -133,6 +141,11 @@ class CustomerController extends ChangeNotifier {
       case FleetEventTypes.rideAccepted:
         _driverName = event.payload?['driver_name'] as String?;
         refreshActive();
+      case FleetEventTypes.driverLocation:
+        // 司機移動更新：只更新即時 ETA/距離，不打 GET active（頻率較高）
+        _liveEtaSec = (event.payload?['eta_sec'] as num?)?.toInt();
+        _liveDistM = (event.payload?['dist_m'] as num?)?.toInt();
+        notifyListeners();
       case FleetEventTypes.driverArrived:
       case FleetEventTypes.ridePickedUp:
       case FleetEventTypes.rideCompleted:
@@ -179,6 +192,8 @@ class CustomerController extends ChangeNotifier {
       );
       _activeRide = ride;
       _driverName = null;
+    _liveEtaSec = null;
+    _liveDistM = null;
       _error = null;
       _startPolling();
     } on ApiException catch (e) {
@@ -195,6 +210,8 @@ class CustomerController extends ChangeNotifier {
       _activeRide = ride;
       if (ride == null) {
         _driverName = null;
+    _liveEtaSec = null;
+    _liveDistM = null;
         _stopPolling();
       } else {
         _startPolling();

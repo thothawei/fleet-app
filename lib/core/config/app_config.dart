@@ -21,6 +21,7 @@ class AppConfig {
 class FleetEventTypes {
   static const rideAssigned = 'ride.assigned';
   static const rideAccepted = 'ride.accepted';
+  static const driverLocation = 'driver.location';
   static const driverArrived = 'driver.arrived';
   static const ridePickedUp = 'ride.picked_up';
   static const rideCompleted = 'ride.completed';

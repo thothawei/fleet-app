@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/models/models.dart';
 import '../customer_controller.dart';
 import 'map_picker_screen.dart';
 
@@ -167,6 +168,20 @@ class _ActiveRideCard extends StatelessWidget {
 
   final CustomerController ctrl;
 
+  /// 司機前往上車點時的即時提示，優先用 driver.location 帶來的即時距離/ETA，
+  /// 無即時值時退回訂單接單時的 ETA。
+  String _approachText(CustomerController ctrl, CustomerRide ride) {
+    final parts = <String>[];
+    if (ctrl.liveDistM != null) parts.add('距您約 ${ctrl.liveDistM} 公尺');
+    final eta = ctrl.liveEtaSec;
+    if (eta != null && eta > 0) {
+      parts.add('約 ${(eta / 60).ceil()} 分鐘抵達');
+    } else if (ride.etaLabel.isNotEmpty) {
+      parts.add(ride.etaLabel);
+    }
+    return parts.isEmpty ? '司機前往中' : '司機 ${parts.join(' · ')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final ride = ctrl.activeRide!;
@@ -197,9 +212,9 @@ class _ActiveRideCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text('司機：${ctrl.driverName}'),
             ],
-            if (ride.status == 2 && ride.etaLabel.isNotEmpty) ...[
+            if (ride.status == 2) ...[
               const SizedBox(height: 4),
-              Text(ride.etaLabel),
+              Text(_approachText(ctrl, ride)),
             ],
             if (ride.dropoffAddress != null) ...[
               const SizedBox(height: 4),
