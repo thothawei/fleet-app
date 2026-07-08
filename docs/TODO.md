@@ -13,7 +13,9 @@
 
 ## B. 乘客端 App（M7）— 收尾
 
-- [ ] B6. M7 slice 實作計畫（可選，主鏈路已通）
+- [x] B6. M7 slice 實作計畫（2026-07-08：後端 repo
+      `docs/superpowers/plans/2026-07-08-m7-customer-app.md`；主鏈路已完成並回填證據，
+      剩餘 Slice 5 地圖追蹤／Slice 6 評分付款）。
 - [x] B1. 乘客登入/註冊（2026-07-08）
 - [~] B2. 叫車帶目的地：文字 + 地圖選點接線完成。**待填** Google Maps API key 才顯示地圖。
 - [~] B3. 即時追蹤：文字 ETA/距離已通；地圖追蹤待 API key。
