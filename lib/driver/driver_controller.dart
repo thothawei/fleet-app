@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 
 import '../core/api/fleet_api_client.dart';
 import '../core/config/app_config.dart';
+import '../core/location/driver_location_permissions.dart';
+import '../core/location/driver_location_settings.dart';
 import '../core/models/models.dart';
 import '../core/storage/token_storage.dart';
 import '../core/ws/fleet_ws_client.dart';
@@ -30,7 +32,7 @@ class DriverController extends ChangeNotifier {
   RideOffer? _pendingOffer;
   ActiveRide? _activeRide;
   Position? _lastPosition;
-  Timer? _locationTimer;
+  StreamSubscription<Position>? _positionSub;
   bool _busy = false;
 
   AuthSession? get session => _session;
@@ -138,7 +140,7 @@ class DriverController extends ChangeNotifier {
 
   Future<void> goOnline() async {
     if (_session == null) return;
-    final ok = await _ensureLocationPermission();
+    final ok = await ensureDriverLocationPermissions();
     if (!ok) {
       _error = '需要定位權限才能上線';
       notifyListeners();
@@ -146,39 +148,42 @@ class DriverController extends ChangeNotifier {
     }
     _online = true;
     _error = null;
-    await _reportLocationOnce();
-    _locationTimer?.cancel();
-    _locationTimer = Timer.periodic(
-      const Duration(seconds: AppConfig.locationIntervalSec),
-      (_) => _reportLocationOnce(),
-    );
+    await _startLocationStream();
     notifyListeners();
   }
 
   Future<void> goOffline() async {
     _online = false;
-    _locationTimer?.cancel();
-    _locationTimer = null;
+    await _stopLocationStream();
     notifyListeners();
   }
 
-  Future<bool> _ensureLocationPermission() async {
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
-    }
-    return perm == LocationPermission.always ||
-        perm == LocationPermission.whileInUse;
+  /// 以 getPositionStream + Android 前景服務持續回報，取代 Timer 前景輪詢。
+  Future<void> _startLocationStream() async {
+    await _stopLocationStream();
+    if (!_online || _session == null) return;
+
+    final settings = driverLocationSettings();
+    _positionSub = Geolocator.getPositionStream(locationSettings: settings).listen(
+      (pos) => _reportPosition(pos),
+      onError: (_) {},
+    );
+
+    // 立即回報一筆，不必等第一個 stream tick。
+    try {
+      final pos = await Geolocator.getCurrentPosition(locationSettings: settings);
+      await _reportPosition(pos);
+    } catch (_) {}
   }
 
-  Future<void> _reportLocationOnce() async {
+  Future<void> _stopLocationStream() async {
+    await _positionSub?.cancel();
+    _positionSub = null;
+  }
+
+  Future<void> _reportPosition(Position pos) async {
     if (!_online || _session == null) return;
     try {
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
       _lastPosition = pos;
       await _api.reportLocation(lat: pos.latitude, lng: pos.longitude);
       notifyListeners();
@@ -315,7 +320,7 @@ class DriverController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _locationTimer?.cancel();
+    _positionSub?.cancel();
     _ws.disconnect();
     super.dispose();
   }

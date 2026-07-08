@@ -47,6 +47,14 @@
 			</array>
 		</dict>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>上線時需要定位以回報司機位置供派單使用。</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>切到導航或鎖屏時仍須持續回報位置，供即時派單與追蹤。</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

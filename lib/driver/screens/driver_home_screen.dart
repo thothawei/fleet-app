@@ -247,8 +247,8 @@ class _IdleHint extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          '開啟「上線」後會每 ${AppConfig.locationIntervalSec} 秒回報 GPS，'
-          '並透過 WebSocket 接收派單通知。',
+          '開啟「上線」後會以前景服務每 ${AppConfig.locationIntervalSec} 秒回報 GPS，'
+          '切到 Google Maps 導航或鎖屏仍持續上報；並透過 WebSocket 接收派單。',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ),

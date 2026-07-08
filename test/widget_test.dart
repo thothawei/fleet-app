@@ -3,8 +3,10 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:line_fleet_app/core/api/customer_api_client.dart';
 import 'package:line_fleet_app/core/config/app_config.dart';
+import 'package:line_fleet_app/core/location/driver_location_settings.dart';
 import 'package:line_fleet_app/core/models/models.dart';
 import 'package:line_fleet_app/core/ws/fleet_ws_client.dart';
 import 'package:line_fleet_app/customer/customer_controller.dart';
@@ -12,6 +14,11 @@ import 'package:line_fleet_app/customer/screens/customer_home_screen.dart';
 import 'package:provider/provider.dart';
 
 void main() {
+  test('driverLocationSettings 在測試環境回傳通用 LocationSettings', () {
+    final settings = driverLocationSettings();
+    expect(settings.accuracy, LocationAccuracy.high);
+  });
+
   test('RideOffer 從 WS payload 解析', () {
     final offer = RideOffer.fromEvent(42, {
       'address': '台北車站',
