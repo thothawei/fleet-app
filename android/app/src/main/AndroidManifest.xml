@@ -17,7 +17,7 @@
              留佔位時地圖不會載入是正常的，文字輸入目的地仍可用。 -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="YOUR_ANDROID_MAPS_API_KEY"/>
+            android:value="${googleMapsApiKey}"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

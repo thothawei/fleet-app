@@ -182,6 +182,16 @@ void main() {
       expect(ride.etaLabel, '約 5 分鐘抵達');
     });
 
+    test('CustomerRide 解析 pickup_point 座標（地圖追蹤用）', () {
+      final ride = CustomerRide.fromJson({
+        'ride_id': 5,
+        'status': 2,
+        'pickup_point': {'lat': 25.03, 'lng': 121.56},
+      });
+      expect(ride.pickupLat, closeTo(25.03, 0.001));
+      expect(ride.pickupLng, closeTo(121.56, 0.001));
+    });
+
     test('CustomerRide 已上車不可取消、無 ETA 時 etaLabel 為空', () {
       final ride = CustomerRide.fromJson({'ID': 12, 'Status': 3});
       expect(ride.cancellable, isFalse);

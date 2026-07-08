@@ -1,0 +1,6 @@
+# 複製為 android/local.properties 並填入實際值（此檔已在 .gitignore，勿 commit 真 key）
+sdk.dir=/path/to/android/sdk
+flutter.sdk=/path/to/flutter
+
+# Google Maps Android SDK（與 --dart-define=GOOGLE_MAPS_API_KEY 使用同一 key）
+GOOGLE_MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY

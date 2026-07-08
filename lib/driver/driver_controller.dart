@@ -8,6 +8,7 @@ import '../core/config/app_config.dart';
 import '../core/location/driver_location_permissions.dart';
 import '../core/location/driver_location_settings.dart';
 import '../core/models/models.dart';
+import '../core/push/driver_push_service.dart';
 import '../core/storage/token_storage.dart';
 import '../core/ws/fleet_ws_client.dart';
 
@@ -17,14 +18,17 @@ class DriverController extends ChangeNotifier {
     DriverAuthStore? storage,
     FleetApiClient? api,
     FleetWsClientFactory? wsFactory,
+    DriverPushService? push,
   })  : _storage = storage ?? TokenStorage(),
         _api = api ?? FleetApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
+        _push = push ?? NoOpDriverPushService(),
         _ws = FleetWsClient(onEvent: (_) {});
 
   final DriverAuthStore _storage;
   final FleetApiClient _api;
   final FleetWsClientFactory _wsFactory;
+  final DriverPushService _push;
   FleetWsClient _ws;
 
   AuthSession? _session;
@@ -36,6 +40,8 @@ class DriverController extends ChangeNotifier {
   ActiveRide? _activeRide;
   Position? _lastPosition;
   StreamSubscription<Position>? _positionSub;
+  StreamSubscription<FleetWsEvent>? _pushSub;
+  String? _fcmToken;
   bool _busy = false;
 
   AuthSession? get session => _session;
@@ -47,6 +53,12 @@ class DriverController extends ChangeNotifier {
   RideOffer? get pendingOffer => _pendingOffer;
   ActiveRide? get activeRide => _activeRide;
   Position? get lastPosition => _lastPosition;
+  bool get fcmAvailable => _push.isAvailable;
+  String? get fcmTokenPrefix {
+    final t = _fcmToken;
+    if (t == null || t.length <= 8) return t;
+    return '${t.substring(0, 8)}…';
+  }
 
   Future<void> init() async {
     _ws = _wsFactory(
@@ -61,6 +73,7 @@ class DriverController extends ChangeNotifier {
       await _applySession(saved);
       await _restoreActiveRide();
     }
+    await _bindPushListener();
   }
 
   /// 測試用：模擬收到 WS 事件（等同正式連線後的 onEvent）。
@@ -123,11 +136,36 @@ class DriverController extends ChangeNotifier {
     _session = session;
     _api.setToken(session.token);
     await _ws.connect(session.token);
+    await _syncDeviceToken();
     notifyListeners();
+  }
+
+  Future<void> _bindPushListener() async {
+    await _pushSub?.cancel();
+    _pushSub = _push.rideEvents.listen(_handleWsEvent);
+  }
+
+  /// 登入後向後端註冊 FCM token；token 刷新時亦會重註冊。
+  Future<void> _syncDeviceToken() async {
+    if (!_push.isAvailable || _session == null) return;
+    try {
+      final token = await _push.getToken();
+      if (token == null || token.isEmpty) return;
+      await _api.registerDeviceToken(platform: 'fcm', token: token);
+      _fcmToken = token;
+    } on ApiException catch (e) {
+      _error = e.message;
+    }
   }
 
   Future<void> logout() async {
     await goOffline();
+    if (_fcmToken != null) {
+      try {
+        await _api.unregisterDeviceToken(token: _fcmToken!);
+      } catch (_) {}
+      _fcmToken = null;
+    }
     await _ws.disconnect();
     await _storage.clear();
     _session = null;
@@ -329,7 +367,9 @@ class DriverController extends ChangeNotifier {
   @override
   void dispose() {
     _positionSub?.cancel();
+    _pushSub?.cancel();
     _ws.disconnect();
+    _push.dispose();
     super.dispose();
   }
 }

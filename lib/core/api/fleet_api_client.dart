@@ -129,6 +129,33 @@ class FleetApiClient {
     }
   }
 
+  /// 註冊 FCM/APNs 推播 token（對齊 POST /api/driver/device-token）。
+  Future<void> registerDeviceToken({
+    required String platform,
+    required String token,
+  }) async {
+    try {
+      await _dio.post('/driver/device-token', data: {
+        'platform': platform,
+        'token': token,
+      });
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 登出時註銷推播 token。
+  Future<void> unregisterDeviceToken({required String token}) async {
+    try {
+      await _dio.delete(
+        '/driver/device-token',
+        data: {'platform': 'fcm', 'token': token},
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   ApiException _wrap(DioException e) {
     final data = e.response?.data;
     String message = e.message ?? '網路錯誤';

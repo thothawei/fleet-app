@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'package:line_fleet_app/core/push/firebase_push_service.dart';
 import 'package:line_fleet_app/driver/app.dart';
 
-/// 預設入口：司機端（開發用 `flutter run -t lib/main_driver.dart --flavor driver`）
-void main() {
-  runApp(const DriverApp());
+/// 預設入口：司機端
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final push = await createDriverPushService();
+  runApp(DriverApp(pushService: push));
 }

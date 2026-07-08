@@ -76,6 +76,14 @@ class _StatusCard extends StatelessWidget {
               label: 'WebSocket',
               value: ctrl.wsConnected ? '已連線' : '未連線',
             ),
+            _InfoRow(
+              label: 'FCM 推播',
+              value: ctrl.fcmAvailable
+                  ? (ctrl.fcmTokenPrefix != null
+                      ? '已註冊 ${ctrl.fcmTokenPrefix}'
+                      : '已啟用（待 token）')
+                  : '未設定 Firebase',
+            ),
             _InfoRow(label: 'API', value: AppConfig.apiBase),
             if (pos != null)
               _InfoRow(

@@ -36,6 +36,8 @@ class CustomerController extends ChangeNotifier {
   String? _driverName;
   int? _liveEtaSec;
   int? _liveDistM;
+  double? _liveDriverLat;
+  double? _liveDriverLng;
   bool _driverArrived = false;
   CompletedRideSummary? _completedSummary;
   Timer? _pollTimer;
@@ -55,6 +57,10 @@ class CustomerController extends ChangeNotifier {
   /// 司機接近上車點的即時 ETA/距離，來自 driver.location WS 事件（司機移動時更新）。
   int? get liveEtaSec => _liveEtaSec;
   int? get liveDistM => _liveDistM;
+
+  /// 司機即時座標（WS driver.location），供地圖 marker 更新。
+  double? get liveDriverLat => _liveDriverLat;
+  double? get liveDriverLng => _liveDriverLng;
 
   /// 司機是否已進上車圍籬（WS `driver.arrived`；後端 status 仍為 Accepted）。
   bool get driverArrived => _driverArrived;
@@ -137,6 +143,8 @@ class CustomerController extends ChangeNotifier {
     _driverName = null;
     _liveEtaSec = null;
     _liveDistM = null;
+    _liveDriverLat = null;
+    _liveDriverLng = null;
     _driverArrived = false;
     _completedSummary = null;
     _api.setToken(null);
@@ -174,15 +182,17 @@ class CustomerController extends ChangeNotifier {
         _driverArrived = false;
         refreshActive();
       case FleetEventTypes.driverLocation:
-        // 司機移動更新：只更新即時 ETA/距離，不打 GET active（頻率較高）
         _liveEtaSec = (event.payload?['eta_sec'] as num?)?.toInt();
         _liveDistM = (event.payload?['dist_m'] as num?)?.toInt();
+        _liveDriverLat = (event.payload?['lat'] as num?)?.toDouble();
+        _liveDriverLng = (event.payload?['lng'] as num?)?.toDouble();
         notifyListeners();
       case FleetEventTypes.driverArrived:
-        // 後端狀態仍為 Accepted；僅本地旗標切「已抵達」畫面
         _driverArrived = true;
         _liveEtaSec = null;
         _liveDistM = null;
+        _liveDriverLat = null;
+        _liveDriverLng = null;
         notifyListeners();
       case FleetEventTypes.rideCompleted:
         // active API 不含終態；先留下摘要供 B5 佔位，再對帳清空進行中訂單
@@ -238,6 +248,8 @@ class CustomerController extends ChangeNotifier {
       _driverName = null;
       _liveEtaSec = null;
       _liveDistM = null;
+      _liveDriverLat = null;
+      _liveDriverLng = null;
       _driverArrived = false;
       _completedSummary = null;
       _error = null;
@@ -268,6 +280,8 @@ class CustomerController extends ChangeNotifier {
       _driverName = null;
       _liveEtaSec = null;
       _liveDistM = null;
+      _liveDriverLat = null;
+      _liveDriverLng = null;
       _driverArrived = false;
       _stopPolling();
       return;
@@ -280,6 +294,8 @@ class CustomerController extends ChangeNotifier {
     if (ride.status != RideStatus.accepted) {
       _liveEtaSec = null;
       _liveDistM = null;
+      _liveDriverLat = null;
+      _liveDriverLng = null;
       _driverArrived = false;
     }
     _startPolling();

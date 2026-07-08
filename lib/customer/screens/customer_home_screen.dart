@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/models/models.dart';
 import '../customer_controller.dart';
+import '../widgets/customer_tracking_map.dart';
 import 'map_picker_screen.dart';
 
 class CustomerHomeScreen extends StatelessWidget {
@@ -256,6 +258,13 @@ class _ActiveRideCard extends StatelessWidget {
     }
   }
 
+  bool _showTrackingMap(CustomerRide ride, CustomerController ctrl) {
+    if (ride.status != RideStatus.accepted || ctrl.driverArrived) return false;
+    final hasPickup = (ride.pickupLat != null && ride.pickupLng != null) ||
+        ctrl.lastPosition != null;
+    return AppConfig.mapsConfigured && hasPickup;
+  }
+
   @override
   Widget build(BuildContext context) {
     final ride = ctrl.activeRide!;
@@ -300,6 +309,15 @@ class _ActiveRideCard extends StatelessWidget {
             if (ride.dropoffAddress != null) ...[
               const SizedBox(height: 4),
               Text('目的地：${ride.dropoffAddress}'),
+            ],
+            if (_showTrackingMap(ride, ctrl)) ...[
+              const SizedBox(height: 12),
+              CustomerTrackingMap(
+                pickupLat: ride.pickupLat ?? ctrl.lastPosition!.latitude,
+                pickupLng: ride.pickupLng ?? ctrl.lastPosition!.longitude,
+                driverLat: ctrl.liveDriverLat,
+                driverLng: ctrl.liveDriverLng,
+              ),
             ],
             const SizedBox(height: 16),
             OutlinedButton.icon(

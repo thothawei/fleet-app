@@ -144,6 +144,8 @@ class CustomerRide {
     required this.status,
     this.dropoffAddress,
     this.etaPickupSec,
+    this.pickupLat,
+    this.pickupLng,
   });
 
   final int rideId;
@@ -152,6 +154,10 @@ class CustomerRide {
 
   /// 接單時後端估算的到達上車點秒數（model.Ride.EtaPickupSec）。
   final int? etaPickupSec;
+
+  /// 上車點座標（model.Ride.PickupPoint），供地圖追蹤顯示。
+  final double? pickupLat;
+  final double? pickupLng;
 
   /// 尚可由乘客取消（上車前）。
   bool get cancellable => status < RideStatus.pickedUp;
@@ -195,11 +201,20 @@ class CustomerRide {
     final status = json['status'] ?? json['Status'];
     final dropoff = json['dropoff_address'] ?? json['DropoffAddress'];
     final eta = json['eta_pickup_sec'] ?? json['EtaPickupSec'];
+    double? pickupLat;
+    double? pickupLng;
+    final pickupPoint = json['pickup_point'] ?? json['PickupPoint'];
+    if (pickupPoint is Map) {
+      pickupLat = (pickupPoint['lat'] as num?)?.toDouble();
+      pickupLng = (pickupPoint['lng'] as num?)?.toDouble();
+    }
     return CustomerRide(
       rideId: (id as num).toInt(),
       status: (status as num).toInt(),
       dropoffAddress: (dropoff is String && dropoff.isNotEmpty) ? dropoff : null,
       etaPickupSec: (eta as num?)?.toInt(),
+      pickupLat: pickupLat,
+      pickupLng: pickupLng,
     );
   }
 }

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:line_fleet_app/core/api/fleet_api_client.dart';
 import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/models/models.dart';
+import 'package:line_fleet_app/core/push/driver_push_service.dart';
 import 'package:line_fleet_app/core/storage/token_storage.dart';
 import 'package:line_fleet_app/core/ws/fleet_ws_client.dart';
 import 'package:line_fleet_app/driver/driver_controller.dart';
@@ -11,15 +14,18 @@ void main() {
   group('DriverController 整合層（注入假 API / 靜默 WS / 記憶體 storage）', () {
     late MemoryDriverAuthStore storage;
     late _FakeFleetApi api;
+    late _FakePush push;
     late DriverController ctrl;
 
     setUp(() {
       storage = MemoryDriverAuthStore();
       api = _FakeFleetApi();
+      push = _FakePush();
       ctrl = DriverController(
         storage: storage,
         api: api,
         wsFactory: FleetWsClient.silent,
+        push: push,
       );
     });
 
@@ -34,7 +40,10 @@ void main() {
       expect(ctrl.session?.name, '阿明');
       expect(ctrl.error, isNull);
       expect(ctrl.wsConnected, isTrue);
+      expect(ctrl.fcmAvailable, isTrue);
+      expect(ctrl.fcmTokenPrefix, 'fcm-tok-…');
       expect(api.lastToken, 'tok-7');
+      expect(api.registeredFcmTokens, ['fcm-tok-abc']);
       expect((await storage.read())?.token, 'tok-7');
     });
 
@@ -208,6 +217,22 @@ void main() {
       expect(ctrl.activeRide, isNull);
       expect(await storage.read(), isNull);
       expect(api.lastToken, isNull);
+      expect(api.unregisteredFcmTokens, ['fcm-tok-abc']);
+    });
+
+    test('FCM 推播事件 → 與 WS 相同顯示 pendingOffer', () async {
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+
+      push.emit(FleetWsEvent(
+        type: FleetEventTypes.rideAssigned,
+        rideId: 77,
+        payload: {'address': '推播上車點'},
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(ctrl.pendingOffer?.rideId, 77);
+      expect(ctrl.pendingOffer?.address, '推播上車點');
     });
   });
 }
@@ -225,6 +250,8 @@ class _FakeFleetApi extends FleetApiClient {
   final acceptedRideIds = <int>[];
   final completedRideIds = <int>[];
   final cancelledRideIds = <int>[];
+  final registeredFcmTokens = <String>[];
+  final unregisteredFcmTokens = <String>[];
 
   @override
   void setToken(String? token) {
@@ -265,4 +292,38 @@ class _FakeFleetApi extends FleetApiClient {
 
   @override
   Future<void> reportLocation({required double lat, required double lng}) async {}
+
+  @override
+  Future<void> registerDeviceToken({
+    required String platform,
+    required String token,
+  }) async {
+    registeredFcmTokens.add(token);
+  }
+
+  @override
+  Future<void> unregisterDeviceToken({required String token}) async {
+    unregisteredFcmTokens.add(token);
+  }
+}
+
+class _FakePush implements DriverPushService {
+  final _controller = StreamController<FleetWsEvent>.broadcast();
+
+  void emit(FleetWsEvent event) => _controller.add(event);
+
+  @override
+  Future<bool> initialize() async => true;
+
+  @override
+  bool get isAvailable => true;
+
+  @override
+  Future<String?> getToken() async => 'fcm-tok-abc';
+
+  @override
+  Stream<FleetWsEvent> get rideEvents => _controller.stream;
+
+  @override
+  Future<void> dispose() async => _controller.close();
 }
