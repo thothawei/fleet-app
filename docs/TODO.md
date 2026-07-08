@@ -35,6 +35,12 @@
 - [ ] A4. 回填 M6 計畫勾選框（附模擬器實跑證據）＋ 同步後端 repo STATUS.md。
 - [ ] A5. iOS build（延後：需完整 Xcode + CocoaPods；Info.plist location always 權限）。
 
+## 被後端擋住的項目
+
+- [ ] 司機端「上車後導航去**目的地**」：後端派單事件/查詢皆未輸出 `dropoff_address/point`
+      （model 有欄位但 handler/events 無任何 dropoff 輸出，2026-07-08 實測確認）。
+      後端補資料後，`driver_controller` 的導航目標在 onTrip 階段切到 dropoff。
+
 ## 品質/雜項
 
 - [ ] 補司機端 controller 整合層測試（現有測試偏 models/WS 解析；`driver_controller.dart` 722 行無直接覆蓋）。
