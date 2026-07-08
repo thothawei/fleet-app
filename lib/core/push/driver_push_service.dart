@@ -13,6 +13,9 @@ abstract class DriverPushService {
   /// 前景／點擊通知喚醒後的派單事件（與 WS 同型別）。
   Stream<FleetWsEvent> get rideEvents;
 
+  /// FCM token 輪替（新 token）；訂閱者應向後端重新註冊。
+  Stream<String> get tokenRefresh;
+
   Future<void> dispose();
 }
 
@@ -29,6 +32,9 @@ class NoOpDriverPushService implements DriverPushService {
 
   @override
   Stream<FleetWsEvent> get rideEvents => const Stream.empty();
+
+  @override
+  Stream<String> get tokenRefresh => const Stream.empty();
 
   @override
   Future<void> dispose() async {}

@@ -16,6 +16,7 @@ class FirebaseDriverPushService implements DriverPushService {
 
   final FirebaseMessaging _messaging;
   final _events = StreamController<FleetWsEvent>.broadcast();
+  final _tokenRefresh = StreamController<String>.broadcast();
   StreamSubscription<String>? _tokenRefreshSub;
   bool _available = false;
 
@@ -24,6 +25,9 @@ class FirebaseDriverPushService implements DriverPushService {
 
   @override
   Stream<FleetWsEvent> get rideEvents => _events.stream;
+
+  @override
+  Stream<String> get tokenRefresh => _tokenRefresh.stream;
 
   @override
   Future<bool> initialize() async {
@@ -56,7 +60,7 @@ class FirebaseDriverPushService implements DriverPushService {
       final initial = await _messaging.getInitialMessage();
       if (initial != null) _onOpenedMessage(initial);
 
-      _tokenRefreshSub = _messaging.onTokenRefresh.listen((_) {});
+      _tokenRefreshSub = _messaging.onTokenRefresh.listen(_tokenRefresh.add);
 
       _available = true;
       return true;
@@ -95,6 +99,7 @@ class FirebaseDriverPushService implements DriverPushService {
   @override
   Future<void> dispose() async {
     await _tokenRefreshSub?.cancel();
+    await _tokenRefresh.close();
     await _events.close();
   }
 }

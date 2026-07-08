@@ -234,6 +234,17 @@ void main() {
       expect(ctrl.pendingOffer?.rideId, 77);
       expect(ctrl.pendingOffer?.address, '推播上車點');
     });
+
+    test('FCM token 輪替 → 向後端重新註冊新 token', () async {
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+      expect(api.registeredFcmTokens, ['fcm-tok-abc']);
+
+      push.refreshToken('fcm-tok-new');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(api.registeredFcmTokens, ['fcm-tok-abc', 'fcm-tok-new']);
+    });
   });
 }
 
@@ -309,8 +320,16 @@ class _FakeFleetApi extends FleetApiClient {
 
 class _FakePush implements DriverPushService {
   final _controller = StreamController<FleetWsEvent>.broadcast();
+  final _tokenRefresh = StreamController<String>.broadcast();
+
+  String currentToken = 'fcm-tok-abc';
 
   void emit(FleetWsEvent event) => _controller.add(event);
+
+  void refreshToken(String token) {
+    currentToken = token;
+    _tokenRefresh.add(token);
+  }
 
   @override
   Future<bool> initialize() async => true;
@@ -319,11 +338,17 @@ class _FakePush implements DriverPushService {
   bool get isAvailable => true;
 
   @override
-  Future<String?> getToken() async => 'fcm-tok-abc';
+  Future<String?> getToken() async => currentToken;
 
   @override
   Stream<FleetWsEvent> get rideEvents => _controller.stream;
 
   @override
-  Future<void> dispose() async => _controller.close();
+  Stream<String> get tokenRefresh => _tokenRefresh.stream;
+
+  @override
+  Future<void> dispose() async {
+    await _tokenRefresh.close();
+    await _controller.close();
+  }
 }

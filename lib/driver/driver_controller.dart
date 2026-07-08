@@ -41,6 +41,7 @@ class DriverController extends ChangeNotifier {
   Position? _lastPosition;
   StreamSubscription<Position>? _positionSub;
   StreamSubscription<FleetWsEvent>? _pushSub;
+  StreamSubscription<String>? _tokenRefreshSub;
   String? _fcmToken;
   bool _busy = false;
 
@@ -143,6 +144,8 @@ class DriverController extends ChangeNotifier {
   Future<void> _bindPushListener() async {
     await _pushSub?.cancel();
     _pushSub = _push.rideEvents.listen(_handleWsEvent);
+    await _tokenRefreshSub?.cancel();
+    _tokenRefreshSub = _push.tokenRefresh.listen((_) => _syncDeviceToken());
   }
 
   /// 登入後向後端註冊 FCM token；token 刷新時亦會重註冊。
@@ -368,6 +371,7 @@ class DriverController extends ChangeNotifier {
   void dispose() {
     _positionSub?.cancel();
     _pushSub?.cancel();
+    _tokenRefreshSub?.cancel();
     _ws.disconnect();
     _push.dispose();
     super.dispose();
