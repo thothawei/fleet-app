@@ -181,6 +181,20 @@ void main() {
       expect(ride.statusLabel, '已完成');
       expect(RideStatus.isTerminal(ride.status), isTrue);
     });
+
+    test('phaseLabel：Accepted + driverArrived → 司機已抵達上車點', () {
+      const ride = CustomerRide(rideId: 1, status: RideStatus.accepted);
+      expect(ride.phaseLabel(), '司機前往上車點');
+      expect(
+        ride.phaseLabel(driverArrived: true),
+        '司機已抵達上車點',
+      );
+    });
+
+    test('phaseLabel：非 Accepted 不受 driverArrived 影響', () {
+      const ride = CustomerRide(rideId: 1, status: RideStatus.pickedUp);
+      expect(ride.phaseLabel(driverArrived: true), '行程中');
+    });
   });
 
   group('ActiveRide 從後端 active 查詢還原（司機 App 重啟）', () {

@@ -36,6 +36,7 @@ class CustomerController extends ChangeNotifier {
   String? _driverName;
   int? _liveEtaSec;
   int? _liveDistM;
+  bool _driverArrived = false;
   Timer? _pollTimer;
 
   CustomerSession? get session => _session;
@@ -53,6 +54,9 @@ class CustomerController extends ChangeNotifier {
   /// 司機接近上車點的即時 ETA/距離，來自 driver.location WS 事件（司機移動時更新）。
   int? get liveEtaSec => _liveEtaSec;
   int? get liveDistM => _liveDistM;
+
+  /// 司機是否已進上車圍籬（WS `driver.arrived`；後端 status 仍為 Accepted）。
+  bool get driverArrived => _driverArrived;
 
   Future<void> init() async {
     _ws = FleetWsClient(
@@ -129,6 +133,7 @@ class CustomerController extends ChangeNotifier {
     _driverName = null;
     _liveEtaSec = null;
     _liveDistM = null;
+    _driverArrived = false;
     _api.setToken(null);
     notifyListeners();
   }
@@ -140,6 +145,7 @@ class CustomerController extends ChangeNotifier {
     switch (event.type) {
       case FleetEventTypes.rideAccepted:
         _driverName = event.payload?['driver_name'] as String?;
+        _driverArrived = false;
         refreshActive();
       case FleetEventTypes.driverLocation:
         // 司機移動更新：只更新即時 ETA/距離，不打 GET active（頻率較高）
@@ -147,6 +153,11 @@ class CustomerController extends ChangeNotifier {
         _liveDistM = (event.payload?['dist_m'] as num?)?.toInt();
         notifyListeners();
       case FleetEventTypes.driverArrived:
+        // 後端狀態仍為 Accepted；僅本地旗標切「已抵達」畫面
+        _driverArrived = true;
+        _liveEtaSec = null;
+        _liveDistM = null;
+        notifyListeners();
       case FleetEventTypes.ridePickedUp:
       case FleetEventTypes.rideCompleted:
       case FleetEventTypes.rideCancelled:
@@ -194,6 +205,7 @@ class CustomerController extends ChangeNotifier {
       _driverName = null;
       _liveEtaSec = null;
       _liveDistM = null;
+      _driverArrived = false;
       _error = null;
       _startPolling();
     } on ApiException catch (e) {
@@ -222,16 +234,19 @@ class CustomerController extends ChangeNotifier {
       _driverName = null;
       _liveEtaSec = null;
       _liveDistM = null;
+      _driverArrived = false;
       _stopPolling();
       return;
     }
     _activeRide = ride;
     if (ride.status < RideStatus.accepted) {
       _driverName = null;
+      _driverArrived = false;
     }
     if (ride.status != RideStatus.accepted) {
       _liveEtaSec = null;
       _liveDistM = null;
+      _driverArrived = false;
     }
     _startPolling();
   }

@@ -160,6 +160,15 @@ class CustomerRide {
     }
   }
 
+  /// 乘客端分階段文案。`driverArrived` 來自 WS `driver.arrived`
+  ///（後端狀態仍為 Accepted，不另存 DB flag）。
+  String phaseLabel({bool driverArrived = false}) {
+    if (status == RideStatus.accepted && driverArrived) {
+      return '司機已抵達上車點';
+    }
+    return statusLabel;
+  }
+
   factory CustomerRide.fromJson(Map<String, dynamic> json) {
     final id = json['ride_id'] ?? json['ID'] ?? json['id'];
     final status = json['status'] ?? json['Status'];

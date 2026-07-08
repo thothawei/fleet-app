@@ -25,9 +25,10 @@
       Android debug APK 已可 build）。地圖選點會把精確座標帶進 `dropoff_lat/lng`（手動改地址則退回純地址），
       body 建構有單元測試覆蓋。**待填 key** 才會顯示地圖：AndroidManifest `YOUR_ANDROID_MAPS_API_KEY`、
       iOS AppDelegate `YOUR_IOS_MAPS_API_KEY`。**未做**：iOS `pod install` + 部署目標。
-- [~] B4. 行程狀態流：已接 WS 即時訂閱（`ride.accepted`/`driver.arrived`/`ride.picked_up`/
+- [x] B4. 行程狀態流：已接 WS 即時訂閱（`ride.accepted`/`driver.arrived`/`ride.picked_up`/
       `ride.completed`/`ride.cancelled` → 立即以 GET active 對帳；15s 輪詢保底）＋ 顯示司機名/ETA
-      ＋ App 端取消。**未做**：抵達/上車等更細的分階段畫面。
+      ＋ App 端取消＋分階段畫面（尋找/前往／司機已抵達／行程中；`driver.arrived` 本地旗標，
+      2026-07-08）。
 - [~] B3. 即時追蹤：後端已把 `driver.location`（含 lat/lng/eta_sec/dist_m）推給對應乘客
       （`NotifyCustomerETA`，受 shouldPushETA 節流）；乘客端收事件即時顯示「司機 距您約 X 公尺 · 約 N 分鐘抵達」，
       不需地圖。**未做**：真正地圖上看車移動（需地圖 SDK + API key，見 B2 的 key）。

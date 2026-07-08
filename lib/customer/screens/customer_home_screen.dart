@@ -182,9 +182,26 @@ class _ActiveRideCard extends StatelessWidget {
     return parts.isEmpty ? '司機前往中' : '司機 ${parts.join(' · ')}';
   }
 
+  String? _phaseHint(CustomerRide ride) {
+    switch (ride.status) {
+      case RideStatus.requested:
+      case RideStatus.assigned:
+        return '正在為您配對司機，請稍候';
+      case RideStatus.accepted:
+        if (ctrl.driverArrived) return '請盡快到上車點與司機會合';
+        return _approachText(ctrl, ride);
+      case RideStatus.pickedUp:
+        return '行程進行中，祝您旅途愉快';
+      default:
+        return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final ride = ctrl.activeRide!;
+    final phase = ride.phaseLabel(driverArrived: ctrl.driverArrived);
+    final hint = _phaseHint(ride);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -206,15 +223,20 @@ class _ActiveRideCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(ride.statusLabel),
+            const SizedBox(height: 8),
+            Text(
+              phase,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            if (hint != null) ...[
+              const SizedBox(height: 4),
+              Text(hint, style: Theme.of(context).textTheme.bodyMedium),
+            ],
             if (ctrl.driverName != null) ...[
               const SizedBox(height: 4),
               Text('司機：${ctrl.driverName}'),
-            ],
-            if (ride.status == RideStatus.accepted) ...[
-              const SizedBox(height: 4),
-              Text(_approachText(ctrl, ride)),
             ],
             if (ride.dropoffAddress != null) ...[
               const SizedBox(height: 4),
