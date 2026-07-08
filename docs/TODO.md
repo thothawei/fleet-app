@@ -18,10 +18,13 @@
 比照司機端在 `lib/customer/` 開工，重用 `lib/core/`。
 
 - [ ] B6. 先寫 M7 slice 實作計畫（比照 M6，存後端 repo `docs/superpowers/plans/`）
-- [ ] B1. 乘客登入/註冊（重用 core/api + token_storage）
-- [ ] B2. 地圖叫車：選上車點/目的地 → `POST /api/rides`
+- [x] B1. 乘客登入/註冊（`lib/customer/` + `CustomerApiClient` + `CustomerTokenStorage`，2026-07-08）
+- [~] B2. 叫車帶目的地 → `POST /api/rides`：已完成**地址式最小叫車**（GPS 上車點 + 文字目的地，
+      帶 `dropoff_address`，打通司機端「導航去目的地」）。**未做**：地圖拖釘選點（需 google_maps_flutter
+      + Google Maps API key），列為 UX 升級。
+- [~] B4. 行程狀態流：已完成最小版（5s 輪詢 `GET /customer/rides/active` 顯示狀態 + App 端取消）。
+      **未做**：WS 即時訂閱（見 B3）、抵達/上車等細節畫面切換。
 - [ ] B3. 即時追蹤：WS 訂閱司機位置 + ETA，地圖看車移動
-- [ ] B4. 行程狀態流：已派單/接單/抵達/上車/完成 畫面切換 + App 端取消
 - [ ] B5. 完成後評分/付款入口（依賴後端 Phase C，先留位）
 - 整體驗收：模擬器「叫車 → 看到司機移動與 ETA → 司機完成 → 收到完成」整條通。
 
@@ -39,7 +42,7 @@
 
 - [x] 司機端「上車後導航去**目的地**」：後端已補完整 dropoff 鏈路（pickup 回應帶 `dropoff_address`、
       司機端 `ride.accepted` 事件帶 dropoff；2026-07-08）。App 端 onTrip 階段已顯示目的地並可導航。
-      仍待：下單端（B2 地圖叫車）實際填入 dropoff，否則現有訂單 `dropoff_address` 為空、按鈕不顯示。
+      下單端亦已補：乘客端 B2 最小叫車會帶 `dropoff_address`，端到端已通（LINE 傳位置叫車仍無目的地）。
 
 ## 品質/雜項
 
