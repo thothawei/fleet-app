@@ -8,7 +8,7 @@
 
 - 司機端（M6）主鏈路完成：登入→上線→**前景服務 GPS**→WS 收派單→接單→導航→上車→完成／放棄。
 - 乘客端（M7）最小可用版已落地：登入→叫車（含目的地）→WS 追蹤 ETA→狀態流→取消。
-- 單元測試：`test/widget_test.dart`（24 項）。
+- 單元測試：`test/widget_test.dart` + `test/driver_controller_test.dart`（34 項）。
 - 遠端：`github.com/thothawei/fleet-app`。
 
 ## B. 乘客端 App（M7）— 收尾
@@ -38,5 +38,6 @@
 
 ## 品質/雜項
 
-- [ ] 補司機端 controller 整合層測試。
-- [ ] 建 `flutter analyze` + `flutter test` 的 CI（跨 repo 項 E2）。
+- [x] 補司機端 controller 整合層測試（2026-07-08：`test/driver_controller_test.dart`，
+      注入 MemoryAuthStore / silent WS / FakeApi，覆蓋登入→派單→接單→上車→完成／放棄）。
+- [x] 建 `flutter analyze` + `flutter test` 的 CI（2026-07-08：`.github/workflows/flutter-ci.yml`）。

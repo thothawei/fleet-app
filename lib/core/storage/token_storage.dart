@@ -2,8 +2,15 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../models/models.dart';
 
+/// 司機登入狀態持久化抽象，方便單元測試注入記憶體實作。
+abstract class DriverAuthStore {
+  Future<AuthSession?> read();
+  Future<void> save(AuthSession session);
+  Future<void> clear();
+}
+
 /// 持久化 JWT，重開 App 免重新登入。
-class TokenStorage {
+class TokenStorage implements DriverAuthStore {
   TokenStorage({FlutterSecureStorage? storage})
       : _storage = storage ?? const FlutterSecureStorage();
 
@@ -13,6 +20,7 @@ class TokenStorage {
 
   final FlutterSecureStorage _storage;
 
+  @override
   Future<AuthSession?> read() async {
     final token = await _storage.read(key: _keyToken);
     final idStr = await _storage.read(key: _keyDriverId);
@@ -24,6 +32,7 @@ class TokenStorage {
     );
   }
 
+  @override
   Future<void> save(AuthSession session) async {
     await _storage.write(key: _keyToken, value: session.token);
     await _storage.write(key: _keyDriverId, value: '${session.driverId}');
@@ -32,9 +41,28 @@ class TokenStorage {
     }
   }
 
+  @override
   Future<void> clear() async {
     await _storage.delete(key: _keyToken);
     await _storage.delete(key: _keyDriverId);
     await _storage.delete(key: _keyName);
+  }
+}
+
+/// 測試用：純記憶體，不碰平台 secure storage。
+class MemoryDriverAuthStore implements DriverAuthStore {
+  AuthSession? _session;
+
+  @override
+  Future<AuthSession?> read() async => _session;
+
+  @override
+  Future<void> save(AuthSession session) async {
+    _session = session;
+  }
+
+  @override
+  Future<void> clear() async {
+    _session = null;
   }
 }

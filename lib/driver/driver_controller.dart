@@ -14,14 +14,17 @@ import '../core/ws/fleet_ws_client.dart';
 /// 司機端狀態：登入、上線、WS 派單、行程操作。
 class DriverController extends ChangeNotifier {
   DriverController({
-    TokenStorage? storage,
+    DriverAuthStore? storage,
     FleetApiClient? api,
+    FleetWsClientFactory? wsFactory,
   })  : _storage = storage ?? TokenStorage(),
         _api = api ?? FleetApiClient(),
+        _wsFactory = wsFactory ?? FleetWsClient.new,
         _ws = FleetWsClient(onEvent: (_) {});
 
-  final TokenStorage _storage;
+  final DriverAuthStore _storage;
   final FleetApiClient _api;
+  final FleetWsClientFactory _wsFactory;
   FleetWsClient _ws;
 
   AuthSession? _session;
@@ -46,7 +49,7 @@ class DriverController extends ChangeNotifier {
   Position? get lastPosition => _lastPosition;
 
   Future<void> init() async {
-    _ws = FleetWsClient(
+    _ws = _wsFactory(
       onEvent: _handleWsEvent,
       onConnectionChanged: (connected) {
         _wsConnected = connected;
@@ -59,6 +62,10 @@ class DriverController extends ChangeNotifier {
       await _restoreActiveRide();
     }
   }
+
+  /// 測試用：模擬收到 WS 事件（等同正式連線後的 onEvent）。
+  @visibleForTesting
+  void handleWsEventForTest(FleetWsEvent event) => _handleWsEvent(event);
 
   /// App 重啟後從後端還原進行中行程（Accepted/PickedUp）。
   Future<void> _restoreActiveRide() async {
@@ -204,6 +211,7 @@ class DriverController extends ChangeNotifier {
         rideId: offer.rideId,
         address: offer.address,
         phase: DriverRidePhase.enRouteToPickup,
+        dropoffAddress: offer.dropoffAddress,
       );
       _pendingOffer = null;
       _error = null;

@@ -38,6 +38,7 @@ class RideOffer {
     required this.address,
     this.etaSec,
     this.distM,
+    this.dropoffAddress,
   });
 
   final int rideId;
@@ -45,12 +46,18 @@ class RideOffer {
   final int? etaSec;
   final int? distM;
 
+  /// 目的地（派單事件 ride.assigned 帶入，接單前可預覽）。
+  final String? dropoffAddress;
+
   factory RideOffer.fromEvent(int rideId, Map<String, dynamic>? payload) {
+    final dropoff = payload?['dropoff_address'] as String?;
     return RideOffer(
       rideId: rideId,
       address: payload?['address'] as String? ?? '未知地址',
       etaSec: (payload?['eta_sec'] as num?)?.toInt(),
       distM: (payload?['dist_m'] as num?)?.toInt(),
+      dropoffAddress:
+          (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
     );
   }
 

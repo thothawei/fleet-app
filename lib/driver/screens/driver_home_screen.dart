@@ -144,6 +144,9 @@ class _OfferCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text('上車點：${offer.address}'),
+            if (offer.dropoffAddress != null &&
+                offer.dropoffAddress!.isNotEmpty)
+              Text('目的地：${offer.dropoffAddress}'),
             if (offer.distM != null) Text('距離約 ${offer.distM} 公尺'),
             if (offer.etaLabel.isNotEmpty) Text('ETA ${offer.etaLabel}'),
             const SizedBox(height: 16),

@@ -24,9 +24,11 @@ void main() {
       'address': '台北車站',
       'eta_sec': 300,
       'dist_m': 1200,
+      'dropoff_address': '松山機場',
     });
     expect(offer.rideId, 42);
     expect(offer.address, '台北車站');
+    expect(offer.dropoffAddress, '松山機場');
     expect(offer.etaLabel, '約 5 分鐘');
   });
 
@@ -79,15 +81,25 @@ void main() {
   });
 
   group('FleetWsEvent 解析（對齊後端 internal/events/event.go 事件型別）', () {
-    test('ride.assigned 帶 ride_id 與 payload', () {
+    test('ride.assigned 帶 ride_id 與 payload（含 dropoff）', () {
       final event = FleetWsEvent.fromJson({
         'type': FleetEventTypes.rideAssigned,
         'ride_id': 42,
-        'payload': {'address': '台北車站', 'eta_sec': 300, 'dist_m': 1200},
+        'payload': {
+          'address': '台北車站',
+          'eta_sec': 300,
+          'dist_m': 1200,
+          'dropoff_address': '松山機場',
+          'dropoff_lat': 25.08,
+          'dropoff_lng': 121.57,
+        },
       });
       expect(event.type, 'ride.assigned');
       expect(event.rideId, 42);
       expect(event.payload?['address'], '台北車站');
+      expect(event.payload?['dropoff_address'], '松山機場');
+      final offer = RideOffer.fromEvent(event.rideId!, event.payload);
+      expect(offer.dropoffAddress, '松山機場');
     });
 
     test('ride.accepted 缺 payload 時仍能解析（payload 為 null）', () {

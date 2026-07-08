@@ -30,6 +30,11 @@ class FleetWsEvent {
   }
 }
 
+typedef FleetWsClientFactory = FleetWsClient Function({
+  required FleetEventHandler onEvent,
+  void Function(bool connected)? onConnectionChanged,
+});
+
 /// 連線 /ws?token=...，自動重連。
 class FleetWsClient {
   FleetWsClient({required this.onEvent, this.onConnectionChanged});
@@ -91,5 +96,29 @@ class FleetWsClient {
     onConnectionChanged?.call(false);
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 3), _open);
+  }
+
+  /// 測試替身：不開真實 WebSocket，只更新連線旗標。
+  static FleetWsClient silent({
+    required FleetEventHandler onEvent,
+    void Function(bool connected)? onConnectionChanged,
+  }) =>
+      _SilentWsClient(
+        onEvent: onEvent,
+        onConnectionChanged: onConnectionChanged,
+      );
+}
+
+class _SilentWsClient extends FleetWsClient {
+  _SilentWsClient({required super.onEvent, super.onConnectionChanged});
+
+  @override
+  Future<void> connect(String token) async {
+    onConnectionChanged?.call(true);
+  }
+
+  @override
+  Future<void> disconnect() async {
+    onConnectionChanged?.call(false);
   }
 }
