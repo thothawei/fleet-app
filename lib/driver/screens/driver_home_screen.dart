@@ -211,11 +211,23 @@ class _ActiveRideCard extends StatelessWidget {
                 child: const Text('乘客已上車'),
               ),
             ],
-            if (ride.phase == DriverRidePhase.onTrip)
+            if (ride.phase == DriverRidePhase.onTrip) ...[
+              if (ride.dropoffAddress != null &&
+                  ride.dropoffAddress!.isNotEmpty) ...[
+                Text('目的地：${ride.dropoffAddress}'),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => openMapsNavigation(ride.dropoffAddress!),
+                  icon: const Icon(Icons.navigation),
+                  label: const Text('導航去目的地'),
+                ),
+                const SizedBox(height: 8),
+              ],
               FilledButton(
                 onPressed: ctrl.loading ? null : ctrl.completeTrip,
                 child: const Text('完成行程'),
               ),
+            ],
             const SizedBox(height: 8),
             TextButton(
               onPressed: ctrl.loading ? null : ctrl.abandonTrip,

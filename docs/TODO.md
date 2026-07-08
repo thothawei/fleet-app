@@ -37,9 +37,9 @@
 
 ## 被後端擋住的項目
 
-- [ ] 司機端「上車後導航去**目的地**」：後端派單事件/查詢皆未輸出 `dropoff_address/point`
-      （model 有欄位但 handler/events 無任何 dropoff 輸出，2026-07-08 實測確認）。
-      後端補資料後，`driver_controller` 的導航目標在 onTrip 階段切到 dropoff。
+- [x] 司機端「上車後導航去**目的地**」：後端已補完整 dropoff 鏈路（pickup 回應帶 `dropoff_address`、
+      司機端 `ride.accepted` 事件帶 dropoff；2026-07-08）。App 端 onTrip 階段已顯示目的地並可導航。
+      仍待：下單端（B2 地圖叫車）實際填入 dropoff，否則現有訂單 `dropoff_address` 為空、按鈕不顯示。
 
 ## 品質/雜項
 

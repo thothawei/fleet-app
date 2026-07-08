@@ -209,8 +209,11 @@ class DriverController extends ChangeNotifier {
     _busy = true;
     notifyListeners();
     try {
-      await _api.pickUp(ride.rideId);
-      _activeRide = ride.copyWith(phase: DriverRidePhase.onTrip);
+      final dropoffAddress = await _api.pickUp(ride.rideId);
+      _activeRide = ride.copyWith(
+        phase: DriverRidePhase.onTrip,
+        dropoffAddress: dropoffAddress,
+      );
       _error = null;
     } on ApiException catch (e) {
       _error = e.message;
@@ -263,8 +266,12 @@ class DriverController extends ChangeNotifier {
         }
       case FleetEventTypes.rideAccepted:
         if (event.rideId != null && _activeRide?.rideId == event.rideId) {
+          // 司機端 ride.accepted 事件帶目的地，先預載供 onTrip 導航（pickup 回應為保底來源）
+          final dropoff = event.payload?['dropoff_address'] as String?;
           _activeRide = _activeRide!.copyWith(
             phase: DriverRidePhase.enRouteToPickup,
+            dropoffAddress:
+                (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
           );
           notifyListeners();
         }
