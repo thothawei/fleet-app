@@ -95,6 +95,25 @@ class CustomerLoginResult {
   }
 }
 
+/// 訂單狀態碼，對齊 line-fleet-dispatch/internal/constants/ride.go
+abstract final class RideStatus {
+  static const requested = 0;
+  static const assigned = 1;
+  static const accepted = 2;
+  static const pickedUp = 3;
+  static const completed = 4;
+  static const cancelled = 9;
+
+  static bool isActive(int status) =>
+      status == requested ||
+      status == assigned ||
+      status == accepted ||
+      status == pickedUp;
+
+  static bool isTerminal(int status) =>
+      status == completed || status == cancelled;
+}
+
 /// 乘客端當前訂單。狀態碼對齊後端 constants.RideStatus*。
 /// 來源可能是下單回應（snake key: ride_id/status）或查詢 model.Ride
 /// （無 json tag → PascalCase key: ID/Status），故解析時兩者皆容。
@@ -114,7 +133,7 @@ class CustomerRide {
   final int? etaPickupSec;
 
   /// 尚可由乘客取消（上車前）。
-  bool get cancellable => status < 3;
+  bool get cancellable => status < RideStatus.pickedUp;
 
   /// 上車點 ETA 標籤，僅在司機前往上車點且有估算時有意義。
   String get etaLabel {
@@ -124,17 +143,17 @@ class CustomerRide {
 
   String get statusLabel {
     switch (status) {
-      case 0:
+      case RideStatus.requested:
         return '尋找司機中';
-      case 1:
+      case RideStatus.assigned:
         return '派單中';
-      case 2:
+      case RideStatus.accepted:
         return '司機前往上車點';
-      case 3:
+      case RideStatus.pickedUp:
         return '行程中';
-      case 4:
+      case RideStatus.completed:
         return '已完成';
-      case 5:
+      case RideStatus.cancelled:
         return '已取消';
       default:
         return '狀態 $status';
@@ -177,6 +196,21 @@ class ActiveRide {
       address: address,
       phase: phase ?? this.phase,
       dropoffAddress: dropoffAddress ?? this.dropoffAddress,
+    );
+  }
+
+  /// 從 GET /api/driver/rides/active 回傳的 model.Ride JSON 還原司機端行程。
+  factory ActiveRide.fromBackendJson(Map<String, dynamic> json) {
+    final status = (json['status'] as num).toInt();
+    final dropoff = json['dropoff_address'] as String?;
+    return ActiveRide(
+      rideId: (json['id'] as num).toInt(),
+      address: json['pickup_address'] as String? ?? '未知地址',
+      phase: status == RideStatus.pickedUp
+          ? DriverRidePhase.onTrip
+          : DriverRidePhase.enRouteToPickup,
+      dropoffAddress:
+          (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
     );
   }
 }

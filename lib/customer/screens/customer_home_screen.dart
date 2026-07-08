@@ -212,7 +212,7 @@ class _ActiveRideCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text('司機：${ctrl.driverName}'),
             ],
-            if (ride.status == 2) ...[
+            if (ride.status == RideStatus.accepted) ...[
               const SizedBox(height: 4),
               Text(_approachText(ctrl, ride)),
             ],

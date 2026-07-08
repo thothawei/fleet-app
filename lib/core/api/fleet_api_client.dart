@@ -114,6 +114,21 @@ class FleetApiClient {
     }
   }
 
+  /// 查司機目前進行中訂單；無進行中訂單時回 null（App 重啟恢復行程用）。
+  Future<ActiveRide?> activeRide() async {
+    try {
+      final res =
+          await _dio.get<Map<String, dynamic>>('/driver/rides/active');
+      final ride = res.data?['ride'];
+      if (ride is Map) {
+        return ActiveRide.fromBackendJson(Map<String, dynamic>.from(ride));
+      }
+      return null;
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   ApiException _wrap(DioException e) {
     final data = e.response?.data;
     String message = e.message ?? '網路錯誤';

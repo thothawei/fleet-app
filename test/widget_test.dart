@@ -168,6 +168,42 @@ void main() {
       expect(ride.cancellable, isFalse);
       expect(ride.etaLabel, '');
     });
+
+    test('CustomerRide 已取消（status=9）顯示已取消、不可再取消', () {
+      final ride = CustomerRide.fromJson({'ride_id': 12, 'status': 9});
+      expect(ride.status, RideStatus.cancelled);
+      expect(ride.statusLabel, '已取消');
+      expect(ride.cancellable, isFalse);
+    });
+
+    test('CustomerRide 已完成（status=4）顯示已完成', () {
+      final ride = CustomerRide.fromJson({'ride_id': 12, 'status': 4});
+      expect(ride.statusLabel, '已完成');
+      expect(RideStatus.isTerminal(ride.status), isTrue);
+    });
+  });
+
+  group('ActiveRide 從後端 active 查詢還原（司機 App 重啟）', () {
+    test('status=2 → enRouteToPickup，帶目的地', () {
+      final ride = ActiveRide.fromBackendJson({
+        'id': 7,
+        'status': RideStatus.accepted,
+        'pickup_address': '台北車站',
+        'dropoff_address': '松山機場',
+      });
+      expect(ride.rideId, 7);
+      expect(ride.phase, DriverRidePhase.enRouteToPickup);
+      expect(ride.dropoffAddress, '松山機場');
+    });
+
+    test('status=3 → onTrip', () {
+      final ride = ActiveRide.fromBackendJson({
+        'id': 7,
+        'status': RideStatus.pickedUp,
+        'pickup_address': '台北車站',
+      });
+      expect(ride.phase, DriverRidePhase.onTrip);
+    });
   });
 
   testWidgets('乘客端首頁預設顯示叫車表單（含目的地欄位）', (tester) async {

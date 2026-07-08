@@ -192,8 +192,8 @@ class CustomerController extends ChangeNotifier {
       );
       _activeRide = ride;
       _driverName = null;
-    _liveEtaSec = null;
-    _liveDistM = null;
+      _liveEtaSec = null;
+      _liveDistM = null;
       _error = null;
       _startPolling();
     } on ApiException catch (e) {
@@ -207,20 +207,33 @@ class CustomerController extends ChangeNotifier {
     if (_session == null) return;
     try {
       final ride = await _api.activeRide();
-      _activeRide = ride;
-      if (ride == null) {
-        _driverName = null;
-    _liveEtaSec = null;
-    _liveDistM = null;
-        _stopPolling();
-      } else {
-        _startPolling();
-      }
+      _applyActiveRide(ride);
       notifyListeners();
     } on ApiException catch (e) {
       _error = e.message;
       notifyListeners();
     }
+  }
+
+  /// 套用 GET active 結果，清除終態/非接客階段的 stale 即時欄位。
+  void _applyActiveRide(CustomerRide? ride) {
+    if (ride == null || RideStatus.isTerminal(ride.status)) {
+      _activeRide = null;
+      _driverName = null;
+      _liveEtaSec = null;
+      _liveDistM = null;
+      _stopPolling();
+      return;
+    }
+    _activeRide = ride;
+    if (ride.status < RideStatus.accepted) {
+      _driverName = null;
+    }
+    if (ride.status != RideStatus.accepted) {
+      _liveEtaSec = null;
+      _liveDistM = null;
+    }
+    _startPolling();
   }
 
   Future<void> cancelOrder() async {

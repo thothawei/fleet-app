@@ -54,6 +54,18 @@ class DriverController extends ChangeNotifier {
     final saved = await _storage.read();
     if (saved != null) {
       await _applySession(saved);
+      await _restoreActiveRide();
+    }
+  }
+
+  /// App 重啟後從後端還原進行中行程（Accepted/PickedUp）。
+  Future<void> _restoreActiveRide() async {
+    try {
+      _activeRide = await _api.activeRide();
+      notifyListeners();
+    } on ApiException catch (e) {
+      _error = e.message;
+      notifyListeners();
     }
   }
 
