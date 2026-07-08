@@ -103,14 +103,24 @@ class CustomerRide {
     required this.rideId,
     required this.status,
     this.dropoffAddress,
+    this.etaPickupSec,
   });
 
   final int rideId;
   final int status;
   final String? dropoffAddress;
 
+  /// 接單時後端估算的到達上車點秒數（model.Ride.EtaPickupSec）。
+  final int? etaPickupSec;
+
   /// 尚可由乘客取消（上車前）。
   bool get cancellable => status < 3;
+
+  /// 上車點 ETA 標籤，僅在司機前往上車點且有估算時有意義。
+  String get etaLabel {
+    if (etaPickupSec == null || etaPickupSec! <= 0) return '';
+    return '約 ${(etaPickupSec! / 60).ceil()} 分鐘抵達';
+  }
 
   String get statusLabel {
     switch (status) {
@@ -135,10 +145,12 @@ class CustomerRide {
     final id = json['ride_id'] ?? json['ID'] ?? json['id'];
     final status = json['status'] ?? json['Status'];
     final dropoff = json['dropoff_address'] ?? json['DropoffAddress'];
+    final eta = json['eta_pickup_sec'] ?? json['EtaPickupSec'];
     return CustomerRide(
       rideId: (id as num).toInt(),
       status: (status as num).toInt(),
       dropoffAddress: (dropoff is String && dropoff.isNotEmpty) ? dropoff : null,
+      etaPickupSec: (eta as num?)?.toInt(),
     );
   }
 }

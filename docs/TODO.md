@@ -22,9 +22,11 @@
 - [~] B2. 叫車帶目的地 → `POST /api/rides`：已完成**地址式最小叫車**（GPS 上車點 + 文字目的地，
       帶 `dropoff_address`，打通司機端「導航去目的地」）。**未做**：地圖拖釘選點（需 google_maps_flutter
       + Google Maps API key），列為 UX 升級。
-- [~] B4. 行程狀態流：已完成最小版（5s 輪詢 `GET /customer/rides/active` 顯示狀態 + App 端取消）。
-      **未做**：WS 即時訂閱（見 B3）、抵達/上車等細節畫面切換。
-- [ ] B3. 即時追蹤：WS 訂閱司機位置 + ETA，地圖看車移動
+- [~] B4. 行程狀態流：已接 WS 即時訂閱（`ride.accepted`/`driver.arrived`/`ride.picked_up`/
+      `ride.completed`/`ride.cancelled` → 立即以 GET active 對帳；15s 輪詢保底）＋ 顯示司機名/ETA
+      ＋ App 端取消。**未做**：抵達/上車等更細的分階段畫面。
+- [~] B3. 即時追蹤：已訂閱 WS 生命週期事件 + 顯示上車 ETA。**未做**：地圖看車移動——
+      需 (1) 後端把 `driver.location` 也發給該 customer（目前僅發 admin 廣播）、(2) 地圖 SDK + API key。
 - [ ] B5. 完成後評分/付款入口（依賴後端 Phase C，先留位）
 - 整體驗收：模擬器「叫車 → 看到司機移動與 ETA → 司機完成 → 收到完成」整條通。
 

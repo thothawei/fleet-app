@@ -132,17 +132,25 @@ void main() {
       expect(ride.dropoffAddress, isNull);
     });
 
-    test('CustomerRide 解析 model.Ride 查詢回應（PascalCase key + 目的地）', () {
+    test('CustomerRide 解析 model.Ride 查詢回應（PascalCase key + 目的地 + ETA）', () {
       final ride = CustomerRide.fromJson({
         'ID': 12,
-        'Status': 3,
+        'Status': 2,
         'DropoffAddress': '松山機場',
+        'EtaPickupSec': 300,
       });
       expect(ride.rideId, 12);
-      expect(ride.status, 3);
-      expect(ride.statusLabel, '行程中');
-      expect(ride.cancellable, isFalse); // 已上車後不可取消
+      expect(ride.status, 2);
+      expect(ride.statusLabel, '司機前往上車點');
+      expect(ride.cancellable, isTrue); // 上車前可取消
       expect(ride.dropoffAddress, '松山機場');
+      expect(ride.etaLabel, '約 5 分鐘抵達');
+    });
+
+    test('CustomerRide 已上車不可取消、無 ETA 時 etaLabel 為空', () {
+      final ride = CustomerRide.fromJson({'ID': 12, 'Status': 3});
+      expect(ride.cancellable, isFalse);
+      expect(ride.etaLabel, '');
     });
   });
 

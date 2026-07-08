@@ -134,12 +134,31 @@ class _ActiveRideCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              '行程 #${ride.rideId}',
-              style: Theme.of(context).textTheme.titleLarge,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '行程 #${ride.rideId}',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                Icon(
+                  ctrl.wsConnected ? Icons.wifi : Icons.wifi_off,
+                  size: 16,
+                  color: ctrl.wsConnected ? Colors.green : Colors.grey,
+                ),
+              ],
             ),
             const SizedBox(height: 4),
             Text(ride.statusLabel),
+            if (ctrl.driverName != null) ...[
+              const SizedBox(height: 4),
+              Text('司機：${ctrl.driverName}'),
+            ],
+            if (ride.status == 2 && ride.etaLabel.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(ride.etaLabel),
+            ],
             if (ride.dropoffAddress != null) ...[
               const SizedBox(height: 4),
               Text('目的地：${ride.dropoffAddress}'),

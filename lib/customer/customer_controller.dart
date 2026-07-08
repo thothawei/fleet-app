@@ -5,28 +5,35 @@ import 'package:geolocator/geolocator.dart';
 
 import '../core/api/customer_api_client.dart';
 import '../core/api/fleet_api_client.dart' show ApiException;
+import '../core/config/app_config.dart';
 import '../core/models/models.dart';
 import '../core/storage/customer_token_storage.dart';
+import '../core/ws/fleet_ws_client.dart';
 
-/// 乘客端狀態：登入、定位、叫車（帶目的地）、訂單狀態輪詢、取消。
+/// 乘客端狀態：登入、定位、叫車（帶目的地）、WS 即時狀態、取消。
 class CustomerController extends ChangeNotifier {
   CustomerController({
     CustomerTokenStorage? storage,
     CustomerApiClient? api,
   })  : _storage = storage ?? CustomerTokenStorage(),
-        _api = api ?? CustomerApiClient();
+        _api = api ?? CustomerApiClient(),
+        _ws = FleetWsClient(onEvent: (_) {});
 
   final CustomerTokenStorage _storage;
   final CustomerApiClient _api;
+  FleetWsClient _ws;
 
-  static const _pollInterval = Duration(seconds: 5);
+  // WS 即時到手後只做保底對帳，輪詢間隔放寬。
+  static const _pollInterval = Duration(seconds: 15);
 
   CustomerSession? _session;
   bool _loading = false;
   String? _error;
   bool _busy = false;
+  bool _wsConnected = false;
   Position? _lastPosition;
   CustomerRide? _activeRide;
+  String? _driverName;
   Timer? _pollTimer;
 
   CustomerSession? get session => _session;
@@ -34,10 +41,21 @@ class CustomerController extends ChangeNotifier {
   bool get loading => _loading;
   String? get error => _error;
   bool get busy => _busy;
+  bool get wsConnected => _wsConnected;
   Position? get lastPosition => _lastPosition;
   CustomerRide? get activeRide => _activeRide;
 
+  /// 司機姓名，來自 ride.accepted WS 事件（GET active 不含司機名，故為即時來源）。
+  String? get driverName => _driverName;
+
   Future<void> init() async {
+    _ws = FleetWsClient(
+      onEvent: _handleWsEvent,
+      onConnectionChanged: (connected) {
+        _wsConnected = connected;
+        notifyListeners();
+      },
+    );
     final saved = await _storage.read();
     if (saved != null) {
       await _applySession(saved);
@@ -92,16 +110,37 @@ class CustomerController extends ChangeNotifier {
   Future<void> _applySession(CustomerSession session) async {
     _session = session;
     _api.setToken(session.token);
+    await _ws.connect(session.token);
     notifyListeners();
   }
 
   Future<void> logout() async {
     _stopPolling();
+    await _ws.disconnect();
     await _storage.clear();
     _session = null;
     _activeRide = null;
+    _driverName = null;
     _api.setToken(null);
     notifyListeners();
+  }
+
+  /// WS 即時事件：訂單生命週期變化時立即以權威狀態對帳（GET active）。
+  void _handleWsEvent(FleetWsEvent event) {
+    final active = _activeRide;
+    if (active == null || event.rideId != active.rideId) return;
+    switch (event.type) {
+      case FleetEventTypes.rideAccepted:
+        _driverName = event.payload?['driver_name'] as String?;
+        refreshActive();
+      case FleetEventTypes.driverArrived:
+      case FleetEventTypes.ridePickedUp:
+      case FleetEventTypes.rideCompleted:
+      case FleetEventTypes.rideCancelled:
+        refreshActive();
+      default:
+        break;
+    }
   }
 
   /// 叫車：以目前 GPS 為上車點，帶乘客輸入的上車/目的地地址。
@@ -134,6 +173,7 @@ class CustomerController extends ChangeNotifier {
         dropoffAddress: dropoffAddress.trim(),
       );
       _activeRide = ride;
+      _driverName = null;
       _error = null;
       _startPolling();
     } on ApiException catch (e) {
@@ -149,6 +189,7 @@ class CustomerController extends ChangeNotifier {
       final ride = await _api.activeRide();
       _activeRide = ride;
       if (ride == null) {
+        _driverName = null;
         _stopPolling();
       } else {
         _startPolling();
@@ -207,6 +248,7 @@ class CustomerController extends ChangeNotifier {
   @override
   void dispose() {
     _stopPolling();
+    _ws.disconnect();
     super.dispose();
   }
 }
