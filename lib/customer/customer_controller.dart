@@ -37,6 +37,7 @@ class CustomerController extends ChangeNotifier {
   int? _liveEtaSec;
   int? _liveDistM;
   bool _driverArrived = false;
+  CompletedRideSummary? _completedSummary;
   Timer? _pollTimer;
 
   CustomerSession? get session => _session;
@@ -57,6 +58,9 @@ class CustomerController extends ChangeNotifier {
 
   /// 司機是否已進上車圍籬（WS `driver.arrived`；後端 status 仍為 Accepted）。
   bool get driverArrived => _driverArrived;
+
+  /// 剛完成的行程摘要（B5 評分／付款佔位）；點「再叫一輛」後清除。
+  CompletedRideSummary? get completedSummary => _completedSummary;
 
   Future<void> init() async {
     _ws = FleetWsClient(
@@ -134,7 +138,29 @@ class CustomerController extends ChangeNotifier {
     _liveEtaSec = null;
     _liveDistM = null;
     _driverArrived = false;
+    _completedSummary = null;
     _api.setToken(null);
+    notifyListeners();
+  }
+
+  /// 關閉完成卡，回到叫車表單（評分／付款 API 就緒前的佔位流程）。
+  void dismissCompleted() {
+    _completedSummary = null;
+    notifyListeners();
+  }
+
+  /// 測試用：模擬行程完成後進入 B5 佔位畫面。
+  @visibleForTesting
+  void markCompletedForTest({
+    required int rideId,
+    String? dropoffAddress,
+    String? driverName,
+  }) {
+    _completedSummary = CompletedRideSummary(
+      rideId: rideId,
+      dropoffAddress: dropoffAddress,
+      driverName: driverName,
+    );
     notifyListeners();
   }
 
@@ -158,8 +184,15 @@ class CustomerController extends ChangeNotifier {
         _liveEtaSec = null;
         _liveDistM = null;
         notifyListeners();
-      case FleetEventTypes.ridePickedUp:
       case FleetEventTypes.rideCompleted:
+        // active API 不含終態；先留下摘要供 B5 佔位，再對帳清空進行中訂單
+        _completedSummary = CompletedRideSummary(
+          rideId: active.rideId,
+          dropoffAddress: active.dropoffAddress,
+          driverName: _driverName,
+        );
+        refreshActive();
+      case FleetEventTypes.ridePickedUp:
       case FleetEventTypes.rideCancelled:
         refreshActive();
       default:
@@ -206,6 +239,7 @@ class CustomerController extends ChangeNotifier {
       _liveEtaSec = null;
       _liveDistM = null;
       _driverArrived = false;
+      _completedSummary = null;
       _error = null;
       _startPolling();
     } on ApiException catch (e) {

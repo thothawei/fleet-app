@@ -34,7 +34,9 @@ class CustomerHomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
-          if (ctrl.activeRide != null)
+          if (ctrl.completedSummary != null)
+            _CompletedRideCard(ctrl: ctrl)
+          else if (ctrl.activeRide != null)
             _ActiveRideCard(ctrl: ctrl)
           else
             _OrderForm(ctrl: ctrl),
@@ -159,6 +161,63 @@ class _OrderFormState extends State<_OrderForm> {
       dropoffAddress: _dropoff.text,
       dropoffLat: _dropoffLat,
       dropoffLng: _dropoffLng,
+    );
+  }
+}
+
+class _CompletedRideCard extends StatelessWidget {
+  const _CompletedRideCard({required this.ctrl});
+
+  final CustomerController ctrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = ctrl.completedSummary!;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '行程已完成',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text('行程 #${summary.rideId}'),
+            if (summary.driverName != null) ...[
+              const SizedBox(height: 4),
+              Text('司機：${summary.driverName}'),
+            ],
+            if (summary.dropoffAddress != null) ...[
+              const SizedBox(height: 4),
+              Text('目的地：${summary.dropoffAddress}'),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              '評分與付款功能即將開放（後端 Phase C）。',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: null,
+              icon: const Icon(Icons.star_outline),
+              label: const Text('留下評分（即將開放）'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: null,
+              icon: const Icon(Icons.receipt_long),
+              label: const Text('查看費用（即將開放）'),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => ctrl.dismissCompleted(),
+              child: const Text('再叫一輛'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -102,6 +102,20 @@ class CustomerLoginResult {
   }
 }
 
+/// 行程剛完成時的摘要（B5 評分／付款入口佔位用）。
+/// 後端 Phase C 就緒後可擴充金額、帳單 id 等欄位。
+class CompletedRideSummary {
+  const CompletedRideSummary({
+    required this.rideId,
+    this.dropoffAddress,
+    this.driverName,
+  });
+
+  final int rideId;
+  final String? dropoffAddress;
+  final String? driverName;
+}
+
 /// 訂單狀態碼，對齊 line-fleet-dispatch/internal/constants/ride.go
 abstract final class RideStatus {
   static const requested = 0;

@@ -250,6 +250,34 @@ void main() {
     expect(find.text('目的地地址'), findsOneWidget);
   });
 
+  testWidgets('B5 完成態顯示評分／付款佔位與再叫一輛', (tester) async {
+    final ctrl = CustomerController();
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: ctrl,
+        child: const MaterialApp(home: CustomerHomeScreen()),
+      ),
+    );
+    ctrl.markCompletedForTest(
+      rideId: 42,
+      dropoffAddress: '松山機場',
+      driverName: '阿明',
+    );
+    await tester.pump();
+
+    expect(find.text('行程已完成'), findsOneWidget);
+    expect(find.text('行程 #42'), findsOneWidget);
+    expect(find.text('司機：阿明'), findsOneWidget);
+    expect(find.text('目的地：松山機場'), findsOneWidget);
+    expect(find.text('留下評分（即將開放）'), findsOneWidget);
+    expect(find.text('查看費用（即將開放）'), findsOneWidget);
+
+    await tester.tap(find.text('再叫一輛'));
+    await tester.pump();
+    expect(find.text('行程已完成'), findsNothing);
+    expect(find.text('目的地地址'), findsOneWidget);
+  });
+
   group('CustomerApiClient.createRide 送出 body（地圖選點帶座標）', () {
     CustomerApiClient apiWith(_CaptureAdapter adapter) {
       final dio = Dio(BaseOptions(baseUrl: 'http://x/api'))
