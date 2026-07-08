@@ -9,6 +9,11 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
+        <!-- Google Maps Android SDK 金鑰。TODO：填入實際 key（地圖選點才需要）；
+             留佔位時地圖不會載入是正常的，文字輸入目的地仍可用。 -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="YOUR_ANDROID_MAPS_API_KEY"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

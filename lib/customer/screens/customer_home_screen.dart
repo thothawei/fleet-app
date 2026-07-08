@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 
 import '../customer_controller.dart';
+import 'map_picker_screen.dart';
 
 class CustomerHomeScreen extends StatelessWidget {
   const CustomerHomeScreen({super.key});
@@ -94,6 +96,12 @@ class _OrderFormState extends State<_OrderForm> {
                 border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: ctrl.busy ? null : () => _pickOnMap(context),
+              icon: const Icon(Icons.map),
+              label: const Text('在地圖上選目的地'),
+            ),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: ctrl.busy ? null : () => _submit(context),
@@ -104,6 +112,20 @@ class _OrderFormState extends State<_OrderForm> {
         ),
       ),
     );
+  }
+
+  Future<void> _pickOnMap(BuildContext context) async {
+    final pos = widget.ctrl.lastPosition;
+    final picked = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => MapPickerScreen(
+          initial: pos != null ? LatLng(pos.latitude, pos.longitude) : null,
+        ),
+      ),
+    );
+    if (picked != null && picked.isNotEmpty) {
+      setState(() => _dropoff.text = picked);
+    }
   }
 
   Future<void> _submit(BuildContext context) async {
