@@ -1,13 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// M7 乘客端 placeholder，待實作。
+import 'customer/app.dart';
+
+/// 乘客端進入點：登入後可叫車（帶目的地）並追蹤訂單狀態。
 void main() {
-  runApp(
-    MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Fleet 乘客端')),
-        body: const Center(child: Text('M7 乘客端 — 待實作')),
-      ),
-    ),
-  );
+  runApp(const CustomerApp());
 }

@@ -61,6 +61,88 @@ class RideOffer {
   }
 }
 
+/// 乘客端登入會話。
+class CustomerSession {
+  const CustomerSession({
+    required this.customerId,
+    required this.token,
+    this.name,
+  });
+
+  final int customerId;
+  final String token;
+  final String? name;
+}
+
+/// 乘客端登入/註冊回應（對齊後端 customer.go）。
+class CustomerLoginResult {
+  const CustomerLoginResult({
+    required this.customerId,
+    required this.token,
+    this.name,
+  });
+
+  final int customerId;
+  final String token;
+  final String? name;
+
+  factory CustomerLoginResult.fromJson(Map<String, dynamic> json) {
+    return CustomerLoginResult(
+      customerId: (json['customer_id'] as num).toInt(),
+      token: json['token'] as String,
+      name: json['name'] as String?,
+    );
+  }
+}
+
+/// 乘客端當前訂單。狀態碼對齊後端 constants.RideStatus*。
+/// 來源可能是下單回應（snake key: ride_id/status）或查詢 model.Ride
+/// （無 json tag → PascalCase key: ID/Status），故解析時兩者皆容。
+class CustomerRide {
+  const CustomerRide({
+    required this.rideId,
+    required this.status,
+    this.dropoffAddress,
+  });
+
+  final int rideId;
+  final int status;
+  final String? dropoffAddress;
+
+  /// 尚可由乘客取消（上車前）。
+  bool get cancellable => status < 3;
+
+  String get statusLabel {
+    switch (status) {
+      case 0:
+        return '尋找司機中';
+      case 1:
+        return '派單中';
+      case 2:
+        return '司機前往上車點';
+      case 3:
+        return '行程中';
+      case 4:
+        return '已完成';
+      case 5:
+        return '已取消';
+      default:
+        return '狀態 $status';
+    }
+  }
+
+  factory CustomerRide.fromJson(Map<String, dynamic> json) {
+    final id = json['ride_id'] ?? json['ID'] ?? json['id'];
+    final status = json['status'] ?? json['Status'];
+    final dropoff = json['dropoff_address'] ?? json['DropoffAddress'];
+    return CustomerRide(
+      rideId: (id as num).toInt(),
+      status: (status as num).toInt(),
+      dropoffAddress: (dropoff is String && dropoff.isNotEmpty) ? dropoff : null,
+    );
+  }
+}
+
 class ActiveRide {
   const ActiveRide({
     required this.rideId,
