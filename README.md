@@ -78,5 +78,6 @@ flutter run -t lib/main_driver.dart --flavor driver \
 
 ## 相關文件
 
+- API key 取得與免費測試流程：[`docs/API_KEYS_SETUP.md`](docs/API_KEYS_SETUP.md)
 - 總體進度：`line-fleet-dispatch/docs/STATUS.md`
 - 設計規格：`line-fleet-dispatch/docs/superpowers/specs/2026-07-06-fleet-dual-client-design.md`

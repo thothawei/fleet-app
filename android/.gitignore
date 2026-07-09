@@ -12,3 +12,6 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Firebase FCM 真設定檔勿 commit（保留 app/google-services.json.example 範本）
+/app/google-services.json
