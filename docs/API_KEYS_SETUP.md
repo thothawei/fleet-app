@@ -22,8 +22,9 @@
 1. 進 [Google Cloud Console](https://console.cloud.google.com/) → 建立專案（或選現有）。
 2. **啟用帳單**：Maps Platform 一律要求綁定帳單帳戶才會發 key，但（見下）原生手機地圖不收費。首次註冊另有一次性試用額度。
 3. 「API 和服務 → 程式庫」啟用：
-   - **Maps SDK for Android**（必要）
+   - **Maps SDK for Android**（跑 Android 才需要）
    - **Maps SDK for iOS**（要跑 iOS 才需要）
+   - **Maps JavaScript API**（跑 Flutter Web 才需要，見下方「Web 平台」）
    - **Geocoding API**（只有在地圖選點要「地址 ↔ 座標」互轉時才需要；純顯示地圖用不到）
 4. 「憑證 → 建立憑證 → API 金鑰」，複製產生的 key。
 5. **限制這把 key**（重要，避免被盜刷）：
@@ -52,6 +53,26 @@
    flutter run -t lib/main_customer.dart --flavor customer \
      --dart-define=GOOGLE_MAPS_API_KEY=你的key
    ```
+
+### Web 平台（Flutter Web）
+
+Web 版**不讀** `android/local.properties`，且 `google_maps_flutter_web` 要求
+`google.maps` 在建立地圖前就存在於 `window`，否則會拋
+`Cannot read properties of undefined (reading 'maps')`。
+
+本專案**不在 `web/index.html` 寫死 script tag**，而是由
+[`lib/core/util/maps_js_loader_web.dart`](../lib/core/util/maps_js_loader_web.dart)
+在 `main()` 啟動時依 `--dart-define` 的 key 動態注入，key 因此永遠不進版控：
+
+```bash
+flutter run -d chrome -t lib/main_customer.dart \
+  --dart-define=API_BASE=http://localhost:8080 \
+  --dart-define=GOOGLE_MAPS_API_KEY=你的key
+```
+
+- 未帶 key 時 loader 為 no-op，不阻擋啟動；地圖選點按鈕停用並顯示提示，改用手動輸入地址叫車。
+- key 限制請選「HTTP 參照網址」，開發階段填 `http://localhost:*`。
+- Web 版的地圖載入計費歸在 **Maps JavaScript API**（與原生 SDK 的免費規則不同），額度見官方定價頁。
 
 ---
 
