@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../core/config/app_config.dart';
 import '../../core/util/maps.dart';
 import '../driver_controller.dart';
+import '../widgets/connection_details_tile.dart';
+import '../widgets/online_hero_card.dart';
 
 class DriverHomeScreen extends StatelessWidget {
   const DriverHomeScreen({super.key});
@@ -26,106 +28,39 @@ class DriverHomeScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _StatusCard(ctrl: ctrl),
-          const SizedBox(height: 16),
+          OnlineHeroCard(ctrl: ctrl),
+          const SizedBox(height: 12),
+          if (ctrl.error != null) _ErrorBanner(message: ctrl.error!),
           if (ctrl.activeRide != null) _ActiveRideCard(ctrl: ctrl),
           if (ctrl.pendingOffer != null) _OfferCard(ctrl: ctrl),
-          if (ctrl.activeRide == null && ctrl.pendingOffer == null)
-            _IdleHint(),
+          if (ctrl.activeRide == null && ctrl.pendingOffer == null) _IdleHint(),
+          const SizedBox(height: 12),
+          ConnectionDetailsTile(ctrl: ctrl),
         ],
       ),
     );
   }
 }
 
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.ctrl});
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.message});
 
-  final DriverController ctrl;
-
-  @override
-  Widget build(BuildContext context) {
-    final pos = ctrl.lastPosition;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  ctrl.online ? Icons.circle : Icons.circle_outlined,
-                  color: ctrl.online ? Colors.green : Colors.grey,
-                  size: 14,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  ctrl.online ? '上線中' : '離線',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const Spacer(),
-                Switch(
-                  value: ctrl.online,
-                  onChanged: ctrl.loading ? null : (_) => ctrl.toggleOnline(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _InfoRow(
-              label: 'WebSocket',
-              value: ctrl.wsConnected ? '已連線' : '未連線',
-            ),
-            _InfoRow(
-              label: 'FCM 推播',
-              value: ctrl.fcmAvailable
-                  ? (ctrl.fcmTokenPrefix != null
-                      ? '已註冊 ${ctrl.fcmTokenPrefix}'
-                      : '已啟用（待 token）')
-                  : '未設定 Firebase',
-            ),
-            _InfoRow(label: 'API', value: AppConfig.apiBase),
-            if (pos != null)
-              _InfoRow(
-                label: '位置',
-                value:
-                    '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}',
-              ),
-            if (ctrl.error != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                ctrl.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 88,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        color: scheme.errorContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            message,
+            style: TextStyle(color: scheme.onErrorContainer),
           ),
-          Expanded(child: Text(value)),
-        ],
+        ),
       ),
     );
   }
@@ -258,8 +193,7 @@ class _IdleHint extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          '開啟「上線」後會以前景服務每 ${AppConfig.locationIntervalSec} 秒回報 GPS，'
-          '切到 Google Maps 導航或鎖屏仍持續上報；並透過 WebSocket 接收派單。',
+          '上線後將自動回報位置並接收派單。',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ),
