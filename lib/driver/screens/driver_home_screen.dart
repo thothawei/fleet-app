@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/theme/ride_status_colors.dart';
 import '../../core/util/maps.dart';
 import '../driver_controller.dart';
 import '../widgets/connection_details_tile.dart';
@@ -80,11 +82,20 @@ class _ActiveRideCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ride = ctrl.activeRide!;
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
     final phaseLabel = switch (ride.phase) {
       DriverRidePhase.enRouteToPickup => '前往上車點',
       DriverRidePhase.onTrip => '行程中',
       _ => '進行中',
     };
+    final primaryStyle = FilledButton.styleFrom(
+      minimumSize: const Size.fromHeight(kPrimaryActionHeight),
+      textStyle: text.titleMedium,
+    );
+    final secondaryStyle = OutlinedButton.styleFrom(
+      minimumSize: const Size.fromHeight(kPrimaryActionHeight),
+    );
 
     return Card(
       child: Padding(
@@ -92,23 +103,35 @@ class _ActiveRideCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              '行程 #${ride.rideId}',
-              style: Theme.of(context).textTheme.titleLarge,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '行程 #${ride.rideId}',
+                    style: text.titleLarge,
+                  ),
+                ),
+                Chip(
+                  label: Text(phaseLabel),
+                  backgroundColor:
+                      driverPhaseColor(context, ride.phase).withValues(alpha: 0.15),
+                ),
+              ],
             ),
-            Text(phaseLabel),
             const SizedBox(height: 4),
             Text('上車點：${ride.address}'),
             const SizedBox(height: 16),
             if (ride.phase == DriverRidePhase.enRouteToPickup) ...[
-              FilledButton.icon(
+              OutlinedButton.icon(
                 onPressed: () => openMapsNavigation(ride.address),
+                style: secondaryStyle,
                 icon: const Icon(Icons.navigation),
                 label: const Text('Google Maps 導航'),
               ),
               const SizedBox(height: 8),
               FilledButton(
                 onPressed: ctrl.loading ? null : ctrl.pickUpPassenger,
+                style: primaryStyle,
                 child: const Text('乘客已上車'),
               ),
             ],
@@ -117,8 +140,9 @@ class _ActiveRideCard extends StatelessWidget {
                   ride.dropoffAddress!.isNotEmpty) ...[
                 Text('目的地：${ride.dropoffAddress}'),
                 const SizedBox(height: 16),
-                FilledButton.icon(
+                OutlinedButton.icon(
                   onPressed: () => openMapsNavigation(ride.dropoffAddress!),
+                  style: secondaryStyle,
                   icon: const Icon(Icons.navigation),
                   label: const Text('導航去目的地'),
                 ),
@@ -126,12 +150,37 @@ class _ActiveRideCard extends StatelessWidget {
               ],
               FilledButton(
                 onPressed: ctrl.loading ? null : ctrl.completeTrip,
+                style: primaryStyle,
                 child: const Text('完成行程'),
               ),
             ],
             const SizedBox(height: 8),
             TextButton(
-              onPressed: ctrl.loading ? null : ctrl.abandonTrip,
+              style: TextButton.styleFrom(foregroundColor: scheme.error),
+              onPressed: ctrl.loading
+                  ? null
+                  : () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (dialogCtx) => AlertDialog(
+                          title: const Text('確定放棄這筆訂單？'),
+                          content: const Text('放棄後這筆訂單會回到派單池。'),
+                          actions: [
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.of(dialogCtx).pop(false),
+                              child: const Text('返回'),
+                            ),
+                            FilledButton(
+                              onPressed: () =>
+                                  Navigator.of(dialogCtx).pop(true),
+                              child: const Text('確定放棄'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed == true) await ctrl.abandonTrip();
+                    },
               child: const Text('放棄此單'),
             ),
           ],

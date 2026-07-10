@@ -81,11 +81,36 @@ void main() {
     final size = tester.getSize(find.widgetWithText(FilledButton, '接單'));
     expect(size.height, greaterThanOrEqualTo(56));
   });
+
+  testWidgets('放棄此單需二次確認', (tester) async {
+    await storage.save(const AuthSession(
+      driverId: 7,
+      token: 'saved',
+      name: '阿明',
+    ));
+    api.restoreRide = const ActiveRide(
+      rideId: 42,
+      address: '台北車站',
+      phase: DriverRidePhase.enRouteToPickup,
+      dropoffAddress: '松山機場',
+    );
+    await ctrl.init();
+    await pumpHome(tester);
+
+    await tester.tap(find.text('放棄此單'));
+    await tester.pumpAndSettle();
+    expect(find.text('確定放棄這筆訂單？'), findsOneWidget);
+    await tester.tap(find.text('返回'));
+    await tester.pumpAndSettle();
+    expect(find.text('確定放棄這筆訂單？'), findsNothing);
+  });
 }
 
 class _FakeFleetApi extends FleetApiClient {
   _FakeFleetApi()
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
+
+  ActiveRide? restoreRide;
 
   @override
   void setToken(String? token) {}
@@ -99,7 +124,7 @@ class _FakeFleetApi extends FleetApiClient {
   }
 
   @override
-  Future<ActiveRide?> activeRide() async => null;
+  Future<ActiveRide?> activeRide() async => restoreRide;
 
   @override
   Future<String> acceptRide(int rideId) async => '接單成功';
