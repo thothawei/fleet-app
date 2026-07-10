@@ -86,3 +86,25 @@
 3. **A2 真裝置推播**：建 Firebase 專案 + `google-services.json`，後端實作 FCM data payload
    （契約見 README，含 `dropoff_lat/lng`），驗「App 被殺 → 點推播 → 接單卡」。
 4. 依賴外部資源、暫不動：A5 iOS build（需完整 Xcode + CocoaPods）。
+
+## 手續費／會費／司機收入（2026-07-11 規劃）
+
+> 需求：報表要顯示司機營業狀況（營業額）與應付總公司金額。App 端主要做**司機收入頁**。
+> **依賴後端 F7**（`GET /api/driver/earnings`，見
+> [line-fleet-dispatch/docs/TODO.md](../../line-fleet-dispatch/docs/TODO.md)「F. 手續費／會費／營運報表」）。
+> 車資／手續費由後端於行程完成時定格計算，App 只呈現，**勿在 App 端算錢**。
+>
+> 已定案：距離自動計費、手續費+會費並存、會費為月費固定金額、費率快照制、
+> 金額全系統統一（後端存分、App 顯示除 100）。
+
+- [ ] **E1. 司機收入頁**（新頁，司機端側欄／個人頁入口）
+      月切換，顯示：本月趟數、營業額、手續費、實得、月會費、**應付總公司**。
+      串後端 F7 `GET /api/driver/earnings?month=YYYY-MM`（driver JWT）。
+      無資料月份顯示空狀態；金額格式化（千分位、除 100）。
+
+- [ ] **E2.（選配）乘客端完成卡顯示車資**
+      既有 B5「評分／付款佔位」升級為顯示真實 `fare_amount`（後端 F2/F3 完成後
+      `ride.completed` payload 可帶車資）。是否做付款流程是另一題，這裡只顯示金額。
+
+**驗收**：後端 docker 起、造一筆已完成行程 → 司機收入頁數字與 admin 月報表該司機列一致
+（營業額／手續費／應付總公司對得起來）；補 controller 層測試（注入 FakeApi 回傳 earnings）。
