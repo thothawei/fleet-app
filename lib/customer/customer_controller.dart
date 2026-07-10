@@ -157,6 +157,31 @@ class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 測試用：注入已登入 session（略過 storage/init）。
+  @visibleForTesting
+  void setSessionForTest(CustomerSession session) {
+    _session = session;
+    notifyListeners();
+  }
+
+  /// 測試用：注入進行中訂單與可選即時欄位。
+  @visibleForTesting
+  void setActiveRideForTest(
+    CustomerRide ride, {
+    String? driverName,
+    int? liveEtaSec,
+    int? liveDistM,
+    bool driverArrived = false,
+  }) {
+    _activeRide = ride;
+    _driverName = driverName;
+    _liveEtaSec = liveEtaSec;
+    _liveDistM = liveDistM;
+    _driverArrived = driverArrived;
+    _completedSummary = null;
+    notifyListeners();
+  }
+
   /// 測試用：模擬行程完成後進入 B5 佔位畫面。
   @visibleForTesting
   void markCompletedForTest({
