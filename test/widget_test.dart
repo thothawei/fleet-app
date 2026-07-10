@@ -8,6 +8,7 @@ import 'package:line_fleet_app/core/api/customer_api_client.dart';
 import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/location/driver_location_settings.dart';
 import 'package:line_fleet_app/core/models/models.dart';
+import 'package:line_fleet_app/core/util/maps.dart';
 import 'package:line_fleet_app/core/ws/fleet_ws_client.dart';
 import 'package:line_fleet_app/customer/customer_controller.dart';
 import 'package:line_fleet_app/customer/screens/customer_home_screen.dart';
@@ -19,17 +20,45 @@ void main() {
     expect(settings.accuracy, LocationAccuracy.high);
   });
 
+  group('mapsNavigationUri 導航目標', () {
+    test('有座標時用 lat,lng，不用地址', () {
+      final uri = mapsNavigationUri('松山機場', lat: 25.06, lng: 121.55);
+      expect(uri.queryParameters['query'], '25.06,121.55');
+    });
+
+    test('無座標時退回地址搜尋', () {
+      final uri = mapsNavigationUri('松山機場');
+      expect(uri.queryParameters['query'], '松山機場');
+    });
+
+    test('只有單邊座標時視為無座標', () {
+      final uri = mapsNavigationUri('松山機場', lat: 25.06);
+      expect(uri.queryParameters['query'], '松山機場');
+    });
+  });
+
   test('RideOffer 從 WS payload 解析', () {
     final offer = RideOffer.fromEvent(42, {
       'address': '台北車站',
       'eta_sec': 300,
       'dist_m': 1200,
       'dropoff_address': '松山機場',
+      'dropoff_lat': 25.06,
+      'dropoff_lng': 121.55,
     });
     expect(offer.rideId, 42);
     expect(offer.address, '台北車站');
     expect(offer.dropoffAddress, '松山機場');
+    expect(offer.dropoffLat, 25.06);
+    expect(offer.dropoffLng, 121.55);
     expect(offer.etaLabel, '約 5 分鐘');
+  });
+
+  test('RideOffer 無目的地座標時為 null（LINE 叫車路徑）', () {
+    final offer = RideOffer.fromEvent(42, {'address': '台北車站'});
+    expect(offer.dropoffAddress, isNull);
+    expect(offer.dropoffLat, isNull);
+    expect(offer.dropoffLng, isNull);
   });
 
   group('ActiveRide 行程階段轉移（Slice4：接單→上車→完成）', () {
@@ -246,6 +275,20 @@ void main() {
         'pickup_address': '台北車站',
       });
       expect(ride.phase, DriverRidePhase.onTrip);
+      expect(ride.hasDropoff, isFalse);
+    });
+
+    test('dropoff_point 還原目的地座標（App 重啟後仍可座標導航）', () {
+      final ride = ActiveRide.fromBackendJson({
+        'id': 7,
+        'status': RideStatus.pickedUp,
+        'pickup_address': '台北車站',
+        'dropoff_address': '松山機場',
+        'dropoff_point': {'lat': 25.06, 'lng': 121.55},
+      });
+      expect(ride.dropoffLat, 25.06);
+      expect(ride.dropoffLng, 121.55);
+      expect(ride.hasDropoff, isTrue);
     });
   });
 

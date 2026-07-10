@@ -136,12 +136,15 @@ class _ActiveRideCard extends StatelessWidget {
               ),
             ],
             if (ride.phase == DriverRidePhase.onTrip) ...[
-              if (ride.dropoffAddress != null &&
-                  ride.dropoffAddress!.isNotEmpty) ...[
-                Text('目的地：${ride.dropoffAddress}'),
+              if (ride.hasDropoff) ...[
+                Text('目的地：${ride.dropoffAddress ?? '（地圖選點）'}'),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
-                  onPressed: () => openMapsNavigation(ride.dropoffAddress!),
+                  onPressed: () => openMapsNavigation(
+                    ride.dropoffAddress ?? '',
+                    lat: ride.dropoffLat,
+                    lng: ride.dropoffLng,
+                  ),
                   style: secondaryStyle,
                   icon: const Icon(Icons.navigation),
                   label: const Text('導航去目的地'),

@@ -10,7 +10,8 @@
 - 司機端（M6）主鏈路完成：登入→hero 上線→**前景服務 GPS**→全螢幕接單→導航→上車→完成／放棄（二次確認）。
 - 乘客端（M7）：登入→叫車（目的地優先）→階段共用元件／地圖 Bottom Sheet→WS ETA→取消／完成卡。
 - **UI/UX 翻新（2026-07-10）**：LINE 綠亮暗雙主題；司機駕駛情境 UI；乘客地圖為底＋卡片降級。靜態驗收 49 tests 通過；模擬器主鏈路待後端 docker 可起後補跑。
-- 單元測試：`widget_test` + `driver_controller_test` + theme／home widget 測試（49 項）。
+- **座標導航（2026-07-10）**：司機端目的地導航改吃後端 `dropoff_point` 座標，地址僅供顯示與退路。
+- 單元測試：`widget_test` + `driver_controller_test` + theme／home widget 測試（54 項）。
 - 遠端：`github.com/thothawei/fleet-app`。
 
 ## B. 乘客端 App（M7）— 收尾
@@ -34,7 +35,10 @@
       **待真機驗收**：鎖屏 10 分鐘後後台地圖座標仍更新。
 - [~] A2. FCM 推播收派單（2026-07-08 App 端契約落地）：`firebase_messaging` 整合、
       登入後 `POST /api/driver/device-token`、前景／點擊推播解析 `ride.assigned`。
-      **待**：Firebase 專案 + 複製 `google-services.json` + 後端真 FCM 實作 + 真裝置驗收（App 被殺點推播可接單）。
+      2026-07-10 修：FCM data 值一律是字串，`fleetEventFromPushData` 原樣塞進 payload，
+      `RideOffer.fromEvent` 的 `as num?` 會丟 `TypeError`（推播接單一啟用就崩，已有回歸測試）。
+      **待**：Firebase 專案 + 複製 `google-services.json` + 後端真 FCM 實作（data payload 契約見 README）
+      + 真裝置驗收（App 被殺點推播可接單）。
 - [x] A4. 回填 M6 計畫勾選框 + 同步後端 STATUS.md（2026-07-08；證據以 commit / `flutter test` 為主，
       A1 鎖屏長跑仍待真機）。
 - [ ] A5. iOS build（延後：需完整 Xcode + CocoaPods + pod install）。
@@ -50,6 +54,10 @@
 ## 被後端擋住的項目
 
 - [x] 司機端「上車後導航去目的地」：後端 dropoff 鏈路 + App 端已通（2026-07-08）。
+- [x] **改用座標導航**（2026-07-10）：`ride.assigned`／`ride.accepted`／pickup 回應／`rides/active`
+      四條路徑都解析 `dropoff_lat/lng`（後者讀 `dropoff_point`）；`mapsNavigationUri()` 有座標時以
+      `lat,lng` 為導航目標，無座標才退回地址搜尋——地址字串在 Google Maps 可能解析到同名的錯誤地點。
+      驗收：`flutter analyze` 無 issue、`flutter test` 54 passed（新增 5 項）。
 
 ## 品質/雜項
 
@@ -69,3 +77,12 @@
 - [ ] **乘客端地圖版（Bottom Sheet）尚未實測**：本機無 `GOOGLE_MAPS_API_KEY`，
       只驗到 `mapsConfigured=false` 的卡片版降級路徑。補 key 後需驗：地圖為底、
       sheet 可拖、司機 marker 隨 WS 移動、浮動登出鈕。
+
+## 下次任務
+
+1. **座標導航的模擬器 E2E**（本次只做到單元測試）：後端 docker 起來 → 乘客 App 地圖選點下單 →
+   司機端接單 → 上車 → 按「導航去目的地」，確認開出的 Google Maps URL 是 `query=lat,lng` 而非地址。
+2. **乘客端地圖版**：補 `GOOGLE_MAPS_API_KEY` 後驗上述地圖 sheet 路徑。
+3. **A2 真裝置推播**：建 Firebase 專案 + `google-services.json`，後端實作 FCM data payload
+   （契約見 README，含 `dropoff_lat/lng`），驗「App 被殺 → 點推播 → 接單卡」。
+4. 依賴外部資源、暫不動：A5 iOS build（需完整 Xcode + CocoaPods）。

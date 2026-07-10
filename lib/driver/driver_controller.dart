@@ -253,6 +253,8 @@ class DriverController extends ChangeNotifier {
         address: offer.address,
         phase: DriverRidePhase.enRouteToPickup,
         dropoffAddress: offer.dropoffAddress,
+        dropoffLat: offer.dropoffLat,
+        dropoffLng: offer.dropoffLng,
       );
       _pendingOffer = null;
       _error = null;
@@ -275,10 +277,12 @@ class DriverController extends ChangeNotifier {
     _busy = true;
     notifyListeners();
     try {
-      final dropoffAddress = await _api.pickUp(ride.rideId);
+      final dropoff = await _api.pickUp(ride.rideId);
       _activeRide = ride.copyWith(
         phase: DriverRidePhase.onTrip,
-        dropoffAddress: dropoffAddress,
+        dropoffAddress: dropoff.address,
+        dropoffLat: dropoff.lat,
+        dropoffLng: dropoff.lng,
       );
       _error = null;
     } on ApiException catch (e) {
@@ -338,6 +342,8 @@ class DriverController extends ChangeNotifier {
             phase: DriverRidePhase.enRouteToPickup,
             dropoffAddress:
                 (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
+            dropoffLat: (event.payload?['dropoff_lat'] as num?)?.toDouble(),
+            dropoffLng: (event.payload?['dropoff_lng'] as num?)?.toDouble(),
           );
           notifyListeners();
         }

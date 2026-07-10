@@ -141,10 +141,16 @@ void main() {
       ));
       await ctrl.acceptOffer();
 
-      api.pickUpDropoff = '松山機場';
+      api.pickUpDropoff = const DropoffInfo(
+        address: '松山機場',
+        lat: 25.06,
+        lng: 121.55,
+      );
       await ctrl.pickUpPassenger();
       expect(ctrl.activeRide?.phase, DriverRidePhase.onTrip);
       expect(ctrl.activeRide?.dropoffAddress, '松山機場');
+      expect(ctrl.activeRide?.dropoffLat, 25.06);
+      expect(ctrl.activeRide?.dropoffLng, 121.55);
 
       await ctrl.completeTrip();
       expect(ctrl.activeRide, isNull);
@@ -257,7 +263,7 @@ class _FakeFleetApi extends FleetApiClient {
   ApiException? loginError;
   ApiException? acceptError;
   ActiveRide? restoreRide;
-  String? pickUpDropoff;
+  DropoffInfo pickUpDropoff = const DropoffInfo();
   final acceptedRideIds = <int>[];
   final completedRideIds = <int>[];
   final cancelledRideIds = <int>[];
@@ -289,7 +295,7 @@ class _FakeFleetApi extends FleetApiClient {
   }
 
   @override
-  Future<String?> pickUp(int rideId) async => pickUpDropoff;
+  Future<DropoffInfo> pickUp(int rideId) async => pickUpDropoff;
 
   @override
   Future<void> completeRide(int rideId) async {

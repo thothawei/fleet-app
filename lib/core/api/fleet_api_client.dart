@@ -86,13 +86,12 @@ class FleetApiClient {
     }
   }
 
-  /// 確認乘客上車，回傳後端帶回的目的地地址（未指定目的地時為 null）。
-  Future<String?> pickUp(int rideId) async {
+  /// 確認乘客上車，回傳後端帶回的目的地地址與座標（未指定目的地時欄位皆為 null）。
+  Future<DropoffInfo> pickUp(int rideId) async {
     try {
       final res =
           await _dio.post<Map<String, dynamic>>('/rides/$rideId/pickup');
-      final dropoff = res.data?['dropoff_address'] as String?;
-      return (dropoff != null && dropoff.isNotEmpty) ? dropoff : null;
+      return DropoffInfo.fromJson(res.data);
     } on DioException catch (e) {
       throw _wrap(e);
     }

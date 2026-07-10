@@ -70,9 +70,14 @@ flutter run -t lib/main_driver.dart --flavor driver \
   "type": "ride.assigned",
   "ride_id": "42",
   "address": "上車地址",
-  "dropoff_address": "目的地"
+  "dropoff_address": "目的地",
+  "dropoff_lat": "25.06",
+  "dropoff_lng": "121.55"
 }
 ```
+
+FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把 `eta_sec`／`dist_m`／
+`dropoff_lat`／`dropoff_lng` 轉回數值。訂單未指定目的地時，後端省略 dropoff 三個鍵即可。
 
 ## 功能進度
 

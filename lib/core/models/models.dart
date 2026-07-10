@@ -39,6 +39,8 @@ class RideOffer {
     this.etaSec,
     this.distM,
     this.dropoffAddress,
+    this.dropoffLat,
+    this.dropoffLng,
   });
 
   final int rideId;
@@ -49,6 +51,10 @@ class RideOffer {
   /// 目的地（派單事件 ride.assigned 帶入，接單前可預覽）。
   final String? dropoffAddress;
 
+  /// 目的地座標；後端訂單未指定 dropoff_point 時為 null。
+  final double? dropoffLat;
+  final double? dropoffLng;
+
   factory RideOffer.fromEvent(int rideId, Map<String, dynamic>? payload) {
     final dropoff = payload?['dropoff_address'] as String?;
     return RideOffer(
@@ -58,6 +64,8 @@ class RideOffer {
       distM: (payload?['dist_m'] as num?)?.toInt(),
       dropoffAddress:
           (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
+      dropoffLat: (payload?['dropoff_lat'] as num?)?.toDouble(),
+      dropoffLng: (payload?['dropoff_lng'] as num?)?.toDouble(),
     );
   }
 
@@ -219,12 +227,33 @@ class CustomerRide {
   }
 }
 
+/// `POST /api/driver/rides/:id/pickup` 回傳的目的地資訊。
+/// 後端未指定目的地時 address 為 null、座標為 null。
+class DropoffInfo {
+  const DropoffInfo({this.address, this.lat, this.lng});
+
+  final String? address;
+  final double? lat;
+  final double? lng;
+
+  factory DropoffInfo.fromJson(Map<String, dynamic>? json) {
+    final address = json?['dropoff_address'] as String?;
+    return DropoffInfo(
+      address: (address != null && address.isNotEmpty) ? address : null,
+      lat: (json?['dropoff_lat'] as num?)?.toDouble(),
+      lng: (json?['dropoff_lng'] as num?)?.toDouble(),
+    );
+  }
+}
+
 class ActiveRide {
   const ActiveRide({
     required this.rideId,
     required this.address,
     required this.phase,
     this.dropoffAddress,
+    this.dropoffLat,
+    this.dropoffLng,
   });
 
   final int rideId;
@@ -235,12 +264,28 @@ class ActiveRide {
   /// 後端未指定目的地時為 null；來源為接單事件或 pickup 回應。
   final String? dropoffAddress;
 
-  ActiveRide copyWith({DriverRidePhase? phase, String? dropoffAddress}) {
+  /// 目的地座標；導航優先用它，地址僅供顯示與退路。
+  final double? dropoffLat;
+  final double? dropoffLng;
+
+  /// 有地址或座標任一即可導航。
+  bool get hasDropoff =>
+      (dropoffAddress != null && dropoffAddress!.isNotEmpty) ||
+      (dropoffLat != null && dropoffLng != null);
+
+  ActiveRide copyWith({
+    DriverRidePhase? phase,
+    String? dropoffAddress,
+    double? dropoffLat,
+    double? dropoffLng,
+  }) {
     return ActiveRide(
       rideId: rideId,
       address: address,
       phase: phase ?? this.phase,
       dropoffAddress: dropoffAddress ?? this.dropoffAddress,
+      dropoffLat: dropoffLat ?? this.dropoffLat,
+      dropoffLng: dropoffLng ?? this.dropoffLng,
     );
   }
 
@@ -248,6 +293,7 @@ class ActiveRide {
   factory ActiveRide.fromBackendJson(Map<String, dynamic> json) {
     final status = (json['status'] as num).toInt();
     final dropoff = json['dropoff_address'] as String?;
+    final dropoffPoint = json['dropoff_point'] as Map<String, dynamic>?;
     return ActiveRide(
       rideId: (json['id'] as num).toInt(),
       address: json['pickup_address'] as String? ?? '未知地址',
@@ -256,6 +302,8 @@ class ActiveRide {
           : DriverRidePhase.enRouteToPickup,
       dropoffAddress:
           (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
+      dropoffLat: (dropoffPoint?['lat'] as num?)?.toDouble(),
+      dropoffLng: (dropoffPoint?['lng'] as num?)?.toDouble(),
     );
   }
 }
