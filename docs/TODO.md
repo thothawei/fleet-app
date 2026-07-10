@@ -39,6 +39,14 @@
       A1 鎖屏長跑仍待真機）。
 - [ ] A5. iOS build（延後：需完整 Xcode + CocoaPods + pod install）。
 
+## 2026-07-10 修掉的既有阻塞（非 UI 翻新引入）
+
+- [x] Android build 全面失敗：`android/app/build.gradle.kts` 的 `java.util.Properties()`
+      在 Gradle Kotlin DSL 被解析為 Java plugin extension。改 `import java.util.Properties`。
+- [x] 司機端啟動即崩潰（無 `google-services.json` 的裝置）：`FirebaseMessaging.instance`
+      在建構子預設參數就求值，早於 `Firebase.initializeApp()`，try/catch 攔不到
+      `[core/no-app]`。改為 initializeApp 後才取 instance，NoOp 降級路徑恢復生效。
+
 ## 被後端擋住的項目
 
 - [x] 司機端「上車後導航去目的地」：後端 dropoff 鏈路 + App 端已通（2026-07-08）。
@@ -51,3 +59,13 @@
 - [x] **App UI/UX 翻新**（2026-07-10，分支 `claude/fleet-admin-app-ux-redesign-12cc74`）：
       theme tokens、司機 hero／接單 overlay／大按鈕、乘客階段元件＋地圖 sheet；
       規格見 `docs/superpowers/specs/2026-07-10-fleet-ui-ux-redesign-design.md`。
+- [x] **模擬器 E2E 驗收**（2026-07-10，`m6_pixel` + 後端 docker）：
+      `flutter analyze` 無 issue、`flutter test` 49 passed。
+      司機端實跑：hero 上線開關（前景服務啟動）→ WS 收派單全螢幕接單卡 → 接單 →
+      前往上車點大按鈕 → 放棄二次確認 dialog → 乘客已上車 → 完成行程（ride #6 status=4）。
+      乘客端卡片版實跑：叫車表單「要去哪裡？」→ 配對中 → 司機前往上車點（ETA chip）→
+      行程中 → 完成卡（評分／費用佔位＋再叫一輛，ride #41）。
+      暗色主題：`cmd uimode night yes` 下深底＋提亮綠，`ThemeMode.system` 生效。
+- [ ] **乘客端地圖版（Bottom Sheet）尚未實測**：本機無 `GOOGLE_MAPS_API_KEY`，
+      只驗到 `mapsConfigured=false` 的卡片版降級路徑。補 key 後需驗：地圖為底、
+      sheet 可拖、司機 marker 隨 WS 移動、浮動登出鈕。
