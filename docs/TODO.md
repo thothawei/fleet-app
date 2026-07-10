@@ -1,14 +1,16 @@
 # line-fleet-app — 補強清單
 
-> 建立：2026-07-08 盤點（以程式碼實測為準）。編號沿用後端 repo 的
+> 建立：2026-07-08 盤點（以程式碼實測為準）。最後盤點：2026-07-10。
+> 編號沿用後端 repo 的
 > [gap-analysis-plan](../../line-fleet-dispatch/docs/2026-07-07-gap-analysis-plan.md)（A=司機端、B=乘客端）。
 > 每完成一項：實跑驗收 → 勾選回填 → commit + push（main）。
 
 ## 現況
 
-- 司機端（M6）主鏈路完成：登入→上線→**前景服務 GPS**→WS 收派單→接單→導航→上車→完成／放棄。
-- 乘客端（M7）最小可用版已落地：登入→叫車（含目的地）→WS 追蹤 ETA→狀態流→取消。
-- 單元測試：`test/widget_test.dart` + `test/driver_controller_test.dart`（34 項）。
+- 司機端（M6）主鏈路完成：登入→hero 上線→**前景服務 GPS**→全螢幕接單→導航→上車→完成／放棄（二次確認）。
+- 乘客端（M7）：登入→叫車（目的地優先）→階段共用元件／地圖 Bottom Sheet→WS ETA→取消／完成卡。
+- **UI/UX 翻新（2026-07-10）**：LINE 綠亮暗雙主題；司機駕駛情境 UI；乘客地圖為底＋卡片降級。靜態驗收 49 tests 通過；模擬器主鏈路待後端 docker 可起後補跑。
+- 單元測試：`widget_test` + `driver_controller_test` + theme／home widget 測試（49 項）。
 - 遠端：`github.com/thothawei/fleet-app`。
 
 ## B. 乘客端 App（M7）— 收尾
@@ -46,3 +48,6 @@
 - [x] 補司機端 controller 整合層測試（2026-07-08：`test/driver_controller_test.dart`，
       注入 MemoryAuthStore / silent WS / FakeApi，覆蓋登入→派單→接單→上車→完成／放棄）。
 - [x] 建 `flutter analyze` + `flutter test` 的 CI（2026-07-08：`.github/workflows/flutter-ci.yml`）。
+- [x] **App UI/UX 翻新**（2026-07-10，分支 `claude/fleet-admin-app-ux-redesign-12cc74`）：
+      theme tokens、司機 hero／接單 overlay／大按鈕、乘客階段元件＋地圖 sheet；
+      規格見 `docs/superpowers/specs/2026-07-10-fleet-ui-ux-redesign-design.md`。
