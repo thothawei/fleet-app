@@ -7,6 +7,7 @@ import 'package:line_fleet_app/core/models/models.dart';
 import 'package:line_fleet_app/core/theme/app_theme.dart';
 import 'package:line_fleet_app/customer/customer_controller.dart';
 import 'package:line_fleet_app/customer/screens/customer_home_screen.dart';
+import 'package:line_fleet_app/customer/screens/customer_map_home_screen.dart';
 import 'package:provider/provider.dart';
 
 enum TestPhase { idle, searching, completed }
@@ -45,7 +46,9 @@ void main() {
       value: ctrl,
       child: MaterialApp(
         theme: appLightTheme,
-        home: const CustomerHomeScreen(),
+        home: AppConfig.mapsConfigured
+            ? const CustomerMapHomeScreen()
+            : const CustomerHomeScreen(),
       ),
     );
   }
@@ -65,6 +68,14 @@ void main() {
 
     expect(find.text('行程已完成'), findsOneWidget);
     expect(find.text('再叫一輛'), findsOneWidget);
+  });
+
+  testWidgets('未設 Maps key 時走卡片版（有 AppBar）', (tester) async {
+    await tester.pumpWidget(buildCustomerTestApp(phase: TestPhase.idle));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.text('叫車'), findsWidgets);
   });
 }
 
