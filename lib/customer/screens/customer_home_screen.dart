@@ -116,10 +116,19 @@ class _OrderFormState extends State<_OrderForm> {
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: ctrl.busy ? null : () => _pickOnMap(context),
+              onPressed: (ctrl.busy || !AppConfig.mapsConfigured)
+                  ? null
+                  : () => _pickOnMap(context),
               icon: const Icon(Icons.map),
               label: const Text('在地圖上選目的地'),
             ),
+            if (!AppConfig.mapsConfigured) ...[
+              const SizedBox(height: 4),
+              Text(
+                '地圖選點需設定 Google Maps API key（見 README），請直接輸入地址',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: ctrl.busy ? null : () => _submit(context),
