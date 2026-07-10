@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../core/config/app_config.dart';
+
 /// 地圖選點結果：目的地地址（反查或座標字串）與精確座標。
 class MapPickResult {
   const MapPickResult({
@@ -77,6 +79,20 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!AppConfig.mapsConfigured) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('選擇目的地')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              '地圖選點需設定 Google Maps API key（見 README），請返回改用地址輸入',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('選擇目的地')),
       body: Stack(
