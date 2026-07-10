@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Gradle 於 android/ 下產生的建置產物
+/android/build/
+/android/.gradle/
