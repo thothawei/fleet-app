@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:line_fleet_app/core/api/fleet_api_client.dart';
+import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/models/models.dart';
 import 'package:line_fleet_app/core/push/driver_push_service.dart';
 import 'package:line_fleet_app/core/storage/token_storage.dart';
@@ -14,21 +15,26 @@ import 'package:line_fleet_app/driver/screens/driver_home_screen.dart';
 import 'package:provider/provider.dart';
 
 void main() {
-  testWidgets('離線時 hero 顯示「離線」且診斷資訊預設收合', (tester) async {
-    final storage = MemoryDriverAuthStore();
-    final api = _FakeFleetApi();
-    final push = _FakePush();
-    final ctrl = DriverController(
+  late MemoryDriverAuthStore storage;
+  late _FakeFleetApi api;
+  late _FakePush push;
+  late DriverController ctrl;
+
+  setUp(() {
+    storage = MemoryDriverAuthStore();
+    api = _FakeFleetApi();
+    push = _FakePush();
+    ctrl = DriverController(
       storage: storage,
       api: api,
       wsFactory: FleetWsClient.silent,
       push: push,
     );
-    addTearDown(ctrl.dispose);
+  });
 
-    await ctrl.init();
-    await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+  tearDown(() => ctrl.dispose());
 
+  Future<void> pumpHome(WidgetTester tester) async {
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
         value: ctrl,
@@ -40,15 +46,40 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+  }
+
+  testWidgets('離線時 hero 顯示「離線」且診斷資訊預設收合', (tester) async {
+    await ctrl.init();
+    await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+    await pumpHome(tester);
 
     expect(find.text('離線'), findsOneWidget);
     expect(find.text('目前不會收到派單'), findsOneWidget);
-    // 收合狀態下不直接顯示 API base
     expect(find.textContaining('http'), findsNothing);
-    // 展開「連線狀態」後才看得到
     await tester.tap(find.text('連線狀態'));
     await tester.pumpAndSettle();
     expect(find.textContaining('http'), findsOneWidget);
+  });
+
+  testWidgets('收到派單顯示全螢幕接單卡，接單鈕高度 >= 56', (tester) async {
+    await ctrl.init();
+    await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+    ctrl.handleWsEventForTest(FleetWsEvent(
+      type: FleetEventTypes.rideAssigned,
+      rideId: 99,
+      payload: {
+        'address': '士林夜市',
+        'dropoff_address': '松山機場',
+        'dist_m': 1200,
+        'eta_sec': 300,
+      },
+    ));
+    await pumpHome(tester);
+
+    expect(find.text('新派單'), findsOneWidget);
+    expect(find.text('接單'), findsOneWidget);
+    final size = tester.getSize(find.widgetWithText(FilledButton, '接單'));
+    expect(size.height, greaterThanOrEqualTo(56));
   });
 }
 
@@ -69,6 +100,12 @@ class _FakeFleetApi extends FleetApiClient {
 
   @override
   Future<ActiveRide?> activeRide() async => null;
+
+  @override
+  Future<String> acceptRide(int rideId) async => '接單成功';
+
+  @override
+  Future<void> cancelRide(int rideId) async {}
 
   @override
   Future<void> registerDeviceToken({

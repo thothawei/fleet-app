@@ -5,6 +5,7 @@ import '../../core/config/app_config.dart';
 import '../../core/util/maps.dart';
 import '../driver_controller.dart';
 import '../widgets/connection_details_tile.dart';
+import '../widgets/offer_overlay.dart';
 import '../widgets/online_hero_card.dart';
 
 class DriverHomeScreen extends StatelessWidget {
@@ -14,30 +15,35 @@ class DriverHomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final ctrl = context.watch<DriverController>();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('你好，${ctrl.session?.name ?? '司機'}'),
-        actions: [
-          IconButton(
-            tooltip: '登出',
-            onPressed: ctrl.loading ? null : () => ctrl.logout(),
-            icon: const Icon(Icons.logout),
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            title: Text('你好，${ctrl.session?.name ?? '司機'}'),
+            actions: [
+              IconButton(
+                tooltip: '登出',
+                onPressed: ctrl.loading ? null : () => ctrl.logout(),
+                icon: const Icon(Icons.logout),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          OnlineHeroCard(ctrl: ctrl),
-          const SizedBox(height: 12),
-          if (ctrl.error != null) _ErrorBanner(message: ctrl.error!),
-          if (ctrl.activeRide != null) _ActiveRideCard(ctrl: ctrl),
-          if (ctrl.pendingOffer != null) _OfferCard(ctrl: ctrl),
-          if (ctrl.activeRide == null && ctrl.pendingOffer == null) _IdleHint(),
-          const SizedBox(height: 12),
-          ConnectionDetailsTile(ctrl: ctrl),
-        ],
-      ),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              OnlineHeroCard(ctrl: ctrl),
+              const SizedBox(height: 12),
+              if (ctrl.error != null) _ErrorBanner(message: ctrl.error!),
+              if (ctrl.activeRide != null) _ActiveRideCard(ctrl: ctrl),
+              if (ctrl.activeRide == null && ctrl.pendingOffer == null)
+                _IdleHint(),
+              const SizedBox(height: 12),
+              ConnectionDetailsTile(ctrl: ctrl),
+            ],
+          ),
+        ),
+        if (ctrl.pendingOffer != null) OfferOverlay(ctrl: ctrl),
+      ],
     );
   }
 }
@@ -60,57 +66,6 @@ class _ErrorBanner extends StatelessWidget {
             message,
             style: TextStyle(color: scheme.onErrorContainer),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _OfferCard extends StatelessWidget {
-  const _OfferCard({required this.ctrl});
-
-  final DriverController ctrl;
-
-  @override
-  Widget build(BuildContext context) {
-    final offer = ctrl.pendingOffer!;
-    return Card(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '新派單 #${offer.rideId}',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text('上車點：${offer.address}'),
-            if (offer.dropoffAddress != null &&
-                offer.dropoffAddress!.isNotEmpty)
-              Text('目的地：${offer.dropoffAddress}'),
-            if (offer.distM != null) Text('距離約 ${offer.distM} 公尺'),
-            if (offer.etaLabel.isNotEmpty) Text('ETA ${offer.etaLabel}'),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: ctrl.loading ? null : ctrl.dismissOffer,
-                    child: const Text('略過'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: ctrl.loading ? null : ctrl.acceptOffer,
-                    child: const Text('接單'),
-                  ),
-                ),
-              ],
-            ),
-          ],
         ),
       ),
     );
