@@ -12,9 +12,12 @@ import 'push_payload.dart';
 /// 真實 FCM 實作：需 `android/app/google-services.json`（見 README）。
 class FirebaseDriverPushService implements DriverPushService {
   FirebaseDriverPushService({FirebaseMessaging? messaging})
-      : _messaging = messaging ?? FirebaseMessaging.instance;
+      : _injectedMessaging = messaging;
 
-  final FirebaseMessaging _messaging;
+  /// 測試注入用；正式路徑等 [Firebase.initializeApp] 後才取 instance——
+  /// 在建構子取會在沒有 google-services.json 的裝置上直接拋 [core/no-app]。
+  final FirebaseMessaging? _injectedMessaging;
+  late final FirebaseMessaging _messaging;
   final _events = StreamController<FleetWsEvent>.broadcast();
   final _tokenRefresh = StreamController<String>.broadcast();
   StreamSubscription<String>? _tokenRefreshSub;
@@ -34,6 +37,7 @@ class FirebaseDriverPushService implements DriverPushService {
     if (kIsWeb) return false;
     try {
       await Firebase.initializeApp();
+      _messaging = _injectedMessaging ?? FirebaseMessaging.instance;
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       await _messaging.setForegroundNotificationPresentationOptions(

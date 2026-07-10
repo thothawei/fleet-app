@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -33,7 +35,8 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        val localProperties = java.util.Properties()
+        // Gradle Kotlin DSL 裡 `java` 會解析成 Java plugin extension，故需 import 後直接用 Properties
+        val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
         if (localPropertiesFile.exists()) {
             localPropertiesFile.inputStream().use { localProperties.load(it) }

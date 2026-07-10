@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../core/config/app_config.dart';
 import '../core/push/driver_push_service.dart';
+import '../core/theme/app_theme.dart';
 import 'driver_controller.dart';
 import 'screens/driver_home_screen.dart';
 import 'screens/driver_login_screen.dart';
@@ -18,13 +19,9 @@ class DriverApp extends StatelessWidget {
       create: (_) => DriverController(push: pushService)..init(),
       child: MaterialApp(
         title: 'Fleet 司機',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF00695C),
-            brightness: Brightness.light,
-          ),
-          useMaterial3: true,
-        ),
+        theme: appLightTheme,
+        darkTheme: appDarkTheme,
+        themeMode: ThemeMode.system,
         home: const _DriverRoot(),
       ),
     );

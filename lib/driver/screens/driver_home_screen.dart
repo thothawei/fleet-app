@@ -2,8 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/theme/ride_status_colors.dart';
 import '../../core/util/maps.dart';
 import '../driver_controller.dart';
+import '../widgets/connection_details_tile.dart';
+import '../widgets/offer_overlay.dart';
+import '../widgets/online_hero_card.dart';
 
 class DriverHomeScreen extends StatelessWidget {
   const DriverHomeScreen({super.key});
@@ -12,170 +17,57 @@ class DriverHomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final ctrl = context.watch<DriverController>();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('你好，${ctrl.session?.name ?? '司機'}'),
-        actions: [
-          IconButton(
-            tooltip: '登出',
-            onPressed: ctrl.loading ? null : () => ctrl.logout(),
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _StatusCard(ctrl: ctrl),
-          const SizedBox(height: 16),
-          if (ctrl.activeRide != null) _ActiveRideCard(ctrl: ctrl),
-          if (ctrl.pendingOffer != null) _OfferCard(ctrl: ctrl),
-          if (ctrl.activeRide == null && ctrl.pendingOffer == null)
-            _IdleHint(),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.ctrl});
-
-  final DriverController ctrl;
-
-  @override
-  Widget build(BuildContext context) {
-    final pos = ctrl.lastPosition;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  ctrl.online ? Icons.circle : Icons.circle_outlined,
-                  color: ctrl.online ? Colors.green : Colors.grey,
-                  size: 14,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  ctrl.online ? '上線中' : '離線',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const Spacer(),
-                Switch(
-                  value: ctrl.online,
-                  onChanged: ctrl.loading ? null : (_) => ctrl.toggleOnline(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _InfoRow(
-              label: 'WebSocket',
-              value: ctrl.wsConnected ? '已連線' : '未連線',
-            ),
-            _InfoRow(
-              label: 'FCM 推播',
-              value: ctrl.fcmAvailable
-                  ? (ctrl.fcmTokenPrefix != null
-                      ? '已註冊 ${ctrl.fcmTokenPrefix}'
-                      : '已啟用（待 token）')
-                  : '未設定 Firebase',
-            ),
-            _InfoRow(label: 'API', value: AppConfig.apiBase),
-            if (pos != null)
-              _InfoRow(
-                label: '位置',
-                value:
-                    '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}',
-              ),
-            if (ctrl.error != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                ctrl.error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            title: Text('你好，${ctrl.session?.name ?? '司機'}'),
+            actions: [
+              IconButton(
+                tooltip: '登出',
+                onPressed: ctrl.loading ? null : () => ctrl.logout(),
+                icon: const Icon(Icons.logout),
               ),
             ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 88,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
           ),
-          Expanded(child: Text(value)),
-        ],
-      ),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              OnlineHeroCard(ctrl: ctrl),
+              const SizedBox(height: 12),
+              if (ctrl.error != null) _ErrorBanner(message: ctrl.error!),
+              if (ctrl.activeRide != null) _ActiveRideCard(ctrl: ctrl),
+              if (ctrl.activeRide == null && ctrl.pendingOffer == null)
+                _IdleHint(),
+              const SizedBox(height: 12),
+              ConnectionDetailsTile(ctrl: ctrl),
+            ],
+          ),
+        ),
+        if (ctrl.pendingOffer != null) OfferOverlay(ctrl: ctrl),
+      ],
     );
   }
 }
 
-class _OfferCard extends StatelessWidget {
-  const _OfferCard({required this.ctrl});
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.message});
 
-  final DriverController ctrl;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
-    final offer = ctrl.pendingOffer!;
-    return Card(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '新派單 #${offer.rideId}',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text('上車點：${offer.address}'),
-            if (offer.dropoffAddress != null &&
-                offer.dropoffAddress!.isNotEmpty)
-              Text('目的地：${offer.dropoffAddress}'),
-            if (offer.distM != null) Text('距離約 ${offer.distM} 公尺'),
-            if (offer.etaLabel.isNotEmpty) Text('ETA ${offer.etaLabel}'),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: ctrl.loading ? null : ctrl.dismissOffer,
-                    child: const Text('略過'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: ctrl.loading ? null : ctrl.acceptOffer,
-                    child: const Text('接單'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        color: scheme.errorContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            message,
+            style: TextStyle(color: scheme.onErrorContainer),
+          ),
         ),
       ),
     );
@@ -190,11 +82,20 @@ class _ActiveRideCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ride = ctrl.activeRide!;
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
     final phaseLabel = switch (ride.phase) {
       DriverRidePhase.enRouteToPickup => '前往上車點',
       DriverRidePhase.onTrip => '行程中',
       _ => '進行中',
     };
+    final primaryStyle = FilledButton.styleFrom(
+      minimumSize: const Size.fromHeight(kPrimaryActionHeight),
+      textStyle: text.titleMedium,
+    );
+    final secondaryStyle = OutlinedButton.styleFrom(
+      minimumSize: const Size.fromHeight(kPrimaryActionHeight),
+    );
 
     return Card(
       child: Padding(
@@ -202,23 +103,35 @@ class _ActiveRideCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              '行程 #${ride.rideId}',
-              style: Theme.of(context).textTheme.titleLarge,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '行程 #${ride.rideId}',
+                    style: text.titleLarge,
+                  ),
+                ),
+                Chip(
+                  label: Text(phaseLabel),
+                  backgroundColor:
+                      driverPhaseColor(context, ride.phase).withValues(alpha: 0.15),
+                ),
+              ],
             ),
-            Text(phaseLabel),
             const SizedBox(height: 4),
             Text('上車點：${ride.address}'),
             const SizedBox(height: 16),
             if (ride.phase == DriverRidePhase.enRouteToPickup) ...[
-              FilledButton.icon(
+              OutlinedButton.icon(
                 onPressed: () => openMapsNavigation(ride.address),
+                style: secondaryStyle,
                 icon: const Icon(Icons.navigation),
                 label: const Text('Google Maps 導航'),
               ),
               const SizedBox(height: 8),
               FilledButton(
                 onPressed: ctrl.loading ? null : ctrl.pickUpPassenger,
+                style: primaryStyle,
                 child: const Text('乘客已上車'),
               ),
             ],
@@ -227,8 +140,9 @@ class _ActiveRideCard extends StatelessWidget {
                   ride.dropoffAddress!.isNotEmpty) ...[
                 Text('目的地：${ride.dropoffAddress}'),
                 const SizedBox(height: 16),
-                FilledButton.icon(
+                OutlinedButton.icon(
                   onPressed: () => openMapsNavigation(ride.dropoffAddress!),
+                  style: secondaryStyle,
                   icon: const Icon(Icons.navigation),
                   label: const Text('導航去目的地'),
                 ),
@@ -236,12 +150,37 @@ class _ActiveRideCard extends StatelessWidget {
               ],
               FilledButton(
                 onPressed: ctrl.loading ? null : ctrl.completeTrip,
+                style: primaryStyle,
                 child: const Text('完成行程'),
               ),
             ],
             const SizedBox(height: 8),
             TextButton(
-              onPressed: ctrl.loading ? null : ctrl.abandonTrip,
+              style: TextButton.styleFrom(foregroundColor: scheme.error),
+              onPressed: ctrl.loading
+                  ? null
+                  : () async {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (dialogCtx) => AlertDialog(
+                          title: const Text('確定放棄這筆訂單？'),
+                          content: const Text('放棄後這筆訂單會回到派單池。'),
+                          actions: [
+                            TextButton(
+                              onPressed: () =>
+                                  Navigator.of(dialogCtx).pop(false),
+                              child: const Text('返回'),
+                            ),
+                            FilledButton(
+                              onPressed: () =>
+                                  Navigator.of(dialogCtx).pop(true),
+                              child: const Text('確定放棄'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed == true) await ctrl.abandonTrip();
+                    },
               child: const Text('放棄此單'),
             ),
           ],
@@ -258,8 +197,7 @@ class _IdleHint extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          '開啟「上線」後會以前景服務每 ${AppConfig.locationIntervalSec} 秒回報 GPS，'
-          '切到 Google Maps 導航或鎖屏仍持續上報；並透過 WebSocket 接收派單。',
+          '上線後將自動回報位置並接收派單。',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ),
