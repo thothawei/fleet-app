@@ -254,11 +254,11 @@ class CustomerController extends ChangeNotifier {
         _error = '需要定位權限才能叫車';
         return;
       }
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
+      final pos = await _acquirePosition();
+      if (pos == null) {
+        _error = '目前無法取得定位，請確認 GPS 已開啟後再試';
+        return;
+      }
       _lastPosition = pos;
       final pickup = pickupAddress.trim().isNotEmpty
           ? pickupAddress.trim()
@@ -341,6 +341,21 @@ class CustomerController extends ChangeNotifier {
       _error = e.message;
     } finally {
       _setBusy(false);
+    }
+  }
+
+  /// 取得目前位置：高精度定位在模擬器／室內可能長時間拿不到 fix，
+  /// 故設 8 秒逾時；逾時後退回最後已知位置，避免叫車一直卡在載入轉圈。
+  Future<Position?> _acquirePosition() async {
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+    } on TimeoutException {
+      return Geolocator.getLastKnownPosition();
     }
   }
 
