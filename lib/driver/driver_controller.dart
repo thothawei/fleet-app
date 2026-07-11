@@ -327,6 +327,10 @@ class DriverController extends ChangeNotifier {
     }
   }
 
+  /// 查當月收入（E1 司機收入頁用）。month 格式 YYYY-MM。
+  Future<DriverEarnings> fetchEarnings(String month) =>
+      _api.fetchEarnings(month: month);
+
   void _handleWsEvent(FleetWsEvent event) {
     switch (event.type) {
       case FleetEventTypes.rideAssigned:

@@ -9,6 +9,7 @@ import '../driver_controller.dart';
 import '../widgets/connection_details_tile.dart';
 import '../widgets/offer_overlay.dart';
 import '../widgets/online_hero_card.dart';
+import 'driver_earnings_screen.dart';
 
 class DriverHomeScreen extends StatelessWidget {
   const DriverHomeScreen({super.key});
@@ -23,6 +24,17 @@ class DriverHomeScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text('你好，${ctrl.session?.name ?? '司機'}'),
             actions: [
+              IconButton(
+                tooltip: '我的收入',
+                // DriverController 由 App 層 Provider 提供，位於 MaterialApp 之上，
+                // pushed route 仍可透過 context.read 取得，故不需重新 provide。
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const DriverEarningsScreen(),
+                  ),
+                ),
+                icon: const Icon(Icons.payments_outlined),
+              ),
               IconButton(
                 tooltip: '登出',
                 onPressed: ctrl.loading ? null : () => ctrl.logout(),

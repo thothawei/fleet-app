@@ -331,6 +331,27 @@ void main() {
     expect(find.text('目的地地址'), findsOneWidget);
   });
 
+  testWidgets('E2 完成卡有車資時顯示金額、隱藏費用佔位', (tester) async {
+    final ctrl = CustomerController();
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: ctrl,
+        child: const MaterialApp(home: CustomerHomeScreen()),
+      ),
+    );
+    ctrl.markCompletedForTest(
+      rideId: 42,
+      dropoffAddress: '松山機場',
+      fareAmountCents: 18500,
+    );
+    await tester.pump();
+
+    expect(find.text('車資'), findsOneWidget);
+    expect(find.text('NT\$ 185.00'), findsOneWidget);
+    // 有真車資時不再顯示「查看費用」佔位
+    expect(find.text('查看費用（即將開放）'), findsNothing);
+  });
+
   group('CustomerApiClient.createRide 送出 body（地圖選點帶座標）', () {
     CustomerApiClient apiWith(_CaptureAdapter adapter) {
       final dio = Dio(BaseOptions(baseUrl: 'http://x/api'))

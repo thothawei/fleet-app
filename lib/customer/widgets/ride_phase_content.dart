@@ -3,6 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../core/config/app_config.dart';
 import '../../core/models/models.dart';
+import '../../core/util/money.dart';
 import '../customer_controller.dart';
 import '../screens/map_picker_screen.dart';
 
@@ -168,9 +169,25 @@ class CompletedContent extends StatelessWidget {
           const SizedBox(height: 4),
           Text('目的地：${summary.dropoffAddress}'),
         ],
+        if (summary.fareAmountCents != null) ...[
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('車資', style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                formatCentsAsNtd(summary.fareAmountCents!),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 12),
         Text(
-          '評分與付款功能即將開放（後端 Phase C）。',
+          '評分功能即將開放（後端 Phase C）。',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 16),
@@ -180,12 +197,15 @@ class CompletedContent extends StatelessWidget {
           label: const Text('留下評分（即將開放）'),
         ),
         const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: null,
-          icon: const Icon(Icons.receipt_long),
-          label: const Text('查看費用（即將開放）'),
-        ),
-        const SizedBox(height: 8),
+        // 尚未收到車資（舊後端／缺 payload）時保留佔位，避免完成卡沒有費用資訊。
+        if (summary.fareAmountCents == null) ...[
+          OutlinedButton.icon(
+            onPressed: null,
+            icon: const Icon(Icons.receipt_long),
+            label: const Text('查看費用（即將開放）'),
+          ),
+          const SizedBox(height: 8),
+        ],
         TextButton(
           onPressed: () => ctrl.dismissCompleted(),
           child: const Text('再叫一輛'),

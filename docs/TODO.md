@@ -86,3 +86,29 @@
 3. **A2 真裝置推播**：建 Firebase 專案 + `google-services.json`，後端實作 FCM data payload
    （契約見 README，含 `dropoff_lat/lng`），驗「App 被殺 → 點推播 → 接單卡」。
 4. 依賴外部資源、暫不動：A5 iOS build（需完整 Xcode + CocoaPods）。
+
+## 手續費／會費／司機收入（2026-07-11 規劃）
+
+> 需求：報表要顯示司機營業狀況（營業額）與應付總公司金額。App 端主要做**司機收入頁**。
+> **依賴後端 F7**（`GET /api/driver/earnings`，見
+> [line-fleet-dispatch/docs/TODO.md](../../line-fleet-dispatch/docs/TODO.md)「F. 手續費／會費／營運報表」）。
+> 車資／手續費由後端於行程完成時定格計算，App 只呈現，**勿在 App 端算錢**。
+>
+> 已定案：距離自動計費、手續費+會費並存、會費為月費固定金額、費率快照制、
+> 金額全系統統一（後端存分、App 顯示除 100）。
+
+> **實作進度（2026-07-11）**：E1、E2 已完成。`flutter analyze` 無 issue、`flutter test`
+> 60 passed（新增 money 格式化 3 案、司機收入頁 widget 1 案、E2 完成卡車資 1 案）。
+> 金額用 `lib/core/util/money.dart`（分→NT$）。**尚未做**：真裝置/模擬器 E2E 對帳。
+
+- [x] **E1. 司機收入頁** ✅（`lib/driver/screens/driver_earnings_screen.dart`）
+      月切換（上/下月，禁未來月），顯示本月趟數、營業額、手續費、實得、月會費、**應付總公司**。
+      串後端 F7（`FleetApiClient.fetchEarnings` → `DriverController.fetchEarnings`）。
+      司機首頁 AppBar 加「我的收入」入口（payments 圖示）；載入中 spinner、失敗可重試。
+
+- [x] **E2. 乘客端完成卡顯示車資** ✅（`ride_phase_content.dart` + `CompletedRideSummary`）
+      `ride.completed` 事件帶 `fare_amount_cents`（後端 tracking.go 已補）→ 完成卡顯示「車資 NT$…」；
+      無車資（舊後端）時保留「查看費用（即將開放）」佔位。付款流程仍屬另一題。
+
+**驗收**：`flutter analyze` 無 issue、`flutter test` 60 passed。**待補**：後端 docker 起、
+造已完成行程 → 司機收入頁數字與 admin 月報表該司機列對帳（真 E2E 尚未跑）。

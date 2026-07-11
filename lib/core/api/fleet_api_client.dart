@@ -128,6 +128,20 @@ class FleetApiClient {
     }
   }
 
+  /// 查司機當月收入（對齊 GET /api/driver/earnings?month=YYYY-MM，F7）。
+  /// month 為 null 時後端預設當月。
+  Future<DriverEarnings> fetchEarnings({String? month}) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/driver/earnings',
+        queryParameters: month != null ? {'month': month} : null,
+      );
+      return DriverEarnings.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 註冊 FCM/APNs 推播 token（對齊 POST /api/driver/device-token）。
   Future<void> registerDeviceToken({
     required String platform,
