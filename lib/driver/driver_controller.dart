@@ -217,9 +217,20 @@ class DriverController extends ChangeNotifier {
       onError: (_) {},
     );
 
-    // 立即回報一筆，不必等第一個 stream tick。
+    // 立即回報一筆，不必等第一個 stream tick；不 await 以免上線鈕卡在等 GPS fix。
+    unawaited(_reportImmediatePosition());
+  }
+
+  /// 上線後立即回報一筆位置。高精度定位在模擬器／室內可能長時間無 fix，
+  /// 故設 8 秒逾時；逾時就放棄這筆，後續由 stream 補上精確位置。
+  Future<void> _reportImmediatePosition() async {
     try {
-      final pos = await Geolocator.getCurrentPosition(locationSettings: settings);
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
       await _reportPosition(pos);
     } catch (_) {}
   }

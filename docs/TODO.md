@@ -80,8 +80,15 @@
 
 ## 下次任務
 
-1. **座標導航的模擬器 E2E**（本次只做到單元測試）：後端 docker 起來 → 乘客 App 地圖選點下單 →
-   司機端接單 → 上車 → 按「導航去目的地」，確認開出的 Google Maps URL 是 `query=lat,lng` 而非地址。
+1. [x] **座標導航的模擬器 E2E** ✅（2026-07-11，`m6_pixel` + 後端 docker）：
+   乘客帶 `dropoff_lat/lng` 下單（本機無 `GOOGLE_MAPS_API_KEY`，改以 customer API 注入座標
+   繞過需金鑰的選點 UI）→ 司機端接單 → 乘客已上車 → 按「導航去目的地」。
+   以 `dumpsys activity` 攔到實際開出的 intent：
+   `dat=https://www.google.com/maps/search/?api=1&query=25.0636%2C121.5525`
+   → **`query=lat,lng` 而非地址**，斷言成立。後端 ride #4 `dropoff_point=POINT(121.5525 25.0636)`。
+   同場加映：完整叫車鏈路 ride #3 走完六狀態（requested→assigned→accepted→driver.arrived
+   →picked_up→completed），`driver.arrived` 由 GPS 進上車圍籬自動觸發。
+   **待補**：補 `GOOGLE_MAPS_API_KEY` 後改由乘客 App「地圖選點」真實產生座標（本次以 API 注入替代）。
 2. **乘客端地圖版**：補 `GOOGLE_MAPS_API_KEY` 後驗上述地圖 sheet 路徑。
 3. **A2 真裝置推播**：建 Firebase 專案 + `google-services.json`，後端實作 FCM data payload
    （契約見 README，含 `dropoff_lat/lng`），驗「App 被殺 → 點推播 → 接單卡」。
@@ -110,5 +117,10 @@
       `ride.completed` 事件帶 `fare_amount_cents`（後端 tracking.go 已補）→ 完成卡顯示「車資 NT$…」；
       無車資（舊後端）時保留「查看費用（即將開放）」佔位。付款流程仍屬另一題。
 
-**驗收**：`flutter analyze` 無 issue、`flutter test` 60 passed。**待補**：後端 docker 起、
-造已完成行程 → 司機收入頁數字與 admin 月報表該司機列對帳（真 E2E 尚未跑）。
+**驗收**：`flutter analyze` 無 issue、`flutter test` 60 passed。
+**收入頁 E2E 對帳 ✅（2026-07-11，`m6_pixel` + 後端 docker）**：造 2 筆已完成行程（ride #3/#4，
+各 fare 8500 分）→ 司機收入頁 2026-07 顯示與後端 `GET /api/driver/earnings` 完全一致——
+完成趟數 2、營業額 NT$170.00（17000）、手續費 −NT$25.50（2550，15%）、司機實得 NT$144.50（14450）、
+月會費 NT$3,000.00（300000）、應付總公司 NT$3,025.50（302550）。空月（2026-06）全歸零、
+與後端一致；月切換 `<` 可用、`>` 在當月禁用（禁未來月）驗到。
+**待補**：與 admin 月報表該司機列對帳（屬 line-fleet-admin，不同 repo，本次未跨端核對）。
