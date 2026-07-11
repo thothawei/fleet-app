@@ -117,5 +117,10 @@
       `ride.completed` 事件帶 `fare_amount_cents`（後端 tracking.go 已補）→ 完成卡顯示「車資 NT$…」；
       無車資（舊後端）時保留「查看費用（即將開放）」佔位。付款流程仍屬另一題。
 
-**驗收**：`flutter analyze` 無 issue、`flutter test` 60 passed。**待補**：後端 docker 起、
-造已完成行程 → 司機收入頁數字與 admin 月報表該司機列對帳（真 E2E 尚未跑）。
+**驗收**：`flutter analyze` 無 issue、`flutter test` 60 passed。
+**收入頁 E2E 對帳 ✅（2026-07-11，`m6_pixel` + 後端 docker）**：造 2 筆已完成行程（ride #3/#4，
+各 fare 8500 分）→ 司機收入頁 2026-07 顯示與後端 `GET /api/driver/earnings` 完全一致——
+完成趟數 2、營業額 NT$170.00（17000）、手續費 −NT$25.50（2550，15%）、司機實得 NT$144.50（14450）、
+月會費 NT$3,000.00（300000）、應付總公司 NT$3,025.50（302550）。空月（2026-06）全歸零、
+與後端一致；月切換 `<` 可用、`>` 在當月禁用（禁未來月）驗到。
+**待補**：與 admin 月報表該司機列對帳（屬 line-fleet-admin，不同 repo，本次未跨端核對）。
