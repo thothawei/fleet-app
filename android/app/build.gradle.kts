@@ -8,7 +8,9 @@ plugins {
 
 android {
     namespace = "dev.linefleet.line_fleet_app"
-    compileSdk = flutter.compileSdkVersion
+    // 明確設 36：google_maps_flutter / geolocator 等相依套件要求 compileSdk >= 36，
+    // flutter.compileSdkVersion 目前解析為 33 會讓 AAR metadata 檢查失敗。
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
