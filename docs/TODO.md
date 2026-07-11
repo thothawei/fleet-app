@@ -80,8 +80,15 @@
 
 ## 下次任務
 
-1. **座標導航的模擬器 E2E**（本次只做到單元測試）：後端 docker 起來 → 乘客 App 地圖選點下單 →
-   司機端接單 → 上車 → 按「導航去目的地」，確認開出的 Google Maps URL 是 `query=lat,lng` 而非地址。
+1. [x] **座標導航的模擬器 E2E** ✅（2026-07-11，`m6_pixel` + 後端 docker）：
+   乘客帶 `dropoff_lat/lng` 下單（本機無 `GOOGLE_MAPS_API_KEY`，改以 customer API 注入座標
+   繞過需金鑰的選點 UI）→ 司機端接單 → 乘客已上車 → 按「導航去目的地」。
+   以 `dumpsys activity` 攔到實際開出的 intent：
+   `dat=https://www.google.com/maps/search/?api=1&query=25.0636%2C121.5525`
+   → **`query=lat,lng` 而非地址**，斷言成立。後端 ride #4 `dropoff_point=POINT(121.5525 25.0636)`。
+   同場加映：完整叫車鏈路 ride #3 走完六狀態（requested→assigned→accepted→driver.arrived
+   →picked_up→completed），`driver.arrived` 由 GPS 進上車圍籬自動觸發。
+   **待補**：補 `GOOGLE_MAPS_API_KEY` 後改由乘客 App「地圖選點」真實產生座標（本次以 API 注入替代）。
 2. **乘客端地圖版**：補 `GOOGLE_MAPS_API_KEY` 後驗上述地圖 sheet 路徑。
 3. **A2 真裝置推播**：建 Firebase 專案 + `google-services.json`，後端實作 FCM data payload
    （契約見 README，含 `dropoff_lat/lng`），驗「App 被殺 → 點推播 → 接單卡」。
