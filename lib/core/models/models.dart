@@ -111,17 +111,55 @@ class CustomerLoginResult {
 }
 
 /// 行程剛完成時的摘要（B5 評分／付款入口佔位用）。
-/// 後端 Phase C 就緒後可擴充金額、帳單 id 等欄位。
 class CompletedRideSummary {
   const CompletedRideSummary({
     required this.rideId,
     this.dropoffAddress,
     this.driverName,
+    this.fareAmountCents,
   });
 
   final int rideId;
   final String? dropoffAddress;
   final String? driverName;
+
+  /// 車資（分）；來自 ride.completed 事件的 fare_amount_cents（E2）。無則 null。
+  final int? fareAmountCents;
+}
+
+/// 司機當月收入（對齊後端 GET /api/driver/earnings，F7）。金額欄位皆為「分」。
+class DriverEarnings {
+  const DriverEarnings({
+    required this.month,
+    required this.tripCount,
+    required this.totalRevenueCents,
+    required this.totalCommissionCents,
+    required this.driverNetCents,
+    required this.membershipFeeCents,
+    required this.owedToHqCents,
+  });
+
+  final String month;
+  final int tripCount;
+  final int totalRevenueCents;
+  final int totalCommissionCents;
+  final int driverNetCents;
+  final int membershipFeeCents;
+
+  /// 應付總公司 = 手續費 + 月會費（後端算好帶回）。
+  final int owedToHqCents;
+
+  factory DriverEarnings.fromJson(Map<String, dynamic> json) {
+    return DriverEarnings(
+      month: json['month'] as String? ?? '',
+      tripCount: (json['trip_count'] as num?)?.toInt() ?? 0,
+      totalRevenueCents: (json['total_revenue_cents'] as num?)?.toInt() ?? 0,
+      totalCommissionCents: (json['total_commission_cents'] as num?)?.toInt() ?? 0,
+      driverNetCents: (json['driver_net_cents'] as num?)?.toInt() ?? 0,
+      membershipFeeCents: (json['membership_fee_cents'] as num?)?.toInt() ?? 0,
+      owedToHqCents: (json['owed_to_hq_cents'] as num?)?.toInt() ?? 0,
+    );
+  }
 }
 
 /// 訂單狀態碼，對齊 line-fleet-dispatch/internal/constants/ride.go

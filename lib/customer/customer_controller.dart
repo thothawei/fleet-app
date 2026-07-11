@@ -188,11 +188,13 @@ class CustomerController extends ChangeNotifier {
     required int rideId,
     String? dropoffAddress,
     String? driverName,
+    int? fareAmountCents,
   }) {
     _completedSummary = CompletedRideSummary(
       rideId: rideId,
       dropoffAddress: dropoffAddress,
       driverName: driverName,
+      fareAmountCents: fareAmountCents,
     );
     notifyListeners();
   }
@@ -225,6 +227,7 @@ class CustomerController extends ChangeNotifier {
           rideId: active.rideId,
           dropoffAddress: active.dropoffAddress,
           driverName: _driverName,
+          fareAmountCents: (event.payload?['fare_amount_cents'] as num?)?.toInt(),
         );
         refreshActive();
       case FleetEventTypes.ridePickedUp:

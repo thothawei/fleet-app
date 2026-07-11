@@ -97,14 +97,18 @@
 > 已定案：距離自動計費、手續費+會費並存、會費為月費固定金額、費率快照制、
 > 金額全系統統一（後端存分、App 顯示除 100）。
 
-- [ ] **E1. 司機收入頁**（新頁，司機端側欄／個人頁入口）
-      月切換，顯示：本月趟數、營業額、手續費、實得、月會費、**應付總公司**。
-      串後端 F7 `GET /api/driver/earnings?month=YYYY-MM`（driver JWT）。
-      無資料月份顯示空狀態；金額格式化（千分位、除 100）。
+> **實作進度（2026-07-11）**：E1、E2 已完成。`flutter analyze` 無 issue、`flutter test`
+> 60 passed（新增 money 格式化 3 案、司機收入頁 widget 1 案、E2 完成卡車資 1 案）。
+> 金額用 `lib/core/util/money.dart`（分→NT$）。**尚未做**：真裝置/模擬器 E2E 對帳。
 
-- [ ] **E2.（選配）乘客端完成卡顯示車資**
-      既有 B5「評分／付款佔位」升級為顯示真實 `fare_amount`（後端 F2/F3 完成後
-      `ride.completed` payload 可帶車資）。是否做付款流程是另一題，這裡只顯示金額。
+- [x] **E1. 司機收入頁** ✅（`lib/driver/screens/driver_earnings_screen.dart`）
+      月切換（上/下月，禁未來月），顯示本月趟數、營業額、手續費、實得、月會費、**應付總公司**。
+      串後端 F7（`FleetApiClient.fetchEarnings` → `DriverController.fetchEarnings`）。
+      司機首頁 AppBar 加「我的收入」入口（payments 圖示）；載入中 spinner、失敗可重試。
 
-**驗收**：後端 docker 起、造一筆已完成行程 → 司機收入頁數字與 admin 月報表該司機列一致
-（營業額／手續費／應付總公司對得起來）；補 controller 層測試（注入 FakeApi 回傳 earnings）。
+- [x] **E2. 乘客端完成卡顯示車資** ✅（`ride_phase_content.dart` + `CompletedRideSummary`）
+      `ride.completed` 事件帶 `fare_amount_cents`（後端 tracking.go 已補）→ 完成卡顯示「車資 NT$…」；
+      無車資（舊後端）時保留「查看費用（即將開放）」佔位。付款流程仍屬另一題。
+
+**驗收**：`flutter analyze` 無 issue、`flutter test` 60 passed。**待補**：後端 docker 起、
+造已完成行程 → 司機收入頁數字與 admin 月報表該司機列對帳（真 E2E 尚未跑）。
