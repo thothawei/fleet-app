@@ -47,3 +47,6 @@ app.*.map.json
 # Gradle 於 android/ 下產生的建置產物
 /android/build/
 /android/.gradle/
+
+# Cursor IDE 的本機 agent 規則/設定（各人自留，勿進版控）
+.cursor/
