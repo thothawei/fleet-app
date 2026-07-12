@@ -83,9 +83,13 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把 `eta_
 
 詳見 [`docs/TODO.md`](docs/TODO.md)。
 
-- **司機端**：登入→hero 上線→前景服務 GPS→全螢幕接單→大按鈕導航／上車／完成（放棄二次確認）
+- **司機端**：登入→hero 上線→前景服務 GPS→全螢幕接單→大按鈕導航（座標優先）／上車／完成（放棄二次確認）
 - **乘客端**：登入→叫車（目的地優先）→階段畫面／地圖 sheet→WS ETA→取消／完成卡
-- **UI/UX 翻新（2026-07-10）**：三端 LINE 綠主題；App 靜態驗收 `flutter analyze` + `flutter test`（49）通過
+- **司機收入頁（E1）**：首頁「我的收入」入口，月切換顯示趟數／營業額／手續費／實得／月會費／應付總公司，
+  串後端 `GET /api/driver/earnings`；金額用 `lib/core/util/money.dart`（分→NT$）。
+- **乘客完成卡車資（E2）**：`ride.completed` 帶 `fare_amount_cents` 時顯示「車資 NT$…」，
+  與後端 F 系列＋admin 三端對帳通過。
+- **UI/UX 翻新（2026-07-10）**：三端 LINE 綠亮暗雙主題；`flutter analyze` 無 issue、`flutter test` 60 passed。
 
 ## 相關文件
 
