@@ -45,6 +45,14 @@ class DriverController extends ChangeNotifier {
   String? _fcmToken;
   bool _busy = false;
 
+  // 聊天：WS chat.message 即時串流 + 未讀計數（聊天室開啟時不累計）。
+  final _chatStream = StreamController<RideMessage>.broadcast();
+  int _unreadChat = 0;
+  bool _chatVisible = false;
+
+  // 遺失物：未結案協尋工作清單（WS lost_item.* 即時更新）。
+  List<LostItemRequest> _lostItems = [];
+
   AuthSession? get session => _session;
   bool get isLoggedIn => _session != null;
   bool get loading => _loading;
@@ -55,6 +63,24 @@ class DriverController extends ChangeNotifier {
   ActiveRide? get activeRide => _activeRide;
   Position? get lastPosition => _lastPosition;
   bool get fcmAvailable => _push.isAvailable;
+
+  /// 即時聊天訊息串流（WS chat.message；聊天室以 id 去重）。
+  Stream<RideMessage> get chatStream => _chatStream.stream;
+
+  /// 乘客傳來、尚未讀的訊息數。
+  int get unreadChat => _unreadChat;
+
+  /// 未結案遺失物協尋工作清單。
+  List<LostItemRequest> get lostItems => _lostItems;
+
+  /// 聊天室開啟/關閉；開啟時清未讀並停止累計。
+  void setChatVisible(bool visible) {
+    _chatVisible = visible;
+    if (visible && _unreadChat != 0) {
+      _unreadChat = 0;
+    }
+    notifyListeners();
+  }
   String? get fcmTokenPrefix {
     final t = _fcmToken;
     if (t == null || t.length <= 8) return t;
@@ -73,6 +99,7 @@ class DriverController extends ChangeNotifier {
     if (saved != null) {
       await _applySession(saved);
       await _restoreActiveRide();
+      await refreshLostItems();
     }
     await _bindPushListener();
   }
@@ -175,6 +202,9 @@ class DriverController extends ChangeNotifier {
     _api.setToken(null);
     _pendingOffer = null;
     _activeRide = null;
+    _unreadChat = 0;
+    _chatVisible = false;
+    _lostItems = [];
     notifyListeners();
   }
 
@@ -342,7 +372,102 @@ class DriverController extends ChangeNotifier {
   Future<DriverEarnings> fetchEarnings(String month) =>
       _api.fetchEarnings(month: month);
 
+  /// 聊天歷史／發送（聊天室畫面用）。
+  Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) =>
+      _api.fetchMessages(rideId, afterId: afterId);
+
+  Future<RideMessage> sendMessage(int rideId, String body) =>
+      _api.sendMessage(rideId, body);
+
+  /// 重新拉未結案協尋工作清單（登入後、遺失物頁下拉）。
+  Future<void> refreshLostItems() async {
+    if (_session == null) return;
+    try {
+      _lostItems = await _api.fetchLostItems();
+      notifyListeners();
+    } on ApiException catch (_) {
+      // 背景保底，失敗不覆蓋主錯誤訊息
+    }
+  }
+
+  /// 標記已尋獲（open → found）。
+  Future<LostItemRequest> markLostItemFound(int itemId) async {
+    final item = await _api.markLostItemFound(itemId);
+    _applyLostItem(item);
+    notifyListeners();
+    return item;
+  }
+
+  /// 付訖後標記已歸還（paid → returned）。
+  Future<LostItemRequest> markLostItemReturned(int itemId) async {
+    final item = await _api.markLostItemReturned(itemId);
+    _applyLostItem(item);
+    notifyListeners();
+    return item;
+  }
+
+  /// 未尋獲結案（open/found → closed）。
+  Future<LostItemRequest> closeLostItem(int itemId) async {
+    final item = await _api.closeLostItem(itemId);
+    _applyLostItem(item);
+    notifyListeners();
+    return item;
+  }
+
+  /// 以單筆最新狀態合併進未結案清單：結案移除、未結案更新或插入（新的在前）。
+  void _applyLostItem(LostItemRequest item) {
+    final idx = _lostItems.indexWhere((e) => e.id == item.id);
+    if (!item.isActive) {
+      if (idx >= 0) _lostItems.removeAt(idx);
+      return;
+    }
+    if (idx >= 0) {
+      _lostItems[idx] = item;
+    } else {
+      _lostItems.insert(0, item);
+    }
+  }
+
+  void _onChatMessage(FleetWsEvent event) {
+    final payload = event.payload;
+    if (payload == null) return;
+    final RideMessage msg;
+    try {
+      msg = RideMessage.fromJson(payload);
+    } catch (_) {
+      return;
+    }
+    _chatStream.add(msg);
+    // 只有「乘客傳來」且聊天室未開啟才累計未讀（自己其他裝置的回聲不算）。
+    if (msg.senderRole != 'driver' && !_chatVisible) {
+      _unreadChat++;
+      notifyListeners();
+    }
+  }
+
+  void _onLostItemEvent(FleetWsEvent event) {
+    final payload = event.payload;
+    if (payload == null) return;
+    final LostItemRequest item;
+    try {
+      item = LostItemRequest.fromJson(payload);
+    } catch (_) {
+      return;
+    }
+    _applyLostItem(item);
+    notifyListeners();
+  }
+
   void _handleWsEvent(FleetWsEvent event) {
+    switch (event.type) {
+      case FleetEventTypes.chatMessage:
+        _onChatMessage(event);
+        return;
+      case FleetEventTypes.lostItemCreated:
+      case FleetEventTypes.lostItemUpdated:
+        _onLostItemEvent(event);
+        return;
+    }
     switch (event.type) {
       case FleetEventTypes.rideAssigned:
         if (event.rideId != null && _activeRide == null) {
@@ -393,6 +518,7 @@ class DriverController extends ChangeNotifier {
     _positionSub?.cancel();
     _pushSub?.cancel();
     _tokenRefreshSub?.cancel();
+    _chatStream.close();
     _ws.disconnect();
     _push.dispose();
     super.dispose();

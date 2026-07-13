@@ -6,6 +6,7 @@ import '../../core/models/models.dart';
 import '../customer_controller.dart';
 import '../widgets/customer_tracking_map.dart';
 import '../widgets/ride_phase_content.dart';
+import 'lost_item_screen.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
@@ -34,7 +35,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () => ctrl.refreshActive(),
+        onRefresh: () async {
+          await ctrl.refreshActive();
+          await ctrl.refreshLostItems();
+        },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
@@ -50,6 +54,11 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   child: OrderFormContent(ctrl: ctrl),
                 ),
               ),
+            // 進行中的遺失物協尋（WS 即時更新狀態）
+            for (final item in ctrl.lostItems) ...[
+              const SizedBox(height: 12),
+              _LostItemBanner(item: item),
+            ],
           ],
         ),
       ),
@@ -69,6 +78,30 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         SnackBar(content: Text(error)),
       );
     });
+  }
+}
+
+/// 進行中的遺失物協尋摘要卡：點擊進入詳情（付款／對話）。
+class _LostItemBanner extends StatelessWidget {
+  const _LostItemBanner({required this.item});
+
+  final LostItemRequest item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.travel_explore),
+        title: Text('遺失物協尋：${item.description}'),
+        subtitle: Text(item.statusLabel),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => CustomerLostItemScreen(rideId: item.rideId),
+          ),
+        ),
+      ),
+    );
   }
 }
 

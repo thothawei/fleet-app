@@ -4,8 +4,52 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../core/config/app_config.dart';
 import '../../core/models/models.dart';
 import '../../core/util/money.dart';
+import '../../shared/screens/ride_chat_screen.dart';
 import '../customer_controller.dart';
+import '../screens/lost_item_screen.dart';
 import '../screens/map_picker_screen.dart';
+
+/// 開啟與司機的即時聊天室（行程中與遺失物協尋共用同一條對話）。
+void openCustomerChat(BuildContext context, CustomerController ctrl, int rideId) {
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => RideChatScreen(
+        rideId: rideId,
+        selfRole: 'customer',
+        title: '聯絡司機',
+        loadHistory: ctrl.fetchMessages,
+        send: ctrl.sendMessage,
+        incoming: ctrl.chatStream,
+        onVisibilityChanged: ctrl.setChatVisible,
+      ),
+    ),
+  );
+}
+
+/// 「聯絡司機」按鈕（帶未讀角標）。
+class ContactDriverButton extends StatelessWidget {
+  const ContactDriverButton({
+    required this.ctrl,
+    required this.rideId,
+    super.key,
+  });
+
+  final CustomerController ctrl;
+  final int rideId;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: () => openCustomerChat(context, ctrl, rideId),
+      icon: Badge(
+        isLabelVisible: ctrl.unreadChat > 0,
+        label: Text('${ctrl.unreadChat}'),
+        child: const Icon(Icons.chat_bubble_outline),
+      ),
+      label: const Text('聯絡司機'),
+    );
+  }
+}
 
 /// 配對中：進度動畫＋取消叫車。
 class SearchingContent extends StatelessWidget {
@@ -104,8 +148,10 @@ class DriverEnRouteContent extends StatelessWidget {
         ] else ...[
           Text('司機前往中', style: Theme.of(context).textTheme.bodyMedium),
         ],
+        const SizedBox(height: 16),
+        ContactDriverButton(ctrl: ctrl, rideId: ride.rideId),
         if (ride.cancellable) ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           OutlinedButton(
             onPressed: ctrl.busy ? null : () => ctrl.cancelOrder(),
             child: const Text('取消叫車'),
@@ -138,6 +184,8 @@ class OnTripContent extends StatelessWidget {
           const SizedBox(height: 4),
         ],
         if (ctrl.driverName != null) Text('司機：${ctrl.driverName}'),
+        const SizedBox(height: 16),
+        ContactDriverButton(ctrl: ctrl, rideId: ride.rideId),
       ],
     );
   }
@@ -206,6 +254,16 @@ class CompletedContent extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
+        OutlinedButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => CustomerLostItemScreen(rideId: summary.rideId),
+            ),
+          ),
+          icon: const Icon(Icons.help_outline),
+          label: const Text('物品遺失？聯絡司機'),
+        ),
+        const SizedBox(height: 8),
         TextButton(
           onPressed: () => ctrl.dismissCompleted(),
           child: const Text('再叫一輛'),

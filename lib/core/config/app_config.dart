@@ -37,6 +37,9 @@ class FleetEventTypes {
   static const ridePickedUp = 'ride.picked_up';
   static const rideCompleted = 'ride.completed';
   static const rideCancelled = 'ride.cancelled';
+  static const chatMessage = 'chat.message';
+  static const lostItemCreated = 'lost_item.created';
+  static const lostItemUpdated = 'lost_item.updated';
 }
 
 /// 行程階段（司機端 UI 狀態）

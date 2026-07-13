@@ -42,6 +42,14 @@ class CustomerController extends ChangeNotifier {
   CompletedRideSummary? _completedSummary;
   Timer? _pollTimer;
 
+  // 聊天：WS chat.message 即時串流 + 未讀計數（聊天室開啟時不累計）。
+  final _chatStream = StreamController<RideMessage>.broadcast();
+  int _unreadChat = 0;
+  bool _chatVisible = false;
+
+  // 遺失物：未結案協尋單（WS lost_item.* 即時更新）。
+  List<LostItemRequest> _lostItems = [];
+
   CustomerSession? get session => _session;
   bool get isLoggedIn => _session != null;
   bool get loading => _loading;
@@ -68,6 +76,24 @@ class CustomerController extends ChangeNotifier {
   /// 剛完成的行程摘要（B5 評分／付款佔位）；點「再叫一輛」後清除。
   CompletedRideSummary? get completedSummary => _completedSummary;
 
+  /// 即時聊天訊息串流（WS chat.message，含自己其他裝置的回聲；聊天室以 id 去重）。
+  Stream<RideMessage> get chatStream => _chatStream.stream;
+
+  /// 對方傳來、尚未讀的訊息數（聊天室關閉時累計）。
+  int get unreadChat => _unreadChat;
+
+  /// 未結案遺失物協尋單。
+  List<LostItemRequest> get lostItems => _lostItems;
+
+  /// 聊天室開啟/關閉；開啟時清未讀並停止累計。
+  void setChatVisible(bool visible) {
+    _chatVisible = visible;
+    if (visible && _unreadChat != 0) {
+      _unreadChat = 0;
+    }
+    notifyListeners();
+  }
+
   Future<void> init() async {
     _ws = FleetWsClient(
       onEvent: _handleWsEvent,
@@ -80,6 +106,7 @@ class CustomerController extends ChangeNotifier {
     if (saved != null) {
       await _applySession(saved);
       await refreshActive();
+      await refreshLostItems();
     }
   }
 
@@ -147,6 +174,9 @@ class CustomerController extends ChangeNotifier {
     _liveDriverLng = null;
     _driverArrived = false;
     _completedSummary = null;
+    _unreadChat = 0;
+    _chatVisible = false;
+    _lostItems = [];
     _api.setToken(null);
     notifyListeners();
   }
@@ -156,6 +186,10 @@ class CustomerController extends ChangeNotifier {
     _completedSummary = null;
     notifyListeners();
   }
+
+  /// 測試用：模擬收到 WS 事件（等同正式連線後的 onEvent）。
+  @visibleForTesting
+  void handleWsEventForTest(FleetWsEvent event) => _handleWsEvent(event);
 
   /// 測試用：注入已登入 session（略過 storage/init）。
   @visibleForTesting
@@ -200,7 +234,17 @@ class CustomerController extends ChangeNotifier {
   }
 
   /// WS 即時事件：訂單生命週期變化時立即以權威狀態對帳（GET active）。
+  /// 聊天與遺失物事件不受「進行中訂單」限制——遺失物協尋發生在行程完成後。
   void _handleWsEvent(FleetWsEvent event) {
+    switch (event.type) {
+      case FleetEventTypes.chatMessage:
+        _onChatMessage(event);
+        return;
+      case FleetEventTypes.lostItemCreated:
+      case FleetEventTypes.lostItemUpdated:
+        _onLostItemEvent(event);
+        return;
+    }
     final active = _activeRide;
     if (active == null || event.rideId != active.rideId) return;
     switch (event.type) {
@@ -237,6 +281,96 @@ class CustomerController extends ChangeNotifier {
         break;
     }
   }
+
+  void _onChatMessage(FleetWsEvent event) {
+    final payload = event.payload;
+    if (payload == null) return;
+    final RideMessage msg;
+    try {
+      msg = RideMessage.fromJson(payload);
+    } catch (_) {
+      return;
+    }
+    _chatStream.add(msg);
+    // 只有「對方傳來」且聊天室未開啟才累計未讀（自己其他裝置的回聲不算）。
+    if (msg.senderRole != 'customer' && !_chatVisible) {
+      _unreadChat++;
+      notifyListeners();
+    }
+  }
+
+  void _onLostItemEvent(FleetWsEvent event) {
+    final payload = event.payload;
+    if (payload == null) return;
+    final LostItemRequest item;
+    try {
+      item = LostItemRequest.fromJson(payload);
+    } catch (_) {
+      return;
+    }
+    _applyLostItem(item);
+    notifyListeners();
+  }
+
+  /// 以單筆最新狀態合併進未結案清單：結案移除、未結案更新或插入（新的在前）。
+  void _applyLostItem(LostItemRequest item) {
+    final idx = _lostItems.indexWhere((e) => e.id == item.id);
+    if (!item.isActive) {
+      if (idx >= 0) _lostItems.removeAt(idx);
+      return;
+    }
+    if (idx >= 0) {
+      _lostItems[idx] = item;
+    } else {
+      _lostItems.insert(0, item);
+    }
+  }
+
+  /// 重新拉未結案協尋單（登入後、下拉更新時）。
+  Future<void> refreshLostItems() async {
+    if (_session == null) return;
+    try {
+      _lostItems = await _api.fetchLostItems();
+      notifyListeners();
+    } on ApiException catch (_) {
+      // 保底輪詢性質，失敗不覆蓋主錯誤訊息
+    }
+  }
+
+  /// 對已完成行程建立遺失物協尋單；回傳含處理費快照的協尋單。
+  Future<LostItemRequest> reportLostItem(int rideId, String description) async {
+    final item = await _api.createLostItem(rideId, description);
+    _applyLostItem(item);
+    notifyListeners();
+    return item;
+  }
+
+  /// 支付處理費（司機尋獲後）。
+  Future<LostItemRequest> payLostItem(int itemId) async {
+    final item = await _api.payLostItem(itemId);
+    _applyLostItem(item);
+    notifyListeners();
+    return item;
+  }
+
+  /// 取消協尋（open/found）。
+  Future<LostItemRequest> closeLostItem(int itemId) async {
+    final item = await _api.closeLostItem(itemId);
+    _applyLostItem(item);
+    notifyListeners();
+    return item;
+  }
+
+  /// 查該行程最新協尋單（完成卡進入遺失物頁時用）。
+  Future<LostItemRequest?> fetchLostItemByRide(int rideId) =>
+      _api.fetchLostItemByRide(rideId);
+
+  /// 聊天歷史／發送（聊天室畫面用）。
+  Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) =>
+      _api.fetchMessages(rideId, afterId: afterId);
+
+  Future<RideMessage> sendMessage(int rideId, String body) =>
+      _api.sendMessage(rideId, body);
 
   /// 叫車：以目前 GPS 為上車點，帶乘客輸入的上車/目的地地址；
   /// 若目的地由地圖選點取得，另帶精確座標（dropoffLat/Lng）。
@@ -391,6 +525,7 @@ class CustomerController extends ChangeNotifier {
   @override
   void dispose() {
     _stopPolling();
+    _chatStream.close();
     _ws.disconnect();
     super.dispose();
   }

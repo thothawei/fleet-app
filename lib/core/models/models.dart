@@ -265,6 +265,110 @@ class CustomerRide {
   }
 }
 
+/// 行程內對話訊息（乘客↔司機）。來源：REST 歷史查詢或 WS `chat.message` payload，
+/// 兩者欄位相同（後端 rideMessagePayload 與 model JSON 對齊）。
+class RideMessage {
+  const RideMessage({
+    required this.id,
+    required this.rideId,
+    required this.senderRole,
+    required this.senderId,
+    required this.body,
+    this.createdAt,
+  });
+
+  final int id;
+  final int rideId;
+
+  /// 'customer' 或 'driver'。
+  final String senderRole;
+  final int senderId;
+  final String body;
+  final DateTime? createdAt;
+
+  factory RideMessage.fromJson(Map<String, dynamic> json) {
+    return RideMessage(
+      id: (json['id'] as num).toInt(),
+      rideId: (json['ride_id'] as num).toInt(),
+      senderRole: json['sender_role'] as String? ?? '',
+      senderId: (json['sender_id'] as num?)?.toInt() ?? 0,
+      body: json['body'] as String? ?? '',
+      createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),
+    );
+  }
+}
+
+/// 遺失物協尋單狀態（對齊後端 constants/lost_item.go）。
+abstract final class LostItemStatus {
+  static const open = 'open'; // 待司機確認尋獲
+  static const found = 'found'; // 已尋獲，待乘客支付處理費
+  static const paid = 'paid'; // 已支付，待歸還
+  static const returned = 'returned'; // 已歸還，結案
+  static const closed = 'closed'; // 未尋獲／取消，結案
+
+  static String label(String status) {
+    switch (status) {
+      case open:
+        return '等待司機確認';
+      case found:
+        return '司機已尋獲，待支付處理費';
+      case paid:
+        return '已付款，等待歸還';
+      case returned:
+        return '已歸還';
+      case closed:
+        return '已結案';
+      default:
+        return status;
+    }
+  }
+
+  static bool isActive(String status) =>
+      status == open || status == found || status == paid;
+}
+
+/// 遺失物協尋單（對齊後端 model.LostItemRequest JSON / WS lost_item.* payload）。
+/// 處理費 feeCents 為建立當下「車資 × 處理費%」的快照，後台調整%不影響既有單。
+class LostItemRequest {
+  const LostItemRequest({
+    required this.id,
+    required this.rideId,
+    required this.customerId,
+    required this.driverId,
+    required this.description,
+    required this.feeCents,
+    required this.status,
+    this.paidAt,
+  });
+
+  final int id;
+  final int rideId;
+  final int customerId;
+  final int driverId;
+  final String description;
+
+  /// 處理費（分）。
+  final int feeCents;
+  final String status;
+  final DateTime? paidAt;
+
+  bool get isActive => LostItemStatus.isActive(status);
+  String get statusLabel => LostItemStatus.label(status);
+
+  factory LostItemRequest.fromJson(Map<String, dynamic> json) {
+    return LostItemRequest(
+      id: (json['id'] as num).toInt(),
+      rideId: (json['ride_id'] as num).toInt(),
+      customerId: (json['customer_id'] as num?)?.toInt() ?? 0,
+      driverId: (json['driver_id'] as num?)?.toInt() ?? 0,
+      description: json['description'] as String? ?? '',
+      feeCents: (json['fee_cents'] as num?)?.toInt() ?? 0,
+      status: json['status'] as String? ?? LostItemStatus.open,
+      paidAt: DateTime.tryParse(json['paid_at'] as String? ?? ''),
+    );
+  }
+}
+
 /// `POST /api/driver/rides/:id/pickup` 回傳的目的地資訊。
 /// 後端未指定目的地時 address 為 null、座標為 null。
 class DropoffInfo {

@@ -84,6 +84,8 @@
 > 後端計費 F1–F8＋F3 OSRM 里程退路皆已合併進 main，故司機收入頁呈現的車資已是「軌跡 vs 路線取大者」的較準值。
 > 以下多為**外部資源卡住**的項目：
 
+0. **聊天／遺失物模擬器實跑**：`m6_pixel` 起司機＋乘客雙端，實跑「行程中互傳訊息即時到」
+   「完成卡回報遺失→司機尋獲→付款→歸還」整條 UI（程式邏輯已由 67 tests＋後端 E2E 30/30 覆蓋）。
 1. [x] **座標導航的模擬器 E2E** ✅（2026-07-11，`m6_pixel` + 後端 docker）：
    乘客帶 `dropoff_lat/lng` 下單（本機無 `GOOGLE_MAPS_API_KEY`，改以 customer API 注入座標
    繞過需金鑰的選點 UI）→ 司機端接單 → 乘客已上車 → 按「導航去目的地」。
@@ -97,6 +99,29 @@
 3. **A2 真裝置推播**：建 Firebase 專案 + `google-services.json`，後端實作 FCM data payload
    （契約見 README，含 `dropoff_lat/lng`），驗「App 被殺 → 點推播 → 接單卡」。
 4. 依賴外部資源、暫不動：A5 iOS build（需完整 Xcode + CocoaPods）。
+
+## 即時聊天／遺失物協尋（2026-07-13 實作）
+
+> 需求：會員（乘客）↔ 司機**即時**對話（WS `chat.message` 推播，非留言板）；
+> 乘客弄丟東西可對已完成行程建協尋單聯絡司機並支付「找回處理費」
+> （＝該趟車資 × 後台可調的 `lost_item_fee_bps`%，建單當下快照）。
+> 後端對應 [line-fleet-dispatch/docs/TODO.md](../../line-fleet-dispatch/docs/TODO.md)「H. 對話與遺失物協尋」。
+
+- [x] **聊天**：共用 `lib/shared/screens/ride_chat_screen.dart`（氣泡、WS 即時收訊以訊息 id 去重、
+      REST 發送、`after` 增量補歷史、發送中 spinner、錯誤 banner 可重試）。
+      入口：乘客「聯絡司機」（司機途中／行程中，未讀角標）、司機行程卡「聯絡乘客」。
+      controller：`chatStream`／`unreadChat`／`setChatVisible`（聊天室開啟不累計、自己回聲不計）。
+- [x] **遺失物（乘客）**：完成卡「物品遺失？聯絡司機」→ `CustomerLostItemScreen`
+      （回報表單 → 顯示處理費快照 → 對話 → 司機尋獲後「支付處理費」→ 等待歸還；open/found 可取消）；
+      首頁列「進行中協尋」卡（WS `lost_item.updated` 即時更新）。
+- [x] **遺失物（司機）**：AppBar「遺失物協尋」入口（計數角標）→ `DriverLostItemsScreen`
+      （已找到／已歸還／未尋獲結案／聯絡乘客；WS `lost_item.created` 即時進單）。
+- 驗收：`flutter analyze` 無 issue、`flutter test` **67 passed**（新增 7：未讀邏輯、清單合併、
+  模型解析、乘客操作）；後端 live E2E 30/30（含 WS 即時遞送與快照制，見 dispatch TODO H）。
+- 坑：controller `init()` 新增的 `refreshLostItems()` 讓既有 widget 測試卡死 10 分鐘——
+  `testWidgets` 跑在 FakeAsync，真網路呼叫永不完成；Fake API 必須覆蓋 init 觸碰的所有端點。
+- **待做（模擬器實跑）**：`m6_pixel` 起雙 App 實跑聊天室與協尋 UI（本次以單元/widget 測試
+  ＋後端 E2E 驗收；UI 實跑留待下次，同「下次任務」）。
 
 ## 手續費／會費／司機收入（2026-07-11 規劃）
 
