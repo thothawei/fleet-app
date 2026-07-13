@@ -9,8 +9,9 @@ lib/
 ├── core/
 │   ├── api / ws / push / storage / models
 │   └── theme/          # LINE 綠亮暗雙主題（appLightTheme / appDarkTheme）
-├── driver/             # M6 司機端（hero 上線、全螢幕接單、行程大按鈕）
-├── customer/           # M7 乘客端（卡片版降級／地圖為底＋Bottom Sheet）
+├── driver/             # M6 司機端（hero 上線、全螢幕接單、行程大按鈕、遺失物工作清單）
+├── customer/           # M7 乘客端（卡片版降級／地圖為底＋Bottom Sheet、遺失物協尋）
+├── shared/screens/     # 乘客/司機共用畫面（RideChatScreen 即時聊天室）
 ├── main_driver.dart
 ├── main_customer.dart
 └── main.dart
@@ -89,7 +90,14 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把 `eta_
   串後端 `GET /api/driver/earnings`；金額用 `lib/core/util/money.dart`（分→NT$）。
 - **乘客完成卡車資（E2）**：`ride.completed` 帶 `fare_amount_cents` 時顯示「車資 NT$…」，
   與後端 F 系列＋admin 三端對帳通過。
-- **UI/UX 翻新（2026-07-10）**：三端 LINE 綠亮暗雙主題；`flutter analyze` 無 issue、`flutter test` 60 passed。
+- **即時聊天（2026-07-13）**：乘客↔司機行程內對話——WS `chat.message` 即時遞送（非留言板），
+  共用 `RideChatScreen`（氣泡、未讀角標、斷線以 `after` 增量補歷史）；乘客「聯絡司機」、
+  司機「聯絡乘客」入口。
+- **遺失物協尋（2026-07-13）**：乘客完成卡「物品遺失？聯絡司機」→ 回報→顯示處理費
+  （該趟車資×%，建單快照）→ 與司機對話 → 司機尋獲後支付處理費 → 歸還結案；
+  司機端 AppBar「遺失物協尋」工作清單（已找到／已歸還／未尋獲結案）。
+  處理費% 由 admin 費率設定頁調整（後端 `lost_item_fee_bps`）。
+- **UI/UX 翻新（2026-07-10）**：三端 LINE 綠亮暗雙主題；`flutter analyze` 無 issue、`flutter test` 67 passed。
 
 ## 相關文件
 
