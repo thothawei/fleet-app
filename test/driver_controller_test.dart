@@ -288,6 +288,9 @@ class _FakeFleetApi extends FleetApiClient {
   Future<ActiveRide?> activeRide() async => restoreRide;
 
   @override
+  Future<List<LostItemRequest>> fetchLostItems() async => const [];
+
+  @override
   Future<String> acceptRide(int rideId) async {
     if (acceptError != null) throw acceptError!;
     acceptedRideIds.add(rideId);

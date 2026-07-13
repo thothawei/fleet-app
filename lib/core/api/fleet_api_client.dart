@@ -142,6 +142,77 @@ class FleetApiClient {
     }
   }
 
+  /// 行程內對話歷史（afterId > 0 時做增量補讀）。
+  Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/rides/$rideId/messages',
+        queryParameters: afterId > 0 ? {'after': afterId} : null,
+      );
+      final raw = res.data?['messages'];
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map((m) => RideMessage.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 發送訊息；即時遞送由後端透過 WS chat.message 推給雙方。
+  Future<RideMessage> sendMessage(int rideId, String body) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/rides/$rideId/messages',
+        data: {'body': body},
+      );
+      return RideMessage.fromJson(
+        Map<String, dynamic>.from(res.data!['message'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 司機的未結案協尋單（遺失物工作清單）。
+  Future<List<LostItemRequest>> fetchLostItems() async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('/driver/lost-items');
+      final raw = res.data?['lost_items'];
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map((m) => LostItemRequest.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 標記已尋獲（open → found），之後等待乘客支付處理費。
+  Future<LostItemRequest> markLostItemFound(int itemId) =>
+      _postLostItemAction('/lost-items/$itemId/found');
+
+  /// 付訖後標記已歸還（paid → returned），結案。
+  Future<LostItemRequest> markLostItemReturned(int itemId) =>
+      _postLostItemAction('/lost-items/$itemId/return');
+
+  /// 未尋獲結案（open/found → closed）。
+  Future<LostItemRequest> closeLostItem(int itemId) =>
+      _postLostItemAction('/lost-items/$itemId/close');
+
+  Future<LostItemRequest> _postLostItemAction(String path) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(path);
+      return LostItemRequest.fromJson(
+        Map<String, dynamic>.from(res.data!['lost_item'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 註冊 FCM/APNs 推播 token（對齊 POST /api/driver/device-token）。
   Future<void> registerDeviceToken({
     required String platform,

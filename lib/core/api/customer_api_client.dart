@@ -114,6 +114,104 @@ class CustomerApiClient {
     }
   }
 
+  /// 行程內對話歷史（afterId > 0 時做增量補讀，WS 斷線重連後補漏）。
+  Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/rides/$rideId/messages',
+        queryParameters: afterId > 0 ? {'after': afterId} : null,
+      );
+      final raw = res.data?['messages'];
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map((m) => RideMessage.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 發送訊息；即時遞送由後端透過 WS chat.message 推給雙方。
+  Future<RideMessage> sendMessage(int rideId, String body) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/rides/$rideId/messages',
+        data: {'body': body},
+      );
+      return RideMessage.fromJson(
+        Map<String, dynamic>.from(res.data!['message'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 對已完成行程建立遺失物協尋單；回應含依當下處理費%快照的 fee_cents。
+  Future<LostItemRequest> createLostItem(int rideId, String description) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/rides/$rideId/lost-items',
+        data: {'description': description},
+      );
+      return LostItemRequest.fromJson(
+        Map<String, dynamic>.from(res.data!['lost_item'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 查該行程最新協尋單；從未建立過時回 null。
+  Future<LostItemRequest?> fetchLostItemByRide(int rideId) async {
+    try {
+      final res =
+          await _dio.get<Map<String, dynamic>>('/rides/$rideId/lost-items');
+      final raw = res.data?['lost_item'];
+      if (raw is! Map) return null;
+      return LostItemRequest.fromJson(Map<String, dynamic>.from(raw));
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 我的未結案協尋單。
+  Future<List<LostItemRequest>> fetchLostItems() async {
+    try {
+      final res =
+          await _dio.get<Map<String, dynamic>>('/customer/lost-items');
+      final raw = res.data?['lost_items'];
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map((m) => LostItemRequest.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 支付處理費（記帳式確認；司機尋獲後才可付）。
+  Future<LostItemRequest> payLostItem(int itemId) async {
+    return _postLostItemAction('/lost-items/$itemId/pay');
+  }
+
+  /// 取消協尋（open/found 可取消；已付款後不可）。
+  Future<LostItemRequest> closeLostItem(int itemId) async {
+    return _postLostItemAction('/lost-items/$itemId/close');
+  }
+
+  Future<LostItemRequest> _postLostItemAction(String path) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(path);
+      return LostItemRequest.fromJson(
+        Map<String, dynamic>.from(res.data!['lost_item'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   ApiException _wrap(DioException e) {
     final data = e.response?.data;
     String message = e.message ?? '網路錯誤';

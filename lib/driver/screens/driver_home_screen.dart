@@ -5,11 +5,13 @@ import '../../core/config/app_config.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/ride_status_colors.dart';
 import '../../core/util/maps.dart';
+import '../../shared/screens/ride_chat_screen.dart';
 import '../driver_controller.dart';
 import '../widgets/connection_details_tile.dart';
 import '../widgets/offer_overlay.dart';
 import '../widgets/online_hero_card.dart';
 import 'driver_earnings_screen.dart';
+import 'driver_lost_items_screen.dart';
 
 class DriverHomeScreen extends StatelessWidget {
   const DriverHomeScreen({super.key});
@@ -24,6 +26,19 @@ class DriverHomeScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text('你好，${ctrl.session?.name ?? '司機'}'),
             actions: [
+              IconButton(
+                tooltip: '遺失物協尋',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const DriverLostItemsScreen(),
+                  ),
+                ),
+                icon: Badge(
+                  isLabelVisible: ctrl.lostItems.isNotEmpty,
+                  label: Text('${ctrl.lostItems.length}'),
+                  child: const Icon(Icons.travel_explore),
+                ),
+              ),
               IconButton(
                 tooltip: '我的收入',
                 // DriverController 由 App 層 Provider 提供，位於 MaterialApp 之上，
@@ -133,6 +148,29 @@ class _ActiveRideCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text('上車點：${ride.address}'),
             const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => RideChatScreen(
+                    rideId: ride.rideId,
+                    selfRole: 'driver',
+                    title: '聯絡乘客（行程 #${ride.rideId}）',
+                    loadHistory: ctrl.fetchMessages,
+                    send: ctrl.sendMessage,
+                    incoming: ctrl.chatStream,
+                    onVisibilityChanged: ctrl.setChatVisible,
+                  ),
+                ),
+              ),
+              style: secondaryStyle,
+              icon: Badge(
+                isLabelVisible: ctrl.unreadChat > 0,
+                label: Text('${ctrl.unreadChat}'),
+                child: const Icon(Icons.chat_bubble_outline),
+              ),
+              label: const Text('聯絡乘客'),
+            ),
+            const SizedBox(height: 8),
             if (ride.phase == DriverRidePhase.enRouteToPickup) ...[
               OutlinedButton.icon(
                 onPressed: () => openMapsNavigation(ride.address),
