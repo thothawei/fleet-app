@@ -33,6 +33,9 @@ class CustomerController extends ChangeNotifier {
   bool _wsConnected = false;
   Position? _lastPosition;
   CustomerRide? _activeRide;
+  // 最近一筆進行中訂單的鏡像：即使輪詢對帳先把 _activeRide 清成 null，仍能在稍後才到的
+  // ride.completed 事件補出完成摘要（dropoff 等），避免完成卡因競態而不顯示。
+  CustomerRide? _lastActiveRide;
   String? _driverName;
   int? _liveEtaSec;
   int? _liveDistM;
@@ -167,6 +170,7 @@ class CustomerController extends ChangeNotifier {
     await _storage.clear();
     _session = null;
     _activeRide = null;
+    _lastActiveRide = null;
     _driverName = null;
     _liveEtaSec = null;
     _liveDistM = null;
@@ -208,6 +212,7 @@ class CustomerController extends ChangeNotifier {
     bool driverArrived = false,
   }) {
     _activeRide = ride;
+    _lastActiveRide = ride;
     _driverName = driverName;
     _liveEtaSec = liveEtaSec;
     _liveDistM = liveDistM;
@@ -245,6 +250,23 @@ class CustomerController extends ChangeNotifier {
         _onLostItemEvent(event);
         return;
     }
+    // ride.completed 特別處理：完成摘要不能依賴當下的 _activeRide——輪詢對帳（refreshActive
+    // → _applyActiveRide）對終態行程會先把 _activeRide 清成 null，若這步早於 WS 完成事件抵達，
+    // 原本的 active==null 早退就會讓 _completedSummary 永遠設不出來、完成卡不顯示（實跑重現的競態）。
+    // 改用「當前或最近一筆」進行中訂單鏡像來取 rideId/dropoff，事件本身帶車資。
+    if (event.type == FleetEventTypes.rideCompleted) {
+      final ride = _activeRide ?? _lastActiveRide;
+      if (ride == null || event.rideId != ride.rideId) return;
+      // active API 不含終態；先留下摘要供 B5 佔位，再對帳清空進行中訂單
+      _completedSummary = CompletedRideSummary(
+        rideId: ride.rideId,
+        dropoffAddress: ride.dropoffAddress,
+        driverName: _driverName,
+        fareAmountCents: (event.payload?['fare_amount_cents'] as num?)?.toInt(),
+      );
+      refreshActive();
+      return;
+    }
     final active = _activeRide;
     if (active == null || event.rideId != active.rideId) return;
     switch (event.type) {
@@ -265,15 +287,6 @@ class CustomerController extends ChangeNotifier {
         _liveDriverLat = null;
         _liveDriverLng = null;
         notifyListeners();
-      case FleetEventTypes.rideCompleted:
-        // active API 不含終態；先留下摘要供 B5 佔位，再對帳清空進行中訂單
-        _completedSummary = CompletedRideSummary(
-          rideId: active.rideId,
-          dropoffAddress: active.dropoffAddress,
-          driverName: _driverName,
-          fareAmountCents: (event.payload?['fare_amount_cents'] as num?)?.toInt(),
-        );
-        refreshActive();
       case FleetEventTypes.ridePickedUp:
       case FleetEventTypes.rideCancelled:
         refreshActive();
@@ -407,6 +420,7 @@ class CustomerController extends ChangeNotifier {
         dropoffLng: dropoffLng,
       );
       _activeRide = ride;
+      _lastActiveRide = ride;
       _driverName = null;
       _liveEtaSec = null;
       _liveDistM = null;
@@ -449,6 +463,7 @@ class CustomerController extends ChangeNotifier {
       return;
     }
     _activeRide = ride;
+    _lastActiveRide = ride;
     if (ride.status < RideStatus.accepted) {
       _driverName = null;
       _driverArrived = false;

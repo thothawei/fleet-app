@@ -131,22 +131,25 @@
 - [x] **模擬器實跑 ✅（2026-07-15）**：`m6_pixel` 雙 flavor 並存，聊天室 WS 即時到達＋協尋 open→found→paid→returned
   整條 UI 雙端跑通（詳見「下次任務 0」）。
 
-## 模擬器實跑發現（2026-07-15，待修）
+## 模擬器實跑發現（2026-07-15）
 
-> 以下三項為 2026-07-15 模擬器雙端實跑聊天／協尋時**新發現的行為問題**，非本次要做的功能。
-> 程式邏輯的正確性仍由 67 widget/unit tests＋後端 E2E 30/30 覆蓋；這些是「跨畫面／重連時機」層的缺陷。
+> 以下為 2026-07-15 模擬器雙端實跑聊天／協尋時**新發現的行為問題**，非當初規劃的功能。
+> 程式邏輯的正確性仍由 widget/unit tests＋後端 E2E 30/30 覆蓋；這些是「跨畫面／重連時機」層的缺陷。
 
-1. **登入後 WebSocket 未以新 token 重連**（driver + customer 皆有，中高影響）：
-   同一次 App 執行內「登出→重新登入」後，WS client 仍抓舊（已失效）token 一直握手失敗，連線狀態卡在「未連線」；
-   **冷啟動（force-stop 後重開）以已存 session 則正常連上**。實跑時兩端都靠 force-stop 才連上 WS。
-   根因方向：`login()` 流程未像 `init()/restoreSession()` 那樣以新 token 呼叫 `_ws.connect(token)`（或未先 disconnect 舊連線）。
-   影響真實使用者：切帳號 / 重新登入後即時派單、聊天、協尋推播全部失效，直到重啟 App。
-2. **乘客「完成卡」競態，導致「完成卡回報遺失」入口可能不出現**（中影響）：
+1. [x] **登入後 WebSocket 未以新 token 重連** ✅（2026-07-15 修，driver + customer）：
+   根因不在 `login()`——`login()` 有走 `_applySession → _ws.connect(newToken)`；真正原因是 `FleetWsClient.disconnect()`
+   會設 `_disposed=true` 永久擋掉自動重連（登出時必要），但 `connect()` 從不重置它，導致同次執行內
+   「登出→重登」後 `_open()`／`_scheduleReconnect()` 都因 `_disposed=true` 早退，WS 一直連不上（只有冷啟動重建 client 才通）。
+   修正：`connect()` 重置 `_disposed=false` 並取消待定 reconnect timer；新增 `test/fleet_ws_client_test.dart`
+   （注入 connector 連本機測試伺服器）並反向確認移除修正會 FAIL。flutter analyze 無 issue、flutter test 綠。
+2. [x] **乘客「完成卡」競態，導致「完成卡回報遺失」入口可能不出現** ✅（2026-07-15 修）：
    `customer_controller._handleWsEvent` 對 `ride.completed` 先讀 `final active = _activeRide`；若輪詢 `refreshActive()`
-   先一步把終態行程的 `_activeRide` 清成 null，`rideCompleted` 分支的 `active == null` 早退，`_completedSummary` 永不設定，
-   完成卡不顯示。實跑時完成後乘客直接回到叫車頁（本次改走首頁「進行中協尋」banner 進協尋畫面）。
-   修法方向：完成事件的摘要不要依賴當下 `_activeRide`（改用事件 payload 的 rideId／dropoff，或在清 active 前先存摘要）。
-3. **乘客協尋詳情返回再進入未刷新**（低影響、疑似）：`CustomerLostItemScreen` 以 `initState→fetchLostItemByRide` 抓 API，
+   先一步把終態行程的 `_activeRide` 清成 null（active API 對已完成行程回 null），`active == null` 早退，`_completedSummary`
+   永不設定，完成卡不顯示。修正：新增 `_lastActiveRide` 鏡像（賦值進行中訂單處一併更新），`ride.completed` 改在
+   `active==null` 早退前處理、以 `_activeRide ?? _lastActiveRide` 取 rideId/dropoff（車資仍來自事件 payload）。
+   新增 `test/customer_completed_race_test.dart`（重現「輪詢先清空 active，稍後才到 ride.completed」＋rideId 不符不誤設），
+   反向確認移除退路會 FAIL。flutter analyze 無 issue、flutter test 綠。
+3. **乘客協尋詳情返回再進入未刷新**（低影響、疑似，未修）：`CustomerLostItemScreen` 以 `initState→fetchLostItemByRide` 抓 API，
    但「返回首頁再點 banner 重進」時仍顯示舊狀態（open），**force-stop 冷啟後才顯示 found**。
    疑為 http client 回應快取或返回時 widget 狀態殘留；待以 `flutter run` 觀察 `fetchLostItemByRide` 實際回應確認。
 
