@@ -347,7 +347,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('車資'), findsOneWidget);
-    expect(find.text('NT\$ 185.00'), findsOneWidget);
+    expect(find.text('NT\$ 185'), findsOneWidget);
     // 有真車資時不再顯示「查看費用」佔位
     expect(find.text('查看費用（即將開放）'), findsNothing);
   });

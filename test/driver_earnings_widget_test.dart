@@ -28,10 +28,10 @@ void main() {
       month: '2026-07',
       tripCount: 3,
       totalRevenueCents: 27000,
-      totalCommissionCents: 4050,
-      driverNetCents: 22950,
+      totalCommissionCents: 4000,
+      driverNetCents: 23000,
       membershipFeeCents: 300000,
-      owedToHqCents: 304050,
+      owedToHqCents: 304000,
     ));
     final ctrl = DriverController(
       storage: MemoryDriverAuthStore(),
@@ -50,10 +50,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('3 趟'), findsOneWidget);
-    expect(find.text('NT\$ 270.00'), findsOneWidget); // 營業額
-    expect(find.text('NT\$ 229.50'), findsOneWidget); // 司機實得
-    expect(find.text('NT\$ 3,000.00'), findsOneWidget); // 月會費
-    expect(find.text('NT\$ 3,040.50'), findsOneWidget); // 應付總公司
+    expect(find.text('NT\$ 270'), findsOneWidget); // 營業額
+    expect(find.text('NT\$ 230'), findsOneWidget); // 司機實得
+    expect(find.text('NT\$ 3,000'), findsOneWidget); // 月會費
+    expect(find.text('NT\$ 3,040'), findsOneWidget); // 應付總公司
     // 有帶當月參數查詢
     expect(api.lastMonth, isNotNull);
   });
