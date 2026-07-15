@@ -375,8 +375,18 @@ class CustomerController extends ChangeNotifier {
   }
 
   /// 查該行程最新協尋單（完成卡進入遺失物頁時用）。
-  Future<LostItemRequest?> fetchLostItemByRide(int rideId) =>
-      _api.fetchLostItemByRide(rideId);
+  /// 抓到的最新單子順手合併回未結案清單（`_applyLostItem`）：協尋詳情頁 build 會以
+  /// `lostItems` 為準來反映 WS 即時更新，若清單因漏收 WS 事件而過期，會蓋掉本頁剛抓到的
+  /// 新狀態（實跑時「返回再進顯示舊狀態」的根因，該情境源於登入後 WS 未重連——已於別處修）。
+  /// 這裡讓「新鮮抓取」同步成為清單的權威來源，即使 WS 偶爾漏事件也不會顯示過期狀態。
+  Future<LostItemRequest?> fetchLostItemByRide(int rideId) async {
+    final item = await _api.fetchLostItemByRide(rideId);
+    if (item != null) {
+      _applyLostItem(item);
+      notifyListeners();
+    }
+    return item;
+  }
 
   /// 聊天歷史／發送（聊天室畫面用）。
   Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) =>
