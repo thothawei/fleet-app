@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../config/app_config.dart';
@@ -37,10 +38,17 @@ typedef FleetWsClientFactory = FleetWsClient Function({
 
 /// 連線 /ws?token=...，自動重連。
 class FleetWsClient {
-  FleetWsClient({required this.onEvent, this.onConnectionChanged});
+  FleetWsClient({
+    required this.onEvent,
+    this.onConnectionChanged,
+    @visibleForTesting WebSocketChannel Function(Uri uri)? connector,
+  }) : _connector = connector ?? WebSocketChannel.connect;
 
   final FleetEventHandler onEvent;
   final void Function(bool connected)? onConnectionChanged;
+
+  /// 建立底層 WebSocket 連線的注入點（測試可換成連本機測試伺服器，避免依賴真實後端）。
+  final WebSocketChannel Function(Uri uri) _connector;
 
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
@@ -52,6 +60,11 @@ class FleetWsClient {
 
   Future<void> connect(String token) async {
     _token = token;
+    // 允許「登出→重新登入」復用同一個 client：disconnect() 會設 _disposed=true
+    // 擋掉舊 token 的自動重連，若不在明確重連時重置，_open()／_scheduleReconnect()
+    // 會永遠早退，導致重新登入後 WebSocket 一直連不上（只有冷啟動重建 client 才會通）。
+    _disposed = false;
+    _reconnectTimer?.cancel();
     await _open();
   }
 
@@ -73,7 +86,7 @@ class FleetWsClient {
       queryParameters: {'token': _token},
     );
     try {
-      _channel = WebSocketChannel.connect(uri);
+      _channel = _connector(uri);
       onConnectionChanged?.call(true);
       _sub = _channel!.stream.listen(
         (raw) {
