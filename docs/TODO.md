@@ -84,8 +84,16 @@
 > 後端計費 F1–F8＋F3 OSRM 里程退路皆已合併進 main，故司機收入頁呈現的車資已是「軌跡 vs 路線取大者」的較準值。
 > 以下多為**外部資源卡住**的項目：
 
-0. **聊天／遺失物模擬器實跑**：`m6_pixel` 起司機＋乘客雙端，實跑「行程中互傳訊息即時到」
-   「完成卡回報遺失→司機尋獲→付款→歸還」整條 UI（程式邏輯已由 67 tests＋後端 E2E 30/30 覆蓋）。
+0. [x] **聊天／遺失物模擬器實跑** ✅（2026-07-15，`m6_pixel` + 後端 docker，driver/customer 雙 flavor 同機並存）：
+   - **聊天（行程中，WS 即時到達）**：完整叫車→接單→上車進「行程中」後開司機端聊天室。
+     乘客端以 API 發訊 → **司機 App 聊天室無操作即時顯示**（WS `chat.message` 推播，s16）；歷史以 REST 載入；
+     司機 App 打字送出 → 自己泡泡靠右綠底、乘客端 API 收得到（sender_role=driver）。App↔API 雙向即時對話成立。
+   - **遺失物協尋整條 UI（open→found→paid→returned）**：乘客完成行程後建協尋單（處理費 NT$17.96＝車資 17962×10% 快照）→
+     首頁「進行中協尋」banner 進 `CustomerLostItemScreen`（處理費快照、與司機對話、取消）→
+     司機 AppBar「遺失物協尋」**紅色角標即時 +1**（WS `lost_item.created`）→ `DriverLostItemsScreen`「已找到」→
+     乘客端「支付處理費 NT$17.96」→ 司機「已歸還」→ 清單顯示「目前沒有待處理的協尋」。狀態轉換與費用快照全程雙端一致。
+   - **測試座標**：本機無 `GOOGLE_MAPS_API_KEY`，乘客走卡片版；目的地以 ASCII 地址輸入（`adb input text` 不支援中文）。
+   - **實跑中發現 3 個待修（見下「模擬器實跑發現」）**：登入後 WS 未重連、乘客完成卡競態、乘客協尋詳情返回後未刷新。
 1. [x] **座標導航的模擬器 E2E** ✅（2026-07-11，`m6_pixel` + 後端 docker）：
    乘客帶 `dropoff_lat/lng` 下單（本機無 `GOOGLE_MAPS_API_KEY`，改以 customer API 注入座標
    繞過需金鑰的選點 UI）→ 司機端接單 → 乘客已上車 → 按「導航去目的地」。
@@ -120,8 +128,27 @@
   模型解析、乘客操作）；後端 live E2E 30/30（含 WS 即時遞送與快照制，見 dispatch TODO H）。
 - 坑：controller `init()` 新增的 `refreshLostItems()` 讓既有 widget 測試卡死 10 分鐘——
   `testWidgets` 跑在 FakeAsync，真網路呼叫永不完成；Fake API 必須覆蓋 init 觸碰的所有端點。
-- **待做（模擬器實跑）**：`m6_pixel` 起雙 App 實跑聊天室與協尋 UI（本次以單元/widget 測試
-  ＋後端 E2E 驗收；UI 實跑留待下次，同「下次任務」）。
+- [x] **模擬器實跑 ✅（2026-07-15）**：`m6_pixel` 雙 flavor 並存，聊天室 WS 即時到達＋協尋 open→found→paid→returned
+  整條 UI 雙端跑通（詳見「下次任務 0」）。
+
+## 模擬器實跑發現（2026-07-15，待修）
+
+> 以下三項為 2026-07-15 模擬器雙端實跑聊天／協尋時**新發現的行為問題**，非本次要做的功能。
+> 程式邏輯的正確性仍由 67 widget/unit tests＋後端 E2E 30/30 覆蓋；這些是「跨畫面／重連時機」層的缺陷。
+
+1. **登入後 WebSocket 未以新 token 重連**（driver + customer 皆有，中高影響）：
+   同一次 App 執行內「登出→重新登入」後，WS client 仍抓舊（已失效）token 一直握手失敗，連線狀態卡在「未連線」；
+   **冷啟動（force-stop 後重開）以已存 session 則正常連上**。實跑時兩端都靠 force-stop 才連上 WS。
+   根因方向：`login()` 流程未像 `init()/restoreSession()` 那樣以新 token 呼叫 `_ws.connect(token)`（或未先 disconnect 舊連線）。
+   影響真實使用者：切帳號 / 重新登入後即時派單、聊天、協尋推播全部失效，直到重啟 App。
+2. **乘客「完成卡」競態，導致「完成卡回報遺失」入口可能不出現**（中影響）：
+   `customer_controller._handleWsEvent` 對 `ride.completed` 先讀 `final active = _activeRide`；若輪詢 `refreshActive()`
+   先一步把終態行程的 `_activeRide` 清成 null，`rideCompleted` 分支的 `active == null` 早退，`_completedSummary` 永不設定，
+   完成卡不顯示。實跑時完成後乘客直接回到叫車頁（本次改走首頁「進行中協尋」banner 進協尋畫面）。
+   修法方向：完成事件的摘要不要依賴當下 `_activeRide`（改用事件 payload 的 rideId／dropoff，或在清 active 前先存摘要）。
+3. **乘客協尋詳情返回再進入未刷新**（低影響、疑似）：`CustomerLostItemScreen` 以 `initState→fetchLostItemByRide` 抓 API，
+   但「返回首頁再點 banner 重進」時仍顯示舊狀態（open），**force-stop 冷啟後才顯示 found**。
+   疑為 http client 回應快取或返回時 widget 狀態殘留；待以 `flutter run` 觀察 `fetchLostItemByRide` 實際回應確認。
 
 ## 手續費／會費／司機收入（2026-07-11 規劃）
 
