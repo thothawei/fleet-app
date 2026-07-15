@@ -149,9 +149,19 @@
    `active==null` 早退前處理、以 `_activeRide ?? _lastActiveRide` 取 rideId/dropoff（車資仍來自事件 payload）。
    新增 `test/customer_completed_race_test.dart`（重現「輪詢先清空 active，稍後才到 ride.completed」＋rideId 不符不誤設），
    反向確認移除退路會 FAIL。flutter analyze 無 issue、flutter test 綠。
-3. **乘客協尋詳情返回再進入未刷新**（低影響、疑似，未修）：`CustomerLostItemScreen` 以 `initState→fetchLostItemByRide` 抓 API，
-   但「返回首頁再點 banner 重進」時仍顯示舊狀態（open），**force-stop 冷啟後才顯示 found**。
-   疑為 http client 回應快取或返回時 widget 狀態殘留；待以 `flutter run` 觀察 `fetchLostItemByRide` 實際回應確認。
+3. [x] **乘客協尋詳情返回再進入未刷新** ✅（2026-07-15 已查根因＋防禦性強化）：
+   **不是** http 快取，也不是 widget 殘留。用 `flutter run` 掛 debug log 實測 `fetchLostItemByRide`：
+   重進時 API 明確回 `status=found`（HTTP 200），`_load` 也抓到 found，但 `CustomerLostItemScreen.build`
+   （第 96-107 行）會拿 `ctrl.lostItems` 裡的同 id 版本蓋掉剛抓到的 `_item`——若清單因漏收 WS `lost_item.updated`
+   而停在 open，畫面就顯示過期 open。**主因是發現 1（登入後 WS 未重連）**：原始 E2E 當時登出→重登弄壞 WS，
+   乘客收不到 `lost_item.updated`，清單停在 open。發現 1 修好後本次 `flutter run` 實測**已不再複現**
+   （log 顯示 `listStatuses=[1:found]`、畫面正確顯示 found）。
+   **防禦性強化**：controller `fetchLostItemByRide` 抓到最新單子後順手 `_applyLostItem` 合併回清單，
+   讓「新鮮抓取」成為清單權威來源，即使 WS 偶爾漏事件也不顯示過期狀態。新增
+   `test/customer_lost_item_refresh_test.dart`（過期 open→抓到 found 應合併為 found；抓到 returned 應移出清單），
+   反向確認移除合併會 FAIL。flutter analyze 無 issue、flutter test 72 passed。
+   **旁見小項（未做）**：首頁只在下拉刷新才 `refreshLostItems`，登入後不會自動帶出「進行中協尋」banner；
+   可考慮在 `login()` 後也 `refreshLostItems`（比照 `init()/restoreSession()`）。
 
 ## 手續費／會費／司機收入（2026-07-11 規劃）
 
