@@ -41,14 +41,14 @@ void main() {
         FleetWsEvent(
           type: FleetEventTypes.rideCompleted,
           rideId: 5,
-          payload: const {'fare_amount_cents': 21028},
+          payload: const {'fare_amount_cents': 21000},
         ),
       );
 
       final summary = ctrl.completedSummary;
       expect(summary, isNotNull, reason: '即使 active 已被輪詢清空，完成卡摘要仍應顯示');
       expect(summary!.rideId, 5);
-      expect(summary.fareAmountCents, 21028);
+      expect(summary.fareAmountCents, 21000);
       expect(summary.dropoffAddress, '台北車站');
     });
 
