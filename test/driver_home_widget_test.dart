@@ -48,6 +48,29 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('上線但 WS 斷線時，hero 不得謊稱「等待派單中」', (tester) async {
+    // 實跑遇過：WS Connection timed out，司機收不到任何派單，畫面卻一切正常。
+    // 用「不回報連線」的 WS 替身模擬斷線（wsConnected 維持 false）。
+    ctrl = DriverController(
+      storage: storage,
+      api: api,
+      wsFactory: _NeverConnectsWs.new,
+      push: push,
+    );
+    await ctrl.init();
+    await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+    ctrl.setOnlineForTest(true);
+    await pumpHome(tester);
+
+    expect(ctrl.wsConnected, isFalse, reason: '前提：WS 未連上');
+    expect(find.text('上線中'), findsOneWidget);
+    expect(find.text('等待派單中'), findsNothing,
+        reason: '斷線時說「等待派單中」會讓司機以為自己在接單');
+    expect(find.textContaining('連線中斷'), findsOneWidget);
+    // 收合的診斷區塊也要一致
+    expect(find.text('未連線，派單可能延遲'), findsOneWidget);
+  });
+
   testWidgets('離線時 hero 顯示「離線」且診斷資訊預設收合', (tester) async {
     await ctrl.init();
     await ctrl.login(lineUserId: 'U_driver', password: 'pw');
@@ -169,4 +192,15 @@ class _FakePush implements DriverPushService {
     await _tokenRefresh.close();
     await _controller.close();
   }
+}
+
+/// WS 替身：永遠連不上（不回報 connected），用來驗「上線但斷線」的畫面。
+class _NeverConnectsWs extends FleetWsClient {
+  _NeverConnectsWs({required super.onEvent, super.onConnectionChanged});
+
+  @override
+  Future<void> connect(String token) async {}
+
+  @override
+  Future<void> disconnect() async {}
 }

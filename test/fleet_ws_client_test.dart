@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,48 +8,158 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 void main() {
   late HttpServer server;
   late Uri wsUri;
+  // 已升級的 WebSocket 不受 HttpServer.close 影響，要斷線得自己關這些 socket。
+  late List<WebSocket> serverSockets;
 
-  setUp(() async {
-    // 起一個本機 WebSocket 伺服器（可達、握手立即完成），避免測試依賴真後端或卡在連線逾時。
-    server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  Future<void> startServer([int port = 0]) async {
+    server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
     wsUri = Uri.parse('ws://${server.address.host}:${server.port}/ws');
     server.transform(WebSocketTransformer()).listen((socket) {
+      serverSockets.add(socket);
       // 只需接受連線；不主動送訊息。
       socket.listen((_) {}, onError: (_) {}, cancelOnError: false);
     });
+  }
+
+  setUp(() async {
+    // 起一個本機 WebSocket 伺服器（可達、握手立即完成），避免測試依賴真後端或卡在連線逾時。
+    serverSockets = [];
+    await startServer();
   });
 
   tearDown(() async {
+    for (final s in serverSockets) {
+      await s.close().catchError((_) => null);
+    }
     await server.close(force: true);
   });
 
+  /// connect() 是背景連線（不擋登入），故等 onConnectionChanged 回報而非等 connect() 回傳。
+  Future<bool> nextConnectionState(Stream<bool> states) =>
+      states.first.timeout(const Duration(seconds: 10));
+
   test('登出（disconnect）後重新登入（connect）仍會重新連上', () async {
-    final events = <bool>[];
+    final states = StreamController<bool>.broadcast();
     final client = FleetWsClient(
       onEvent: (_) {},
-      onConnectionChanged: events.add,
+      onConnectionChanged: states.add,
       // 忽略 _open 依 AppConfig 組出的 uri，一律連本機測試伺服器。
       connector: (_) => WebSocketChannel.connect(wsUri),
     );
+    // addTearDown 為 LIFO：後加的先跑。disconnect 會回報狀態，必須在 stream 關閉前執行。
+    addTearDown(states.close);
     addTearDown(client.disconnect);
 
     // 首次登入
+    final firstConnected = nextConnectionState(states.stream);
     await client.connect('token-1');
-    expect(events, contains(true), reason: '首次 connect 應連上並回報 connected=true');
+    expect(await firstConnected, isTrue, reason: '首次 connect 應連上並回報 connected=true');
 
     // 登出：斷線並停止舊 token 的自動重連
+    final disconnected = nextConnectionState(states.stream);
     await client.disconnect();
-    expect(events.last, isFalse, reason: 'disconnect 後應回報 connected=false');
+    expect(await disconnected, isFalse, reason: 'disconnect 後應回報 connected=false');
 
     // 重新登入（同一個 client instance）：
     // 修正前 disconnect() 設的 _disposed=true 未被重置，_open() 會早退、不再連線；
     // 修正後 connect() 會重置 _disposed 並重新連上。
-    events.clear();
+    final reconnected = nextConnectionState(states.stream);
     await client.connect('token-2');
     expect(
-      events,
-      contains(true),
+      await reconnected,
+      isTrue,
       reason: '重新登入後應重置 _disposed 並重新連上（回報 connected=true）',
+    );
+  });
+
+  test('連線失敗時不得回報 connected=true（握手未完成前不算連上）', () async {
+    // 連一個沒人聽的埠：channel 會被同步建出來，但握手必定失敗。
+    // 修正前 _open() 在 connector 回傳當下就 onConnectionChanged(true)，
+    // UI 因此顯示「即時連線正常」，實際上司機收不到任何派單。
+    final closed = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final deadPort = closed.port;
+    await closed.close();
+    final deadUri = Uri.parse('ws://127.0.0.1:$deadPort/ws');
+
+    final states = <bool>[];
+    final client = FleetWsClient(
+      onEvent: (_) {},
+      onConnectionChanged: states.add,
+      connector: (_) => WebSocketChannel.connect(deadUri),
+    );
+    addTearDown(client.disconnect);
+
+    await client.connect('token-x');
+    // 給背景連線足夠時間失敗並回報
+    await Future<void>.delayed(const Duration(seconds: 2));
+
+    expect(
+      states,
+      isNot(contains(true)),
+      reason: '握手失敗時絕不可回報 connected=true（那會讓 UI 謊稱連線正常）',
+    );
+    expect(client.isConnected, isFalse, reason: '未完成握手不算已連線');
+  });
+
+  test('connect() 不等握手完成即回傳，不擋住登入流程', () async {
+    // 連不通的位址：握手會一路卡到逾時。connect() 若 await 握手，登入就會跟著卡住。
+    final client = FleetWsClient(
+      onEvent: (_) {},
+      // 10.255.255.1 為不可路由位址，連線會 hang 而非立即被拒。
+      connector: (_) => WebSocketChannel.connect(Uri.parse('ws://10.255.255.1:9/ws')),
+    );
+    addTearDown(client.disconnect);
+
+    final sw = Stopwatch()..start();
+    await client.connect('token-y');
+    sw.stop();
+
+    expect(
+      sw.elapsed,
+      lessThan(const Duration(seconds: 2)),
+      reason: 'connect() 應立刻回傳（背景連線），不可等到握手逾時才放行登入',
+    );
+  });
+
+  test('伺服器斷線後恢復 → 應自動重連（重連鏈不可中斷）', () async {
+    // 實跑遇到：後端恢復後 App 仍停在「連線中斷」，只有重開 App 才連得回來。
+    final states = StreamController<bool>.broadcast();
+    final client = FleetWsClient(
+      onEvent: (_) {},
+      onConnectionChanged: states.add,
+      connector: (_) => WebSocketChannel.connect(wsUri),
+    );
+    addTearDown(states.close);
+    addTearDown(client.disconnect);
+
+    final firstConnected = states.stream.firstWhere((s) => s).timeout(
+          const Duration(seconds: 10),
+        );
+    await client.connect('token-1');
+    expect(await firstConnected, isTrue);
+
+    // 伺服器掛掉：切斷既有連線並停止接受新連線
+    final dropped = states.stream.firstWhere((s) => !s).timeout(
+          const Duration(seconds: 10),
+        );
+    final port = server.port;
+    for (final s in serverSockets) {
+      await s.close();
+    }
+    serverSockets.clear();
+    await server.close(force: true);
+    expect(await dropped, isFalse, reason: '伺服器斷線應回報 connected=false');
+
+    // 伺服器以同一個埠回來
+    final reconnected = states.stream.firstWhere((s) => s).timeout(
+          const Duration(seconds: 20),
+        );
+    await startServer(port);
+
+    expect(
+      await reconnected,
+      isTrue,
+      reason: '伺服器恢復後應自動重連；重連鏈若被未捕捉的例外打斷，司機將永遠收不到派單',
     );
   });
 }
