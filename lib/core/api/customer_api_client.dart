@@ -1,9 +1,8 @@
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
 
 import '../config/app_config.dart';
 import '../models/models.dart';
+import 'api_error.dart';
 import 'fleet_api_client.dart' show ApiException;
 
 /// 乘客端 REST API 封裝，自動帶 JWT。端點對齊後端 cmd/server/main.go 的 customer 路由。
@@ -212,17 +211,6 @@ class CustomerApiClient {
     }
   }
 
-  ApiException _wrap(DioException e) {
-    final data = e.response?.data;
-    String message = e.message ?? '網路錯誤';
-    if (data is Map && data['error'] != null) {
-      message = data['error'].toString();
-    } else if (data is String) {
-      try {
-        final json = jsonDecode(data) as Map<String, dynamic>;
-        message = json['error']?.toString() ?? message;
-      } catch (_) {}
-    }
-    return ApiException(message, statusCode: e.response?.statusCode);
-  }
+  ApiException _wrap(DioException e) =>
+      ApiException(apiErrorMessage(e), statusCode: e.response?.statusCode);
 }

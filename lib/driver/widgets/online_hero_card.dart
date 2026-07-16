@@ -12,16 +12,25 @@ class OnlineHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final online = ctrl.online;
+    // 上線但 WS 斷線＝實際收不到派單。若照樣顯示「等待派單中」，司機會以為自己在接單，
+    // 其實派單根本進不來（實跑遇過：WS Connection timed out，畫面卻一切正常）。
+    final offlineDespiteOnline = online && !ctrl.wsConnected;
     return Card(
-      color: online ? scheme.primaryContainer : scheme.surfaceContainerHighest,
+      color: offlineDespiteOnline
+          ? scheme.errorContainer
+          : (online ? scheme.primaryContainer : scheme.surfaceContainerHighest),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
             Icon(
-              online ? Icons.local_taxi : Icons.power_settings_new,
+              offlineDespiteOnline
+                  ? Icons.cloud_off
+                  : (online ? Icons.local_taxi : Icons.power_settings_new),
               size: 40,
-              color: online ? scheme.primary : scheme.outline,
+              color: offlineDespiteOnline
+                  ? scheme.error
+                  : (online ? scheme.primary : scheme.outline),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -36,7 +45,9 @@ class OnlineHeroCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    online ? '等待派單中' : '目前不會收到派單',
+                    offlineDespiteOnline
+                        ? '連線中斷，暫時收不到派單'
+                        : (online ? '等待派單中' : '目前不會收到派單'),
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],

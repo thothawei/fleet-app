@@ -108,6 +108,13 @@ class DriverController extends ChangeNotifier {
   @visibleForTesting
   void handleWsEventForTest(FleetWsEvent event) => _handleWsEvent(event);
 
+  /// 測試用：直接設定上線旗標。正式路徑 `goOnline()` 需要定位權限，widget 測試取不到。
+  @visibleForTesting
+  void setOnlineForTest(bool value) {
+    _online = value;
+    notifyListeners();
+  }
+
   /// App 重啟後從後端還原進行中行程（Accepted/PickedUp）。
   Future<void> _restoreActiveRide() async {
     try {
@@ -277,6 +284,9 @@ class DriverController extends ChangeNotifier {
     try {
       _lastPosition = pos;
       await _api.reportLocation(lat: pos.latitude, lng: pos.longitude);
+      // 位置回報是上線期間每幾秒一次的健康探針：它成功＝後端可達，
+      // 此時還掛著上一輪的錯誤（例如「無法連線到伺服器」）只會誤導司機。
+      _error = null;
       notifyListeners();
     } on ApiException catch (e) {
       _error = e.message;
