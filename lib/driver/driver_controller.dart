@@ -153,6 +153,8 @@ class DriverController extends ChangeNotifier {
       await _storage.save(session);
       await _applySession(session);
       _error = null;
+      // 登入即更新「遺失物協尋」角標與工作清單，不用等進頁下拉（比照 init() 還原 session）。
+      await refreshLostItems();
     } on ApiException catch (e) {
       _error = e.message;
     } finally {

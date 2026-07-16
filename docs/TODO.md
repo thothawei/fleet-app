@@ -80,9 +80,8 @@
 
 ## 下次任務
 
-> **🎨 App icon（叫車系統圖示）— 進行中（2026-07-15，使用者要求）**：目前 driver/customer 兩個 flavor
-> 都用 Flutter 預設 icon。要換成符合「叫車系統」的圖示（品牌綠 LINE green #06C755 + 白色計程車），
-> 用 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸。兩個 flavor 共用同一顆 icon。
+> **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
+> 以 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸，driver/customer 兩 flavor 共用。
 
 > **💰 金額改用整數台幣（無小數）✅ 已實作（2026-07-15）**：採 A 模型（後端計算落在整數元）。
 > App 這端已同步：`lib/core/util/money.dart` `formatCentsAsNtd` 改整數元、不帶小數點（防禦性四捨五入）；
@@ -169,8 +168,11 @@
    讓「新鮮抓取」成為清單權威來源，即使 WS 偶爾漏事件也不顯示過期狀態。新增
    `test/customer_lost_item_refresh_test.dart`（過期 open→抓到 found 應合併為 found；抓到 returned 應移出清單），
    反向確認移除合併會 FAIL。flutter analyze 無 issue、flutter test 72 passed。
-   **旁見小項（未做）**：首頁只在下拉刷新才 `refreshLostItems`，登入後不會自動帶出「進行中協尋」banner；
-   可考慮在 `login()` 後也 `refreshLostItems`（比照 `init()/restoreSession()`）。
+   **旁見小項 ✅（2026-07-16 修，driver + customer）**：原本只在 `init()` 還原 session 與下拉刷新才
+   `refreshLostItems`，登入後不會自動帶出「進行中協尋」banner／司機協尋角標。修正：兩端 `_authenticate`
+   成功後補 `refreshLostItems()`；`CustomerController` 比照 driver 增加 `wsFactory` 注入點供測試換靜默 WS。
+   新增 `test/customer_login_lost_items_test.dart`＋driver_controller_test 一案，反向確認拿掉修正會 FAIL。
+   flutter analyze 無 issue、flutter test 75 passed。
 
 ## 手續費／會費／司機收入（2026-07-11 規劃）
 

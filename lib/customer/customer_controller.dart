@@ -15,12 +15,15 @@ class CustomerController extends ChangeNotifier {
   CustomerController({
     CustomerTokenStorage? storage,
     CustomerApiClient? api,
+    FleetWsClientFactory? wsFactory,
   })  : _storage = storage ?? CustomerTokenStorage(),
         _api = api ?? CustomerApiClient(),
+        _wsFactory = wsFactory ?? FleetWsClient.new,
         _ws = FleetWsClient(onEvent: (_) {});
 
   final CustomerTokenStorage _storage;
   final CustomerApiClient _api;
+  final FleetWsClientFactory _wsFactory;
   FleetWsClient _ws;
 
   // WS 即時到手後只做保底對帳，輪詢間隔放寬。
@@ -98,7 +101,7 @@ class CustomerController extends ChangeNotifier {
   }
 
   Future<void> init() async {
-    _ws = FleetWsClient(
+    _ws = _wsFactory(
       onEvent: _handleWsEvent,
       onConnectionChanged: (connected) {
         _wsConnected = connected;
@@ -150,6 +153,8 @@ class CustomerController extends ChangeNotifier {
       await _applySession(session);
       _error = null;
       await refreshActive();
+      // 登入即帶出「進行中協尋」banner，不用等下拉刷新（比照 init() 還原 session）。
+      await refreshLostItems();
     } on ApiException catch (e) {
       _error = e.message;
     } finally {

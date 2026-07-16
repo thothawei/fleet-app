@@ -47,6 +47,29 @@ void main() {
       expect((await storage.read())?.token, 'tok-7');
     });
 
+    test('login 後即拉協尋工作清單（角標不用等進頁下拉）', () async {
+      api.lostItems = [
+        LostItemRequest.fromJson({
+          'id': 3,
+          'ride_id': 5,
+          'customer_id': 1,
+          'driver_id': 7,
+          'description': '黑色錢包',
+          'fee_cents': 1000,
+          'fee_bps': 1000,
+          'status': 'open',
+          'created_at': '2026-07-15T10:00:00Z',
+        }),
+      ];
+      await ctrl.init();
+      expect(ctrl.lostItems, isEmpty);
+
+      await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+
+      expect(ctrl.lostItems, hasLength(1));
+      expect(ctrl.lostItems.single.status, 'open');
+    });
+
     test('login 失敗→顯示錯誤、不登入', () async {
       api.loginError = ApiException('密碼錯誤', statusCode: 401);
       await ctrl.init();
@@ -263,6 +286,7 @@ class _FakeFleetApi extends FleetApiClient {
   ApiException? loginError;
   ApiException? acceptError;
   ActiveRide? restoreRide;
+  List<LostItemRequest> lostItems = const [];
   DropoffInfo pickUpDropoff = const DropoffInfo();
   final acceptedRideIds = <int>[];
   final completedRideIds = <int>[];
@@ -288,7 +312,7 @@ class _FakeFleetApi extends FleetApiClient {
   Future<ActiveRide?> activeRide() async => restoreRide;
 
   @override
-  Future<List<LostItemRequest>> fetchLostItems() async => const [];
+  Future<List<LostItemRequest>> fetchLostItems() async => lostItems;
 
   @override
   Future<String> acceptRide(int rideId) async {
