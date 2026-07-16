@@ -80,6 +80,10 @@
 
 ## 下次任務
 
+> **🎨 App icon（叫車系統圖示）— 進行中（2026-07-15，使用者要求）**：目前 driver/customer 兩個 flavor
+> 都用 Flutter 預設 icon。要換成符合「叫車系統」的圖示（品牌綠 LINE green #06C755 + 白色計程車），
+> 用 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸。兩個 flavor 共用同一顆 icon。
+
 > **💰 金額改用整數台幣（無小數）✅ 已實作（2026-07-15）**：採 A 模型（後端計算落在整數元）。
 > App 這端已同步：`lib/core/util/money.dart` `formatCentsAsNtd` 改整數元、不帶小數點（防禦性四捨五入）；
 > 司機收入頁、乘客完成卡車資、遺失物處理費與支付金額顯示皆整數。相關測試斷言全部改整數元、flutter test 73 passed。
