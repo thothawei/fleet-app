@@ -15,17 +15,6 @@ class AppConfig {
 
   /// 司機位置回報間隔（與後端模擬器預設 8s 對齊）
   static const locationIntervalSec = 8;
-
-  /// Google Maps SDK 金鑰（`--dart-define=GOOGLE_MAPS_API_KEY=...`）。
-  /// Android 另需在 `android/local.properties` 設定同名 key 供原生 SDK。
-  static const googleMapsApiKey = String.fromEnvironment(
-    'GOOGLE_MAPS_API_KEY',
-    defaultValue: '',
-  );
-
-  /// Dart 層是否已設定 Maps key（未設定時地圖追蹤優雅降級為文字）。
-  static bool get mapsConfigured =>
-      googleMapsApiKey.isNotEmpty && !googleMapsApiKey.contains('YOUR_');
 }
 
 /// WebSocket 事件型別（對齊後端 internal/events/event.go）

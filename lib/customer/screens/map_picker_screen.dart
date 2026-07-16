@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 
-import '../../core/config/app_config.dart';
+import '../../core/util/map_tiles.dart';
 
 /// 地圖選點結果：目的地地址（反查或座標字串）與精確座標。
 class MapPickResult {
@@ -19,8 +20,8 @@ class MapPickResult {
 
 /// 地圖選點：拖動地圖點一下放釘、反查地址，確定後回傳地址與座標。
 ///
-/// 需在原生層填入 Google Maps API key（AndroidManifest / iOS AppDelegate）才會
-/// 顯示地圖；key 留空時本畫面地圖為空白，屬預期，叫車表單的文字輸入仍可用。
+/// 圖磚走 OpenStreetMap（flutter_map），不需 API key。座標→地址反查用
+/// `geocoding` 套件（走裝置內建 Geocoder，同樣免 key）；反查失敗退回座標字串。
 class MapPickerScreen extends StatefulWidget {
   const MapPickerScreen({super.key, this.initial});
 
@@ -32,7 +33,7 @@ class MapPickerScreen extends StatefulWidget {
 }
 
 class _MapPickerScreenState extends State<MapPickerScreen> {
-  static const _fallbackCenter = LatLng(25.0478, 121.5170); // 台北車站
+  static final _fallbackCenter = LatLng(25.0478, 121.5170); // 台北車站
 
   LatLng? _picked;
   String? _address;
@@ -79,36 +80,33 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!AppConfig.mapsConfigured) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('選擇目的地')),
-        body: const Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text(
-              '地圖選點需設定 Google Maps API key（見 README），請返回改用地址輸入',
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      );
-    }
     return Scaffold(
       appBar: AppBar(title: const Text('選擇目的地')),
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(target: _center, zoom: 15),
-            onTap: _onTap,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: true,
-            markers: {
-              if (_picked != null)
-                Marker(
-                  markerId: const MarkerId('dropoff'),
-                  position: _picked!,
-                ),
-            },
+          FlutterMap(
+            options: MapOptions(
+              initialCenter: _center,
+              initialZoom: 15,
+              onTap: (_, latlng) => _onTap(latlng),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: osmTileUrl,
+                userAgentPackageName: osmUserAgent,
+              ),
+              MarkerLayer(markers: [
+                if (_picked != null)
+                  Marker(
+                    point: _picked!,
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.topCenter,
+                    child: const Icon(Icons.location_on,
+                        color: Colors.red, size: 40),
+                  ),
+              ]),
+            ],
           ),
           Positioned(
             left: 16,

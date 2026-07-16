@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/config/app_config.dart';
 import '../../core/models/models.dart';
 import '../customer_controller.dart';
 import '../widgets/customer_tracking_map.dart';
@@ -130,7 +129,7 @@ class _ActiveRideCard extends StatelessWidget {
     if (ride.status != RideStatus.accepted || ctrl.driverArrived) return false;
     final hasPickup = (ride.pickupLat != null && ride.pickupLng != null) ||
         ctrl.lastPosition != null;
-    return AppConfig.mapsConfigured && hasPickup;
+    return hasPickup;
   }
 
   Widget _phaseWidget(CustomerRide ride) {
