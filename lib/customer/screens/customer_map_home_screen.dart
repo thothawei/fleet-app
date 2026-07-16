@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/models/models.dart';
+import '../../core/util/map_tiles.dart';
 import '../customer_controller.dart';
 import '../widgets/ride_phase_content.dart';
 
-/// 地圖為底＋Bottom Sheet 主畫面（spec §2.1）；
-/// 僅在 AppConfig.mapsConfigured 時使用，否則走 CustomerHomeScreen 卡片版。
+/// 地圖為底＋Bottom Sheet 主畫面（spec §2.1）。
+/// 圖磚走 OpenStreetMap（flutter_map），不需任何 API key。
 class CustomerMapHomeScreen extends StatefulWidget {
   const CustomerMapHomeScreen({super.key});
 
@@ -16,7 +18,7 @@ class CustomerMapHomeScreen extends StatefulWidget {
 }
 
 class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
-  GoogleMapController? _map;
+  final MapController _map = MapController();
   double? _lastDriverLat;
   double? _lastDriverLng;
 
@@ -28,16 +30,19 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _initialTarget(ctrl),
-              zoom: 15,
+          FlutterMap(
+            mapController: _map,
+            options: MapOptions(
+              initialCenter: _initialTarget(ctrl),
+              initialZoom: 15,
             ),
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            onMapCreated: (c) => _map = c,
-            markers: _markers(ctrl),
+            children: [
+              TileLayer(
+                urlTemplate: osmTileUrl,
+                userAgentPackageName: osmUserAgent,
+              ),
+              MarkerLayer(markers: _markers(ctrl)),
+            ],
           ),
           Positioned(
             top: MediaQuery.of(context).padding.top + 12,
@@ -93,7 +98,15 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
     if (lat == _lastDriverLat && lng == _lastDriverLng) return;
     _lastDriverLat = lat;
     _lastDriverLng = lng;
-    _map?.animateCamera(CameraUpdate.newLatLng(LatLng(lat, lng)));
+    // build 期間不可直接動相機；排到下一影格，並容錯 map 尚未 ready。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        _map.move(LatLng(lat, lng), _map.camera.zoom);
+      } catch (_) {
+        // 地圖尚未完成第一次 layout，忽略這次跟隨，下一筆座標再補。
+      }
+    });
   }
 
   Widget _sheetContent(CustomerController ctrl) {
@@ -119,24 +132,39 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
     return const LatLng(25.0330, 121.5654);
   }
 
-  Set<Marker> _markers(CustomerController ctrl) {
-    final markers = <Marker>{};
+  List<Marker> _markers(CustomerController ctrl) {
+    final markers = <Marker>[];
     final ride = ctrl.activeRide;
     final pickupLat = ride?.pickupLat ?? ctrl.lastPosition?.latitude;
     final pickupLng = ride?.pickupLng ?? ctrl.lastPosition?.longitude;
     if (ride != null && pickupLat != null && pickupLng != null) {
-      markers.add(Marker(
-        markerId: const MarkerId('pickup'),
-        position: LatLng(pickupLat, pickupLng),
+      markers.add(_pin(
+        LatLng(pickupLat, pickupLng),
+        Icons.location_on,
+        Colors.red,
       ));
     }
     if (ctrl.liveDriverLat != null && ctrl.liveDriverLng != null) {
-      markers.add(Marker(
-        markerId: const MarkerId('driver'),
-        position: LatLng(ctrl.liveDriverLat!, ctrl.liveDriverLng!),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+      markers.add(_pin(
+        LatLng(ctrl.liveDriverLat!, ctrl.liveDriverLng!),
+        Icons.local_taxi,
+        Colors.green,
       ));
     }
     return markers;
+  }
+
+  Marker _pin(LatLng point, IconData icon, Color color) => Marker(
+        point: point,
+        width: 40,
+        height: 40,
+        alignment: Alignment.topCenter,
+        child: Icon(icon, color: color, size: 36),
+      );
+
+  @override
+  void dispose() {
+    _map.dispose();
+    super.dispose();
   }
 }

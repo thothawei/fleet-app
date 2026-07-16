@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart';
 
-import '../../core/config/app_config.dart';
 import '../../core/models/models.dart';
 import '../../core/util/money.dart';
 import '../../shared/screens/ride_chat_screen.dart';
@@ -330,19 +329,10 @@ class _OrderFormContentState extends State<OrderFormContent> {
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
-          onPressed: (ctrl.busy || !AppConfig.mapsConfigured)
-              ? null
-              : () => _pickOnMap(context),
+          onPressed: ctrl.busy ? null : () => _pickOnMap(context),
           icon: const Icon(Icons.map),
           label: const Text('在地圖上選目的地'),
         ),
-        if (!AppConfig.mapsConfigured) ...[
-          const SizedBox(height: 4),
-          Text(
-            '地圖選點需設定 Google Maps API key（見 README），請直接輸入地址',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ],
         const SizedBox(height: 12),
         TextField(
           controller: _pickup,

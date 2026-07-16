@@ -2,12 +2,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:line_fleet_app/core/api/customer_api_client.dart';
-import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/models/models.dart';
 import 'package:line_fleet_app/core/theme/app_theme.dart';
 import 'package:line_fleet_app/customer/customer_controller.dart';
 import 'package:line_fleet_app/customer/screens/customer_home_screen.dart';
-import 'package:line_fleet_app/customer/screens/customer_map_home_screen.dart';
 import 'package:provider/provider.dart';
 
 enum TestPhase { idle, searching, completed }
@@ -42,13 +40,13 @@ void main() {
         break;
     }
 
+    // production 走地圖版 CustomerMapHomeScreen（FlutterMap + OSM 圖磚），
+    // 但 widget test 環境不宜抓網路圖磚，改用共用相同階段元件的卡片版驗 sheet content。
     return ChangeNotifierProvider.value(
       value: ctrl,
       child: MaterialApp(
         theme: appLightTheme,
-        home: AppConfig.mapsConfigured
-            ? const CustomerMapHomeScreen()
-            : const CustomerHomeScreen(),
+        home: const CustomerHomeScreen(),
       ),
     );
   }
@@ -70,7 +68,7 @@ void main() {
     expect(find.text('再叫一輛'), findsOneWidget);
   });
 
-  testWidgets('未設 Maps key 時走卡片版（有 AppBar）', (tester) async {
+  testWidgets('閒置時顯示卡片版叫車表單（有 AppBar）', (tester) async {
     await tester.pumpWidget(buildCustomerTestApp(phase: TestPhase.idle));
     await tester.pumpAndSettle();
 

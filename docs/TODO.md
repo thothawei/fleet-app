@@ -20,8 +20,10 @@
       `docs/superpowers/plans/2026-07-08-m7-customer-app.md`；主鏈路已完成並回填證據，
       剩餘 Slice 5 地圖追蹤／Slice 6 評分付款）。
 - [x] B1. 乘客登入/註冊（2026-07-08）
-- [~] B2. 叫車帶目的地：文字 + 地圖選點接線完成。填 `GOOGLE_MAPS_API_KEY`（`local.properties` + `--dart-define`）後地圖可顯示。
-- [~] B3. 即時追蹤：文字 ETA/距離已通；**地圖追蹤（Slice 5）**已接線（需 API key + 後端 WS `driver.location`）。
+- [x] B2. 叫車帶目的地 ✅（2026-07-16 完成）：文字 + 地圖選點皆通。改 flutter_map + OSM 後**免 key**，
+      模擬器實跑「選點→反查地址→回填→叫車」，後端 `dropoff_point` 座標與選點一致。
+- [x] B3. 即時追蹤 ✅（2026-07-16 完成）：文字 ETA/距離 + **地圖追蹤**皆通。模擬器實跑司機 marker
+      隨 WS `driver.location` 移動、相機跟隨、距離/ETA 即時更新（1427m/3分 → 676m/2分）。
 - [x] B4. 行程狀態流 + App 端取消 + 分階段畫面（尋找／前往／司機已抵達／行程中；2026-07-08）。
 - [~] B5. 完成後評分/付款：**入口佔位已落地**（2026-07-08；`ride.completed` 顯示完成卡
       + 評分／費用按鈕 disabled +「再叫一輛」）。**真實 API 待 Phase C**。
@@ -74,9 +76,9 @@
       乘客端卡片版實跑：叫車表單「要去哪裡？」→ 配對中 → 司機前往上車點（ETA chip）→
       行程中 → 完成卡（評分／費用佔位＋再叫一輛，ride #41）。
       暗色主題：`cmd uimode night yes` 下深底＋提亮綠，`ThemeMode.system` 生效。
-- [ ] **乘客端地圖版（Bottom Sheet）尚未實測**：本機無 `GOOGLE_MAPS_API_KEY`，
-      只驗到 `mapsConfigured=false` 的卡片版降級路徑。補 key 後需驗：地圖為底、
-      sheet 可拖、司機 marker 隨 WS 移動、浮動登出鈕。
+- [x] **乘客端地圖版（Bottom Sheet）✅ 已實測**（2026-07-16）：改用 flutter_map + OSM 後**不需任何 key**，
+      地圖為底、sheet 可拖、司機 marker 隨 WS 移動、浮動登出鈕全數模擬器實跑驗過。
+      詳見下方「地圖引擎改用 flutter_map + OpenStreetMap」。
 
 ## 下次任務
 
@@ -110,8 +112,9 @@
    → **`query=lat,lng` 而非地址**，斷言成立。後端 ride #4 `dropoff_point=POINT(121.5525 25.0636)`。
    同場加映：完整叫車鏈路 ride #3 走完六狀態（requested→assigned→accepted→driver.arrived
    →picked_up→completed），`driver.arrived` 由 GPS 進上車圍籬自動觸發。
-   **待補**：補 `GOOGLE_MAPS_API_KEY` 後改由乘客 App「地圖選點」真實產生座標（本次以 API 注入替代）。
-2. **乘客端地圖版**：補 `GOOGLE_MAPS_API_KEY` 後驗上述地圖 sheet 路徑。
+   ~~**待補**：補 `GOOGLE_MAPS_API_KEY` 後改由乘客 App「地圖選點」真實產生座標~~
+   ✅ 2026-07-16 已補：改 flutter_map 後由 App 地圖選點真實產生座標，後端 `dropoff_point` 一致（免 key）。
+2. ~~**乘客端地圖版**：補 `GOOGLE_MAPS_API_KEY` 後驗地圖 sheet 路徑~~ ✅ 2026-07-16 已驗（見下方 flutter_map 段）。
 3. **A2 真裝置推播**：建 Firebase 專案 + `google-services.json`，後端實作 FCM data payload
    （契約見 README，含 `dropoff_lat/lng`），驗「App 被殺 → 點推播 → 接單卡」。
 4. 依賴外部資源、暫不動：A5 iOS build（需完整 Xcode + CocoaPods）。
@@ -208,3 +211,54 @@
 對同一司機完全一致：趟數 1、營業額 8500、手續費 1275、實得 7225、月會費 300000、應付總公司 301275（分）。
 admin 月報表頁 UI 亦渲染相同數字（NT$85.00／NT$12.75／NT$3,012.75／NT$72.25）。
 `流程司機`（#1）列同樣對齊本表上方記錄的 170/25.50/3025.50/144.50——**app E1 ↔ admin G3 ↔ 後端 F6/F7 三端金額全對齊**。
+
+
+## 地圖引擎改用 flutter_map + OpenStreetMap（2026-07-16）
+
+> 決策：**放棄 Google Maps，改用 `flutter_map` + OpenStreetMap 圖磚**（免任何 API key，
+> 與 admin 後台同一圖磚來源）。原本 B2/B3、「乘客端地圖版尚未實測」都卡在「需 GOOGLE_MAPS_API_KEY」，
+> 換 flutter_map 後此前置條件消失，地圖永遠可用。
+
+**改了什麼**：
+- 依賴：移除 `google_maps_flutter`，改 `flutter_map: ^8.3.1` + `latlong2`（`geocoding` 保留，走裝置內建 Geocoder，免 key）。
+- 乘客端 4 檔改寫成 flutter_map：`customer_map_home_screen`（地圖為底＋sheet）、`customer_tracking_map`、
+  `map_picker_screen`（onTap 選點）、`ride_phase_content`（LatLng 改 latlong2）。新增共用 `lib/core/util/map_tiles.dart`（OSM 圖磚常數）。
+- 移除整套「無 key 降級」：`AppConfig.mapsConfigured`/`googleMapsApiKey` 刪除、`app.dart` 永遠走地圖版、
+  `customer_home_screen._showTrackingMap` 拿掉 key 判斷、刪 `maps_js_loader` 三檔（Google JS 專用）、`main_customer` 清呼叫。
+- 清原生 Google 設定：`build.gradle.kts`（移除 mapsApiKey 注入與 Properties import）、`AndroidManifest.xml`
+  （移除 geo.API_KEY meta-data）、`ios/Runner/AppDelegate.swift`（移除 GoogleMaps／GMSServices）、`local.properties.example`。
+- 測試：`customer_home_widget_test` 改直接建卡片版（widget test 不宜抓網路圖磚）。
+
+**已驗證（2026-07-16，實際執行過的指令）**：
+- `flutter analyze` 無 issue。
+- `flutter test` **75 passed**（含改寫後的 `customer_home_widget_test`）。
+- `flutter build apk --debug --flavor customer` **成功**——這是清掉 Google 原生設定的關鍵證明：
+  `AndroidManifest` 不再引用已移除的 `${googleMapsApiKey}` placeholder，Android 仍可編譯。
+- 全 repo 殘留掃描：`lib`／`test`／`build.gradle.kts`／`AndroidManifest`／`AppDelegate`／
+  `local.properties.example`／`pubspec` 皆無 `google_maps_flutter`／`mapsConfigured`／`geo.API_KEY`／`GMSServices`。
+
+**模擬器實跑驗收 ✅（2026-07-16，`m6_pixel` + 後端 docker，全程截圖＋後端 API 交叉驗證）**：
+- **地圖為底**：OSM 圖磚**真實從網路渲染**——台北信義區街道圖，中文地名齊全（臺北市／信義商圈／
+  台北101‑世貿／國父紀念館／忠孝東路四段五段／市政府／象山）。**全程未使用任何 API key**。
+- **bottom sheet 雙向可拖**：0.42 →拖大到 ~0.85（地圖縮至頂部）→拖小回原位，`DraggableScrollableSheet` 正常。
+- **浮動登出鈕**：右上角綠色 FAB 全程在位。
+- **地圖選點**：進「選擇目的地」→ 點地圖 → **紅色釘渲染**（MarkerLayer）→ **`geocoding` 反查成功**
+  （回「Taipei City Jiantai Village Section 1, Chengde Road 52」，走裝置內建 Geocoder、免 key）→
+  「確定」地址回填叫車表單。
+- **座標鏈路（後端交叉驗證）**：叫車後 `GET /api/admin/rides/1` 顯示
+  `dropoff_point={lat:25.0517, lng:121.5170}`＋`dropoff_address` 與選點反查地址完全一致；
+  `pickup_address="目前位置 (25.03300, 121.56540)"` 正是模擬器 `geo fix` 座標 → GPS 自動帶入生效。
+- **派單→接單**：司機 `POST /api/driver/location` 上線（Status=1）→ 乘客叫車 → ride #2 `status=1`(assigned)
+  → 司機 `POST /api/rides/2/accept` → `status=2`(accepted)、`driver_id=1` →
+  App **WS `ride.accepted` 即時**顯示「司機：地圖司機／約 1 分鐘抵達／聯絡司機」。
+- **司機 marker 隨 WS `driver.location` 移動＋相機跟隨** ✅：司機回報位置後，地圖出現**綠色計程車 marker**、
+  **相機自動移到司機位置**（`_maybeFollowDriver` 的 postFrame `MapController.move`）；再回報一次新位置後，
+  綠色 marker 明顯向紅色上車點靠近、地圖同步位移，sheet 即時由
+  「距您約 1427 公尺／約 3 分鐘」→「距您約 676 公尺／約 2 分鐘」。
+
+**尚未驗證**：
+- iOS：`AppDelegate` 已移除 GoogleMaps，但 iOS build 延後（A5，需完整 Xcode），未編譯驗證。
+- OSM 圖磚正式環境使用政策／流量上限未評估（開發測試量無虞；上線量大需改自架或 OpenFreeMap，
+  只需改 `lib/core/util/map_tiles.dart` 一處）。
+- 旁見小項（既有行為，非本次引入）：`_formatPlacemark` 以 `parts.join('')` 串地址，
+  中文 locale 正常（臺北市大安區…），英文 locale 下會黏成「Taipei CityJiantai Village…」。

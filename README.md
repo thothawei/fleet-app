@@ -18,7 +18,7 @@ lib/
 ```
 
 兩 flavor 皆 `themeMode: ThemeMode.system`，主色 `#06C755`（深色 primary `#3DD675`）。
-未設 `GOOGLE_MAPS_API_KEY` 時乘客端自動走卡片版；有 key 則用地圖為底＋Bottom Sheet。
+乘客端為**地圖為底＋Bottom Sheet**（`flutter_map` + OpenStreetMap 圖磚，**不需任何 API key**）。
 
 ## 環境需求
 
@@ -40,20 +40,17 @@ flutter run -t lib/main_driver.dart --flavor driver \
   --dart-define=API_BASE=http://192.168.1.100:8080
 ```
 
-## Google Maps（乘客端 B2/B3）
+## 地圖（乘客端 B2/B3）— 免 API key
 
-1. [Google Cloud Console](https://console.cloud.google.com/) 啟用 Maps SDK for Android
-2. 在 `android/local.properties` 加入（可參考 `android/local.properties.example`）：
-   ```
-   GOOGLE_MAPS_API_KEY=你的key
-   ```
-3. 執行時帶入 Dart define（控制是否顯示地圖追蹤 widget）：
-   ```bash
-   flutter run -t lib/main_customer.dart --flavor customer \
-     --dart-define=GOOGLE_MAPS_API_KEY=你的key
-   ```
+地圖用 **`flutter_map` + OpenStreetMap 圖磚**，**不需要任何 API key**，直接 `flutter run` 就能看到地圖。
 
-未設定 key 時：自動降級為卡片版（文字叫車／ETA／狀態流全可用）；有 key 時為地圖為底＋Bottom Sheet。
+- 圖磚設定集中在 [`lib/core/util/map_tiles.dart`](lib/core/util/map_tiles.dart)（與 admin 後台同一來源）。
+  要換自架或 OpenFreeMap 只需改這一個檔。
+- 座標→地址反查用 `geocoding`（走裝置內建 Geocoder，同樣免 key），反查失敗時退回座標字串。
+- 司機端「導航去目的地」是開啟外部 Google Maps 的 deep link（URL scheme，不需 key）。
+
+> 2026-07-16 起已完全移除 `google_maps_flutter` 與 `GOOGLE_MAPS_API_KEY`；
+> OSM 使用政策見 <https://operations.osmfoundation.org/policies/tiles/>，上線量大時請改自架圖磚。
 
 ## FCM 推播（司機端 A2）
 

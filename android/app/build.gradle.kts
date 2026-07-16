@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -8,7 +6,7 @@ plugins {
 
 android {
     namespace = "dev.linefleet.line_fleet_app"
-    // 明確設 36：google_maps_flutter / geolocator 等相依套件要求 compileSdk >= 36，
+    // 明確設 36：geolocator 等相依套件要求 compileSdk >= 36，
     // flutter.compileSdkVersion 目前解析為 33 會讓 AAR metadata 檢查失敗。
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
@@ -36,16 +34,6 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-
-        // Gradle Kotlin DSL 裡 `java` 會解析成 Java plugin extension，故需 import 後直接用 Properties
-        val localProperties = Properties()
-        val localPropertiesFile = rootProject.file("local.properties")
-        if (localPropertiesFile.exists()) {
-            localPropertiesFile.inputStream().use { localProperties.load(it) }
-        }
-        val mapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY")
-            ?: "YOUR_ANDROID_MAPS_API_KEY"
-        manifestPlaceholders["googleMapsApiKey"] = mapsApiKey
     }
 
     buildTypes {
