@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/config/app_config.dart';
+import '../../core/models/models.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/ride_status_colors.dart';
 import '../../core/util/maps.dart';
 import '../../shared/screens/ride_chat_screen.dart';
 import '../driver_controller.dart';
 import '../widgets/connection_details_tile.dart';
+import '../widgets/driver_ride_map.dart';
 import '../widgets/offer_overlay.dart';
 import '../widgets/online_hero_card.dart';
 import 'driver_earnings_screen.dart';
@@ -106,6 +108,26 @@ class _ActiveRideCard extends StatelessWidget {
 
   final DriverController ctrl;
 
+  /// 概覽地圖（有目標座標才顯示）。前往上車點時目標為上車點，行程中為目的地。
+  List<Widget> _buildRideMap(DriverController ctrl, ActiveRide ride) {
+    final toPickup = ride.phase == DriverRidePhase.enRouteToPickup;
+    final lat = toPickup ? ride.pickupLat : ride.dropoffLat;
+    final lng = toPickup ? ride.pickupLng : ride.dropoffLng;
+    if (lat == null || lng == null) return const [];
+    final pos = ctrl.lastPosition;
+    return [
+      DriverRideMap(
+        targetLat: lat,
+        targetLng: lng,
+        targetLabel: toPickup ? '上車點' : '目的地',
+        targetIsPickup: toPickup,
+        driverLat: pos?.latitude,
+        driverLng: pos?.longitude,
+      ),
+      const SizedBox(height: 16),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final ride = ctrl.activeRide!;
@@ -147,7 +169,10 @@ class _ActiveRideCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text('上車點：${ride.address}'),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            // 概覽地圖：前往上車點時標上車點，行程中標目的地；無座標（舊後端／
+            // LINE 建的無目的地訂單）就不顯示，其餘操作不受影響。
+            ..._buildRideMap(ctrl, ride),
             OutlinedButton.icon(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
