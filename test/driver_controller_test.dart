@@ -100,6 +100,50 @@ void main() {
       expect(api.lastToken, 'saved');
     });
 
+    test('WS ride.assigned 帶 pickup 座標 → acceptOffer 後 activeRide 有上車點座標', () async {
+      // 司機端地圖要標出上車點；address 字串無法定位，座標得從派單事件一路帶到 activeRide。
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+
+      ctrl.handleWsEventForTest(FleetWsEvent(
+        type: FleetEventTypes.rideAssigned,
+        rideId: 21,
+        payload: {
+          'address': '台北車站',
+          'pickup_lat': 25.0478,
+          'pickup_lng': 121.5170,
+        },
+      ));
+      expect(ctrl.pendingOffer?.pickupLat, 25.0478);
+      expect(ctrl.pendingOffer?.pickupLng, 121.5170);
+
+      await ctrl.acceptOffer();
+      expect(ctrl.activeRide?.pickupLat, 25.0478);
+      expect(ctrl.activeRide?.pickupLng, 121.5170);
+    });
+
+    test('init 還原行程時從 rides/active 的 pickup_point 取得上車點座標', () async {
+      await storage.save(const AuthSession(
+        driverId: 7,
+        token: 'saved',
+        name: '阿明',
+      ));
+      api.restoreRide = ActiveRide.fromBackendJson(const {
+        'id': 42,
+        'status': RideStatus.accepted,
+        'pickup_address': '台北車站',
+        'pickup_point': {'lat': 25.0478, 'lng': 121.5170},
+        'dropoff_address': '松山機場',
+        'dropoff_point': {'lat': 25.06, 'lng': 121.55},
+      });
+
+      await ctrl.init();
+
+      expect(ctrl.activeRide?.pickupLat, 25.0478);
+      expect(ctrl.activeRide?.pickupLng, 121.5170);
+      expect(ctrl.activeRide?.dropoffLat, 25.06);
+    });
+
     test('WS ride.assigned 帶 dropoff → acceptOffer 預載目的地', () async {
       await ctrl.init();
       await ctrl.login(lineUserId: 'U_driver', password: 'pw');

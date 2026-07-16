@@ -38,6 +38,8 @@ class RideOffer {
     required this.address,
     this.etaSec,
     this.distM,
+    this.pickupLat,
+    this.pickupLng,
     this.dropoffAddress,
     this.dropoffLat,
     this.dropoffLng,
@@ -47,6 +49,10 @@ class RideOffer {
   final String address;
   final int? etaSec;
   final int? distM;
+
+  /// 上車點座標（ride.assigned 帶入）；接單後供司機端地圖標出上車點。
+  final double? pickupLat;
+  final double? pickupLng;
 
   /// 目的地（派單事件 ride.assigned 帶入，接單前可預覽）。
   final String? dropoffAddress;
@@ -62,6 +68,8 @@ class RideOffer {
       address: payload?['address'] as String? ?? '未知地址',
       etaSec: (payload?['eta_sec'] as num?)?.toInt(),
       distM: (payload?['dist_m'] as num?)?.toInt(),
+      pickupLat: (payload?['pickup_lat'] as num?)?.toDouble(),
+      pickupLng: (payload?['pickup_lng'] as num?)?.toDouble(),
       dropoffAddress:
           (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
       dropoffLat: (payload?['dropoff_lat'] as num?)?.toDouble(),
@@ -393,6 +401,8 @@ class ActiveRide {
     required this.rideId,
     required this.address,
     required this.phase,
+    this.pickupLat,
+    this.pickupLng,
     this.dropoffAddress,
     this.dropoffLat,
     this.dropoffLng,
@@ -401,6 +411,11 @@ class ActiveRide {
   final int rideId;
   final String address;
   final DriverRidePhase phase;
+
+  /// 上車點座標；供司機端地圖標出上車點（address 字串無法定位）。
+  /// 來源：ride.assigned 事件的 pickup_lat/lng，或 rides/active 的 pickup_point。
+  final double? pickupLat;
+  final double? pickupLng;
 
   /// 目的地地址，供司機端 onTrip 階段「導航去目的地」。
   /// 後端未指定目的地時為 null；來源為接單事件或 pickup 回應。
@@ -425,6 +440,8 @@ class ActiveRide {
       rideId: rideId,
       address: address,
       phase: phase ?? this.phase,
+      pickupLat: pickupLat,
+      pickupLng: pickupLng,
       dropoffAddress: dropoffAddress ?? this.dropoffAddress,
       dropoffLat: dropoffLat ?? this.dropoffLat,
       dropoffLng: dropoffLng ?? this.dropoffLng,
@@ -435,6 +452,7 @@ class ActiveRide {
   factory ActiveRide.fromBackendJson(Map<String, dynamic> json) {
     final status = (json['status'] as num).toInt();
     final dropoff = json['dropoff_address'] as String?;
+    final pickupPoint = json['pickup_point'] as Map<String, dynamic>?;
     final dropoffPoint = json['dropoff_point'] as Map<String, dynamic>?;
     return ActiveRide(
       rideId: (json['id'] as num).toInt(),
@@ -442,6 +460,8 @@ class ActiveRide {
       phase: status == RideStatus.pickedUp
           ? DriverRidePhase.onTrip
           : DriverRidePhase.enRouteToPickup,
+      pickupLat: (pickupPoint?['lat'] as num?)?.toDouble(),
+      pickupLng: (pickupPoint?['lng'] as num?)?.toDouble(),
       dropoffAddress:
           (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
       dropoffLat: (dropoffPoint?['lat'] as num?)?.toDouble(),

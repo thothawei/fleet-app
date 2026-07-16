@@ -16,7 +16,14 @@ FleetWsEvent? fleetEventFromPushData(Map<String, dynamic> data) {
     if (data.containsKey(key)) payload[key] = data[key];
   }
   // FCM data 的值一律是字串，數值欄位要先轉型；否則下游 `as num?` 會丟 TypeError。
-  for (final key in ['eta_sec', 'dist_m', 'dropoff_lat', 'dropoff_lng']) {
+  for (final key in [
+    'eta_sec',
+    'dist_m',
+    'pickup_lat',
+    'pickup_lng',
+    'dropoff_lat',
+    'dropoff_lng',
+  ]) {
     final num? value = _asNum(data[key]);
     if (value != null) payload[key] = value;
   }

@@ -30,6 +30,8 @@ void main() {
       'type': FleetEventTypes.rideAssigned,
       'ride_id': '42',
       'address': '台北車站',
+      'pickup_lat': '25.033',
+      'pickup_lng': '121.5654',
       'dropoff_address': '松山機場',
       'dropoff_lat': '25.06',
       'dropoff_lng': '121.55',
@@ -42,5 +44,8 @@ void main() {
     expect(offer.distM, 1200);
     expect(offer.dropoffLat, 25.06);
     expect(offer.dropoffLng, 121.55);
+    // 上車點座標同樣要轉型，否則司機端地圖在推播接單時 `as num?` 會 TypeError
+    expect(offer.pickupLat, 25.033);
+    expect(offer.pickupLng, 121.5654);
   });
 }

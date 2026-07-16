@@ -295,6 +295,8 @@ class DriverController extends ChangeNotifier {
         rideId: offer.rideId,
         address: offer.address,
         phase: DriverRidePhase.enRouteToPickup,
+        pickupLat: offer.pickupLat,
+        pickupLng: offer.pickupLng,
         dropoffAddress: offer.dropoffAddress,
         dropoffLat: offer.dropoffLat,
         dropoffLng: offer.dropoffLng,
