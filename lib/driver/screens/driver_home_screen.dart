@@ -14,6 +14,7 @@ import '../widgets/offer_overlay.dart';
 import '../widgets/online_hero_card.dart';
 import 'driver_earnings_screen.dart';
 import 'driver_lost_items_screen.dart';
+import 'driver_vehicle_screen.dart';
 
 class DriverHomeScreen extends StatelessWidget {
   const DriverHomeScreen({super.key});
@@ -51,6 +52,16 @@ class DriverHomeScreen extends StatelessWidget {
                   ),
                 ),
                 icon: const Icon(Icons.payments_outlined),
+              ),
+              IconButton(
+                tooltip: '車輛資訊',
+                // 修改情境（可返回）；未填車輛的強制情境由 _DriverRoot 直接導向設定頁。
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const DriverVehicleScreen(),
+                  ),
+                ),
+                icon: const Icon(Icons.directions_car_outlined),
               ),
               IconButton(
                 tooltip: '登出',

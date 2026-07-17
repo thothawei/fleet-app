@@ -152,6 +152,15 @@ class _FakeFleetApi extends FleetApiClient {
   @override
   Future<List<LostItemRequest>> fetchLostItems() async => const [];
 
+  /// 這些測試驗的是首頁，故一律當作「已填車輛」——未覆蓋的話 init() 會打真網路，
+  /// 在 testWidgets 的 FakeAsync 下永不完成而卡死（Fake 必須覆蓋 init 觸碰的所有端點）。
+  @override
+  Future<DriverVehicle> fetchVehicle() async => const DriverVehicle(
+        vehicleType: 'sedan',
+        plateNumber: 'ABC-1234',
+        hasVehicle: true,
+      );
+
   @override
   Future<String> acceptRide(int rideId) async => '接單成功';
 

@@ -1,5 +1,9 @@
 import '../config/app_config.dart';
 
+// 車種與司機車輛（O1／O2）。獨立成檔避免這份已經很長的 models.dart 再膨脹；
+// 以 export 讓既有 `import 'models.dart'` 的檔案不必改 import。
+export 'vehicle.dart';
+
 class AuthSession {
   const AuthSession({
     required this.driverId,
@@ -142,6 +146,7 @@ class DriverEarnings {
     required this.tripCount,
     required this.totalRevenueCents,
     required this.totalCommissionCents,
+    this.totalCleaningFeeCents = 0,
     required this.driverNetCents,
     required this.membershipFeeCents,
     required this.owedToHqCents,
@@ -149,12 +154,18 @@ class DriverEarnings {
 
   final String month;
   final int tripCount;
+
+  /// 營業額＝車資合計，**不含清潔費**（O6）。
   final int totalRevenueCents;
   final int totalCommissionCents;
+
+  /// 寵物車清潔費合計（O6）：不計入營業額與抽成，全額歸司機。
+  /// driverNetCents 已含它，故等式為「營業額 − 手續費 + 清潔費 = 實得」。
+  final int totalCleaningFeeCents;
   final int driverNetCents;
   final int membershipFeeCents;
 
-  /// 應付總公司 = 手續費 + 月會費（後端算好帶回）。
+  /// 應付總公司 = 手續費 + 月會費（後端算好帶回）；**不受清潔費影響**。
   final int owedToHqCents;
 
   factory DriverEarnings.fromJson(Map<String, dynamic> json) {
@@ -163,6 +174,7 @@ class DriverEarnings {
       tripCount: (json['trip_count'] as num?)?.toInt() ?? 0,
       totalRevenueCents: (json['total_revenue_cents'] as num?)?.toInt() ?? 0,
       totalCommissionCents: (json['total_commission_cents'] as num?)?.toInt() ?? 0,
+      totalCleaningFeeCents: (json['total_cleaning_fee_cents'] as num?)?.toInt() ?? 0,
       driverNetCents: (json['driver_net_cents'] as num?)?.toInt() ?? 0,
       membershipFeeCents: (json['membership_fee_cents'] as num?)?.toInt() ?? 0,
       owedToHqCents: (json['owed_to_hq_cents'] as num?)?.toInt() ?? 0,

@@ -127,6 +127,37 @@ class FleetApiClient {
     }
   }
 
+  /// 查自己的車輛資訊（對齊 GET /api/driver/vehicle，O2）。
+  /// 未設定時兩欄為空字串、hasVehicle=false，非錯誤。
+  Future<DriverVehicle> fetchVehicle() async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('/driver/vehicle');
+      return DriverVehicle.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 設定車種與車牌（對齊 PUT /api/driver/vehicle，O2）。
+  ///
+  /// 後端會正規化車牌（去空白、轉大寫）並回傳正規化後的值——**以回傳值為準**，
+  /// 不要拿送出去的字串當作已存的內容。
+  /// 車牌被其他司機使用時後端回 409，經 api_error 轉成中文訊息。
+  Future<DriverVehicle> updateVehicle({
+    required String vehicleType,
+    required String plateNumber,
+  }) async {
+    try {
+      final res = await _dio.put<Map<String, dynamic>>(
+        '/driver/vehicle',
+        data: {'vehicle_type': vehicleType, 'plate_number': plateNumber},
+      );
+      return DriverVehicle.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 查司機當月收入（對齊 GET /api/driver/earnings?month=YYYY-MM，F7）。
   /// month 為 null 時後端預設當月。
   Future<DriverEarnings> fetchEarnings({String? month}) async {

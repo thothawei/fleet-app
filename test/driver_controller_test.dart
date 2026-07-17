@@ -331,6 +331,15 @@ class _FakeFleetApi extends FleetApiClient {
   ApiException? acceptError;
   ActiveRide? restoreRide;
   List<LostItemRequest> lostItems = const [];
+  // 預設已填車輛：init()／login() 都會呼叫 fetchVehicle，Fake 沒覆蓋就會打真網路，
+  // 讓 testWidgets（FakeAsync）永遠卡住——既有坑，Fake 必須覆蓋 init 觸碰的所有端點。
+  DriverVehicle vehicle = const DriverVehicle(
+    vehicleType: 'sedan',
+    plateNumber: 'ABC-1234',
+    hasVehicle: true,
+  );
+  ApiException? vehicleError;
+  final savedVehicles = <String>[];
   DropoffInfo pickUpDropoff = const DropoffInfo();
   final acceptedRideIds = <int>[];
   final completedRideIds = <int>[];
@@ -357,6 +366,29 @@ class _FakeFleetApi extends FleetApiClient {
 
   @override
   Future<List<LostItemRequest>> fetchLostItems() async => lostItems;
+
+  @override
+  Future<DriverVehicle> fetchVehicle() async {
+    if (vehicleError != null) throw vehicleError!;
+    return vehicle;
+  }
+
+  @override
+  Future<DriverVehicle> updateVehicle({
+    required String vehicleType,
+    required String plateNumber,
+  }) async {
+    if (vehicleError != null) throw vehicleError!;
+    savedVehicles.add('$vehicleType/$plateNumber');
+    // 模擬後端正規化（去空白、轉大寫）——App 必須以回傳值為準。
+    final normalised = plateNumber.replaceAll(' ', '').toUpperCase();
+    vehicle = DriverVehicle(
+      vehicleType: vehicleType,
+      plateNumber: normalised,
+      hasVehicle: true,
+    );
+    return vehicle;
+  }
 
   @override
   Future<String> acceptRide(int rideId) async {

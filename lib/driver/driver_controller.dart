@@ -53,6 +53,11 @@ class DriverController extends ChangeNotifier {
   // 遺失物：未結案協尋工作清單（WS lost_item.* 即時更新）。
   List<LostItemRequest> _lostItems = [];
 
+  // 車輛資訊（O2）。null ＝**尚未載入**，與「已載入但未填」是不同狀態——
+  // 混為一談會在載入完成前誤判成「沒填」而閃跳轉到設定頁（見 vehicleChecked）。
+  DriverVehicle? _vehicle;
+  bool _vehicleSaving = false;
+
   AuthSession? get session => _session;
   bool get isLoggedIn => _session != null;
   bool get loading => _loading;
@@ -72,6 +77,57 @@ class DriverController extends ChangeNotifier {
 
   /// 未結案遺失物協尋工作清單。
   List<LostItemRequest> get lostItems => _lostItems;
+
+  /// 自己的車輛資訊（O2）；尚未載入時為 null。
+  DriverVehicle? get vehicle => _vehicle;
+
+  /// 車輛資訊是否已向後端查過。**跳轉判斷必須先看它**——
+  /// 未查完就看 hasVehicle 會把「還不知道」誤當成「沒填」而閃跳轉。
+  bool get vehicleChecked => _vehicle != null;
+
+  /// 是否已填妥車輛（未載入時為 false，但請搭配 vehicleChecked 判斷）。
+  /// 以後端回的 has_vehicle 為準，不自行判斷「兩欄皆非空」——與 O3 gate 同一條件。
+  bool get hasVehicle => _vehicle?.hasVehicle ?? false;
+
+  /// 車輛設定儲存中（供設定頁禁用按鈕）。
+  bool get vehicleSaving => _vehicleSaving;
+
+  /// 載入自己的車輛資訊（O2）。登入後與 init() 還原 session 後都會呼叫。
+  /// 失敗時不設 _vehicle（維持「未載入」），避免網路錯誤把司機推去設定頁。
+  Future<void> refreshVehicle() async {
+    if (_session == null) return;
+    try {
+      _vehicle = await _api.fetchVehicle();
+      notifyListeners();
+    } on ApiException catch (e) {
+      _error = e.message;
+      notifyListeners();
+    }
+  }
+
+  /// 設定車種與車牌（O2）。成功回 true。
+  /// 以後端回傳值更新狀態（車牌已正規化），不要用送出去的字串。
+  Future<bool> saveVehicle({
+    required String vehicleType,
+    required String plateNumber,
+  }) async {
+    _vehicleSaving = true;
+    _error = null;
+    notifyListeners();
+    try {
+      _vehicle = await _api.updateVehicle(
+        vehicleType: vehicleType,
+        plateNumber: plateNumber,
+      );
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message; // 車牌重複（409）等訊息已由 api_error 中文化
+      return false;
+    } finally {
+      _vehicleSaving = false;
+      notifyListeners();
+    }
+  }
 
   /// 聊天室開啟/關閉；開啟時清未讀並停止累計。
   void setChatVisible(bool visible) {
@@ -100,6 +156,8 @@ class DriverController extends ChangeNotifier {
       await _applySession(saved);
       await _restoreActiveRide();
       await refreshLostItems();
+      // O3 gate 的 App 端引導：一還原 session 就查車輛，_DriverRoot 才知道要不要跳設定頁。
+      await refreshVehicle();
     }
     await _bindPushListener();
   }
@@ -162,6 +220,8 @@ class DriverController extends ChangeNotifier {
       _error = null;
       // 登入即更新「遺失物協尋」角標與工作清單，不用等進頁下拉（比照 init() 還原 session）。
       await refreshLostItems();
+      // 登入後立刻查車輛：沒填的話 _DriverRoot 會直接導去設定頁（O3 gate 的 App 端引導）。
+      await refreshVehicle();
     } on ApiException catch (e) {
       _error = e.message;
     } finally {

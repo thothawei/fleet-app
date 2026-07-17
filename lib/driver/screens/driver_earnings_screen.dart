@@ -140,6 +140,14 @@ class _EarningsBody extends StatelessWidget {
                 const Divider(),
                 _Row(label: '營業額', value: formatCentsAsNtd(data.totalRevenueCents)),
                 _Row(label: '手續費', value: '- ${formatCentsAsNtd(data.totalCommissionCents)}'),
+                // 清潔費分項（O6）：營業額不含它、抽成也不含它，但實得含它——
+                // 少了這一列，「營業額 − 手續費」就對不上實得，司機會以為算錯。
+                // 只在真的有加收時顯示，避免每個月都掛一列 NT$0。
+                if (data.totalCleaningFeeCents > 0)
+                  _Row(
+                    label: '寵物車清潔費',
+                    value: '+ ${formatCentsAsNtd(data.totalCleaningFeeCents)}',
+                  ),
                 _Row(
                   label: '司機實得',
                   value: formatCentsAsNtd(data.driverNetCents),
