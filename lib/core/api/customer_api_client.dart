@@ -71,6 +71,7 @@ class CustomerApiClient {
     String? dropoffAddress,
     double? dropoffLat,
     double? dropoffLng,
+    String? requiredVehicleType,
   }) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>('/rides', data: {
@@ -83,8 +84,24 @@ class CustomerApiClient {
           'dropoff_lat': dropoffLat,
           'dropoff_lng': dropoffLng,
         },
+        // P2：未指定車種時**不帶這個鍵**，維持後端現行行為（不過濾車種）。
+        if (requiredVehicleType != null && requiredVehicleType.isNotEmpty)
+          'required_vehicle_type': requiredVehicleType,
       });
       return CustomerRide.fromJson(res.data!);
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 查乘客可讀的費率（對齊 GET /api/customer/fees，P5）。
+  ///
+  /// 後端是**白名單輸出**，目前只回 pet_cleaning_fee_bps——不會有手續費／月會費。
+  /// 供「選擇車種」UI 在選寵物用車時當場顯示加價，不必等行程完成才知道。
+  Future<int> fetchPetCleaningFeeBps() async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('/customer/fees');
+      return (res.data?['pet_cleaning_fee_bps'] as num?)?.toInt() ?? 0;
     } on DioException catch (e) {
       throw _wrap(e);
     }

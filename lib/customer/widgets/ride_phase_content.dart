@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/models/models.dart';
 import '../../core/util/money.dart';
@@ -132,6 +133,8 @@ class DriverEnRouteContent extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
+        // O4／O7：車種車牌供路邊對車、電話供直接聯絡（明碼，僅本趟乘客看得到）。
+        DriverVehicleCard(info: ctrl.driverInfo),
         if (arrived) ...[
           Text(
             '請與司機會合',
@@ -218,19 +221,16 @@ class CompletedContent extends StatelessWidget {
         ],
         if (summary.fareAmountCents != null) ...[
           const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('車資', style: Theme.of(context).textTheme.titleMedium),
-              Text(
-                formatCentsAsNtd(summary.fareAmountCents!),
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-            ],
-          ),
+          // 有清潔費時**必須分項**（O6 拍板：完成卡不可只給總額）——
+          // 乘客要看得出多收的那筆是什麼。沒加收時維持原本的單行「車資」。
+          if (summary.hasCleaningFee) ...[
+            _FareRow(label: '車資', cents: summary.fareAmountCents!),
+            const SizedBox(height: 4),
+            _FareRow(label: '寵物車清潔費', cents: summary.cleaningFeeCents!),
+            const Divider(height: 16),
+            _FareRow(label: '合計', cents: summary.totalCents!, emphasize: true),
+          ] else
+            _FareRow(label: '車資', cents: summary.fareAmountCents!, emphasize: true),
         ],
         const SizedBox(height: 12),
         Text(
@@ -342,6 +342,9 @@ class _OrderFormContentState extends State<OrderFormContent> {
             border: OutlineInputBorder(),
           ),
         ),
+        const SizedBox(height: 12),
+        // P2：指定車種。預設「不指定」＝維持現行行為（任何車種都可派）。
+        VehicleTypePicker(ctrl: ctrl),
         const SizedBox(height: 16),
         FilledButton.icon(
           onPressed: ctrl.busy ? null : () => _submit(context),
@@ -383,6 +386,181 @@ class _OrderFormContentState extends State<OrderFormContent> {
       dropoffAddress: _dropoff.text,
       dropoffLat: _dropoffLat,
       dropoffLng: _dropoffLng,
+    );
+  }
+}
+
+/// 完成卡的費用列（O6 分項用）。
+class _FareRow extends StatelessWidget {
+  const _FareRow({
+    required this.label,
+    required this.cents,
+    this.emphasize = false,
+  });
+
+  final String label;
+  final int cents;
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = emphasize
+        ? theme.textTheme.titleMedium?.copyWith(
+            color: theme.colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          )
+        : theme.textTheme.bodyMedium;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: emphasize ? theme.textTheme.titleMedium : theme.textTheme.bodyMedium),
+        Text(formatCentsAsNtd(cents), style: style),
+      ],
+    );
+  }
+}
+
+/// 司機車輛資訊卡（O4／O7）：車種、車牌、明碼電話。
+///
+/// **車牌放大＋等寬字型**：乘客站在路邊要能快速比對，這是這張卡存在的理由。
+/// 電話是明碼（O7 拍板），**僅該趟乘客收得到 ride.accepted**，不可用於任何列表。
+/// 無車輛資訊時整塊不顯示（舊資料／後端未帶），不留空白欄位。
+class DriverVehicleCard extends StatelessWidget {
+  const DriverVehicleCard({required this.info, super.key});
+
+  final RideDriverInfo? info;
+
+  Future<void> _call(BuildContext context, String phone) async {
+    final uri = Uri(scheme: 'tel', path: phone);
+    if (!await launchUrl(uri)) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('無法撥號，司機電話：$phone')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = info;
+    if (d == null || (!d.hasVehicle && !d.hasPhone)) {
+      return const SizedBox.shrink();
+    }
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (d.hasVehicle) ...[
+              Row(
+                children: [
+                  const Icon(Icons.directions_car_outlined, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    VehicleType.labelOf(d.vehicleType),
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                d.plateNumber!,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
+                ),
+              ),
+            ],
+            if (d.hasPhone) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => _call(context, d.phone!),
+                icon: const Icon(Icons.phone),
+                label: Text('撥打 ${d.phone}'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 車種選擇（P2）＋寵物車清潔費預告（P5）。
+///
+/// 預設「不指定」——維持後端現行行為（不過濾車種），也不會讓乘客莫名被加價。
+/// 選寵物用車時**當場**顯示加價（拍板：不能等完成才知道）；費率查不到時降級顯示
+/// 「上限 30%」而**不擋叫車**——查費率失敗不該讓人叫不到車。
+class VehicleTypePicker extends StatelessWidget {
+  const VehicleTypePicker({required this.ctrl, super.key});
+
+  final CustomerController ctrl;
+
+  /// 加價說明。bps 為 null（尚未查到／查詢失敗）時給保守的上限說明。
+  String _petFeeHint(int? bps) {
+    if (bps == null) return '將加收清潔費（上限 30%）';
+    if (bps == 0) return '目前不加收清潔費';
+    // bps → 百分比；1 位小數但整數時不留 .0（2000 → 20%，1550 → 15.5%）。
+    final pct = bps / 100;
+    final text = pct == pct.roundToDouble() ? pct.toStringAsFixed(0) : pct.toStringAsFixed(1);
+    return '將加收清潔費 $text%（依車資比例）';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DropdownButtonFormField<VehicleType?>(
+          initialValue: ctrl.requiredVehicleType,
+          decoration: const InputDecoration(
+            labelText: '車種（選填）',
+            prefixIcon: Icon(Icons.directions_car_outlined),
+            border: OutlineInputBorder(),
+          ),
+          items: [
+            const DropdownMenuItem<VehicleType?>(
+              value: null,
+              child: Text('不指定（任何車種）'),
+            ),
+            for (final v in VehicleType.values)
+              DropdownMenuItem<VehicleType?>(value: v, child: Text(v.label)),
+          ],
+          onChanged: ctrl.busy ? null : (v) => ctrl.setRequiredVehicleType(v),
+        ),
+        if (ctrl.requiredVehicleType == VehicleType.pet) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(Icons.info_outline, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _petFeeHint(ctrl.petCleaningFeeBps),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+        if (ctrl.requiredVehicleType != null &&
+            ctrl.requiredVehicleType != VehicleType.pet) ...[
+          const SizedBox(height: 8),
+          Text(
+            // 不降級是後端拍板：找不到指定車種會明確取消，不會默默派別種車。
+            '找不到${ctrl.requiredVehicleType!.label}時會通知您，不會改派其他車種。',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+      ],
     );
   }
 }
