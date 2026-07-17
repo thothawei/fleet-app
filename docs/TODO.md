@@ -80,6 +80,65 @@
       地圖為底、sheet 可拖、司機 marker 隨 WS 移動、浮動登出鈕全數模擬器實跑驗過。
       詳見下方「地圖引擎改用 flutter_map + OpenStreetMap」。
 
+## 🚨 後端 N/O/P 已全部上線（2026-07-17）——App 端補完進度
+
+> 後端 dispatch 的 **N、O、P 三章已全數實作並合併進 main**（PR #29–#36），
+> 且已跑過 docker compose 全服務 live E2E。App 端正在追上。
+>
+> **最緊急的事實：O3 gate 已上線 → 沒填車輛的司機一律無法接單（後端回 409）。**
+> 司機端車輛設定頁是唯一解，已於本批完成。
+
+**App 端補完清單**：
+
+- [x] **司機車輛設定頁＋強制跳轉**（O2／O3）✅ 2026-07-17
+      `DriverVehicleScreen`（車種下拉＋車牌）、`_DriverRoot` 加第三態強制導向、首頁 AppBar 入口。
+      **三態不可混淆**：`vehicleChecked`（查過沒）／`hasVehicle`（填了沒）——
+      查完之前不能判斷「沒填」，否則登入後會閃一下設定頁再跳回首頁；
+      查詢失敗時維持「未載入」，不可因網路錯誤就把司機推去強制頁。
+      `hasVehicle` 以**後端回的 `has_vehicle` 為準**，不自行判斷「兩欄皆非空」（與 O3 gate 同一條件）。
+- [x] **司機收入頁清潔費分項**（O6）✅ 2026-07-17
+      等式改為 **營業額 − 手續費 + 清潔費 = 實得**；只在 `> 0` 時顯示該列。
+      （後端 `total_cleaning_fee_cents` 曾漏回，由 live E2E 抓到並修掉，見 dispatch PR #36。）
+- [ ] **乘客端車種選擇＋清潔費預告**（P2／P5）
+      叫車表單加車種選擇（預設「不指定」），選寵物用車當場顯示「將加收清潔費 X%」——
+      呼叫 `GET /api/customer/fees`（白名單，只回 `pet_cleaning_fee_bps`）。
+      失敗時降級顯示「將加收清潔費（上限 30%）」，不擋叫車。
+- [ ] **乘客端顯示司機車種／車牌／電話**（O4／O7）
+      `ride.accepted` payload 與 `GET /api/customer/rides/:id` 已帶
+      `driver_vehicle_type`／`driver_plate_number`／`driver_phone`（明碼，僅該趟乘客可見）。
+      電話用 `tel:` 連結；車牌建議放大／等寬字型方便路邊對車（待拍板）。
+- [ ] **完成卡清潔費分項**（O6）
+      `ride.completed` payload 在有加收時帶 `cleaning_fee_cents`（無加收時**不帶該鍵**）。
+      `CompletedRideSummary` 加 `cleaningFeeCents`，完成卡拆「車資 ＋ 清潔費」。
+- [ ] **取消原因明確化**（P4）
+      `ride.cancelled` payload 帶 `cancel_reason`（`no_vehicle_of_type`／`no_driver_available`）
+      ＋ `required_vehicle_type`。**用機器可讀欄位判斷，不 parse 文案**。
+      注意：**只有逾時取消這條路徑帶 `cancel_reason`**，乘客主動取消／司機放棄不帶，App 要容忍缺席。
+- [ ] **多乘客／多停靠點 UI**（N，最大塊）
+      乘客端停靠點編輯（最多 5 位／10 停，配對規則見後端 N2）；
+      司機端行程卡依序列出停靠點、到站／跳過標記（`POST /api/rides/:id/stops/:stop_id/arrive|skip`）；
+      概覽地圖多點連線。`ride.assigned`／司機 active 皆已帶 `stops`。
+
+## 🔮 懸而未決（後端已標記，需產品拍板）
+
+> 這兩項由 2026-07-17 的後端實作過程浮現，**皆非 App 端能自行決定**，記錄在此避免遺忘。
+
+1. **O5：admin 車輛審核（可選、待拍板）**
+   目前 O3 gate 的條件是「**有填**車種車牌」。若要做審核，gate 條件要改成「**已審核**」——
+   屆時 App 端的強制跳轉還要多一種狀態：「已填但待審核」（司機填完了卻仍不能接單，
+   需要明確的等待畫面，不能讓他以為壞掉）。
+   **影響 App**：`_DriverRoot` 的三態會變四態；`DriverVehicle` 需要審核狀態欄位。
+   **未拍板前不要做**——猜錯會做出跟後端不一致的 gate。
+
+2. **N 的衍生風險：乘客看不到預估車資**
+   N5 拍板「車資＝全程實際路線（含繞路）」＋ 多停靠點 → **繞路越多車資越高**，
+   但乘客建單時**完全看不到預估**（後端只在完成時定格計費，**沒有報價 API**）。
+   多停靠點會放大這個問題：乘客排了 5 位乘客 10 個停靠點，卻要到行程結束才知道多少錢。
+   **要解需要後端新開一支報價 API**（以全程路線試算），App 端才能在建單前顯示預估。
+   **這是產品決策**：要嘛接受「先搭後知價」，要嘛投資一支報價 API。
+
+---
+
 ## 下次任務
 
 > **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
