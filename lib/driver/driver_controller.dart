@@ -57,10 +57,16 @@ class DriverController extends ChangeNotifier {
   // 混為一談會在載入完成前誤判成「沒填」而閃跳轉到設定頁（見 vehicleChecked）。
   DriverVehicle? _vehicle;
   bool _vehicleSaving = false;
+  // 車輛查詢是否失敗（例如 token 過期、後端不可達）。與「尚未查」是不同狀態——
+  // 混為一談會讓 _DriverRoot 卡在無限 spinner，司機連登出都按不到。
+  bool _vehicleLoadFailed = false;
 
   AuthSession? get session => _session;
   bool get isLoggedIn => _session != null;
   bool get loading => _loading;
+
+  /// 操作進行中（接單／完成／標記停靠點…）；供按鈕禁用避免重複送出。
+  bool get busy => _busy;
   String? get error => _error;
   bool get online => _online;
   bool get wsConnected => _wsConnected;
@@ -78,6 +84,33 @@ class DriverController extends ChangeNotifier {
   /// 未結案遺失物協尋工作清單。
   List<LostItemRequest> get lostItems => _lostItems;
 
+  /// 標記已到達某停靠點（N7）。成功回 true。
+  Future<bool> markStopArrived(int stopId) => _markStop(stopId, _api.arriveStop);
+
+  /// 標記跳過某停靠點（乘客未出現，N7）。成功回 true。
+  /// **被跳過的站不計入車資**——後端 N5 的計費路線會排除它。
+  Future<bool> markStopSkipped(int stopId) => _markStop(stopId, _api.skipStop);
+
+  Future<bool> _markStop(int stopId, Future<void> Function(int, int) action) async {
+    final ride = _activeRide;
+    if (ride == null) return false;
+    _busy = true;
+    _error = null;
+    notifyListeners();
+    try {
+      await action(ride.rideId, stopId);
+      // 重讀 active 讓停靠點狀態同步回畫面——標記的結果由後端決定，不在本地猜。
+      await _restoreActiveRide();
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message; // 重複標記／已跳過／已完成（409）的訊息已中文化
+      return false;
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
   /// 自己的車輛資訊（O2）；尚未載入時為 null。
   DriverVehicle? get vehicle => _vehicle;
 
@@ -92,17 +125,27 @@ class DriverController extends ChangeNotifier {
   /// 車輛設定儲存中（供設定頁禁用按鈕）。
   bool get vehicleSaving => _vehicleSaving;
 
+  /// 車輛查詢是否失敗（token 過期／後端不可達…）。
+  ///
+  /// **與「尚未查」必須分開**：兩者都是 `vehicleChecked == false`，但 UI 後果天差地遠——
+  /// 尚未查 → 轉圈等它；查失敗 → 要給錯誤與出路（重試／登出），否則司機卡在無限 spinner。
+  bool get vehicleLoadFailed => _vehicleLoadFailed;
+
   /// 載入自己的車輛資訊（O2）。登入後與 init() 還原 session 後都會呼叫。
-  /// 失敗時不設 _vehicle（維持「未載入」），避免網路錯誤把司機推去設定頁。
+  ///
+  /// 失敗時**不設 _vehicle**（不可把網路錯誤誤判成「沒填」而推去強制設定頁），
+  /// 但會設 _vehicleLoadFailed 讓 UI 顯示錯誤與重試——「不誤判」不等於「什麼都不說」。
   Future<void> refreshVehicle() async {
     if (_session == null) return;
     try {
       _vehicle = await _api.fetchVehicle();
-      notifyListeners();
+      _vehicleLoadFailed = false;
+      _error = null;
     } on ApiException catch (e) {
       _error = e.message;
-      notifyListeners();
+      _vehicleLoadFailed = true;
     }
+    notifyListeners();
   }
 
   /// 設定車種與車牌（O2）。成功回 true。

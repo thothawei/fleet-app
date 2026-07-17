@@ -10,6 +10,7 @@ import '../../shared/screens/ride_chat_screen.dart';
 import '../driver_controller.dart';
 import '../widgets/connection_details_tile.dart';
 import '../widgets/driver_ride_map.dart';
+import '../widgets/ride_stops_list.dart';
 import '../widgets/offer_overlay.dart';
 import '../widgets/online_hero_card.dart';
 import 'driver_earnings_screen.dart';
@@ -184,6 +185,9 @@ class _ActiveRideCard extends StatelessWidget {
             // 概覽地圖：前往上車點時標上車點，行程中標目的地；無座標（舊後端／
             // LINE 建的無目的地訂單）就不顯示，其餘操作不受影響。
             ..._buildRideMap(ctrl, ride),
+            // 多停靠點行程的全程清單＋到站／跳過標記（N6／N7）；
+            // 單點訂單為空 list → 整塊不顯示，既有畫面不變。
+            RideStopsList(ctrl: ctrl, ride: ride),
             OutlinedButton.icon(
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
