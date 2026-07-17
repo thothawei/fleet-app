@@ -99,21 +99,27 @@
 - [x] **司機收入頁清潔費分項**（O6）✅ 2026-07-17
       等式改為 **營業額 − 手續費 + 清潔費 = 實得**；只在 `> 0` 時顯示該列。
       （後端 `total_cleaning_fee_cents` 曾漏回，由 live E2E 抓到並修掉，見 dispatch PR #36。）
-- [ ] **乘客端車種選擇＋清潔費預告**（P2／P5）
-      叫車表單加車種選擇（預設「不指定」），選寵物用車當場顯示「將加收清潔費 X%」——
-      呼叫 `GET /api/customer/fees`（白名單，只回 `pet_cleaning_fee_bps`）。
-      失敗時降級顯示「將加收清潔費（上限 30%）」，不擋叫車。
-- [ ] **乘客端顯示司機車種／車牌／電話**（O4／O7）
-      `ride.accepted` payload 與 `GET /api/customer/rides/:id` 已帶
-      `driver_vehicle_type`／`driver_plate_number`／`driver_phone`（明碼，僅該趟乘客可見）。
-      電話用 `tel:` 連結；車牌建議放大／等寬字型方便路邊對車（待拍板）。
-- [ ] **完成卡清潔費分項**（O6）
-      `ride.completed` payload 在有加收時帶 `cleaning_fee_cents`（無加收時**不帶該鍵**）。
-      `CompletedRideSummary` 加 `cleaningFeeCents`，完成卡拆「車資 ＋ 清潔費」。
-- [ ] **取消原因明確化**（P4）
-      `ride.cancelled` payload 帶 `cancel_reason`（`no_vehicle_of_type`／`no_driver_available`）
-      ＋ `required_vehicle_type`。**用機器可讀欄位判斷，不 parse 文案**。
-      注意：**只有逾時取消這條路徑帶 `cancel_reason`**，乘客主動取消／司機放棄不帶，App 要容忍缺席。
+- [x] **乘客端車種選擇＋清潔費預告**（P2／P5）✅ 2026-07-17
+      `VehicleTypePicker`：預設「不指定」（維持後端現行行為，也不會讓乘客莫名被加價）。
+      選寵物用車時**當場**查 `GET /api/customer/fees` 顯示「將加收清潔費 X%」，費率快取一次。
+      **查費率失敗靜默降級**顯示「上限 30%」且**不擋叫車、不顯示錯誤**——
+      因為查費率失敗而叫不到車是不可接受的。
+      選其他車種時說明「找不到時會通知您，不會改派其他車種」（呼應後端 P4 不降級）。
+- [x] **乘客端顯示司機車種／車牌／電話**（O4／O7）✅ 2026-07-17
+      `DriverVehicleCard`（司機途中階段）：車種顯示名、**車牌放大＋等寬字型＋字距**
+      （路邊要能快速比對，這是這張卡存在的理由）、`tel:` 撥號按鈕。
+      撥號失敗時把號碼顯示在 SnackBar，不讓乘客卡住。
+      無車輛資訊時整塊不顯示（**後端空值不帶鍵**，缺鍵＝沒有該資訊，不留空白欄位）。
+- [x] **完成卡清潔費分項**（O6）✅ 2026-07-17
+      `CompletedRideSummary` 加 `cleaningFeeCents`／`hasCleaningFee`／`totalCents`。
+      有加收時拆「車資 ＋ 寵物車清潔費 ＝ 合計」（拍板：**不可只給總額**）；
+      沒加收時維持單行「車資」——後端未加收時不帶該鍵，故 null ＝ 沒加收。
+- [x] **取消原因明確化**（P4）✅ 2026-07-17（controller 層；UI 呈現待多停靠點那批一起做）
+      `CancelReason` enum ＋ `cancelMessage()`：**用機器可讀的 code 判斷，不 parse 文案**。
+      指定車種找不到 → 「附近暫無寵物用車，請稍後再試或改用不指定車種重新叫車」；
+      `shouldSuggestAnyVehicle()` 供 UI 決定要不要給快捷操作。
+      **容忍缺席**：只有逾時取消帶 `cancel_reason`，乘客主動取消／司機放棄解析為 null →
+      走泛用「行程已取消。」，不編故事。未知 code 也回 null（後端新增原因時不崩潰）。
 - [ ] **多乘客／多停靠點 UI**（N，最大塊）
       乘客端停靠點編輯（最多 5 位／10 停，配對規則見後端 N2）；
       司機端行程卡依序列出停靠點、到站／跳過標記（`POST /api/rides/:id/stops/:stop_id/arrive|skip`）；

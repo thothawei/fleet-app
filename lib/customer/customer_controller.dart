@@ -40,6 +40,15 @@ class CustomerController extends ChangeNotifier {
   // ride.completed 事件補出完成摘要（dropoff 等），避免完成卡因競態而不顯示。
   CustomerRide? _lastActiveRide;
   String? _driverName;
+  // 司機車輛與聯絡方式（O4／O7），來自 ride.accepted payload。
+  RideDriverInfo? _driverInfo;
+  // 上一趟的取消原因（P4），來自 ride.cancelled payload 的機器可讀欄位。
+  CancelReason? _cancelReason;
+  String? _cancelledVehicleType;
+  // 乘客指定的車種（P2）；null ＝不指定，維持現行行為。
+  VehicleType? _requiredVehicleType;
+  // 寵物車清潔費率（P5）；null ＝尚未查到（費率不常變，快取一次即可）。
+  int? _petCleaningFeeBps;
   int? _liveEtaSec;
   int? _liveDistM;
   double? _liveDriverLat;
@@ -67,6 +76,42 @@ class CustomerController extends ChangeNotifier {
 
   /// 司機姓名，來自 ride.accepted WS 事件（GET active 不含司機名，故為即時來源）。
   String? get driverName => _driverName;
+
+  /// 司機車輛與聯絡方式（O4／O7），來自 ride.accepted。未接單時為 null。
+  /// 車種／車牌供路邊對車；電話為明碼，**僅該趟乘客可見**。
+  RideDriverInfo? get driverInfo => _driverInfo;
+
+  /// 上一趟的取消原因（P4）。**只有逾時取消會帶**，乘客主動取消／司機放棄為 null。
+  CancelReason? get cancelReason => _cancelReason;
+
+  /// 取消時乘客指定的車種 code（P4，搭配 cancelReason 產生訊息）。
+  String? get cancelledVehicleType => _cancelledVehicleType;
+
+  /// 乘客指定的車種（P2）；null ＝不指定（任何車種都可派）。
+  VehicleType? get requiredVehicleType => _requiredVehicleType;
+
+  /// 寵物車清潔費率（bps，P5）；尚未查到時為 null → UI 降級顯示「上限 30%」。
+  int? get petCleaningFeeBps => _petCleaningFeeBps;
+
+  /// 選擇車種（P2）。選寵物用車時順帶把費率查回來，讓 UI 當場顯示加價。
+  Future<void> setRequiredVehicleType(VehicleType? type) async {
+    _requiredVehicleType = type;
+    notifyListeners();
+    if (type == VehicleType.pet && _petCleaningFeeBps == null) {
+      await refreshPetCleaningFee();
+    }
+  }
+
+  /// 查乘客可讀的清潔費率（P5）。失敗**不設值也不擋叫車**——
+  /// UI 會降級顯示「將加收清潔費（上限 30%）」，總比因為查費率失敗而不能叫車好。
+  Future<void> refreshPetCleaningFee() async {
+    try {
+      _petCleaningFeeBps = await _api.fetchPetCleaningFeeBps();
+      notifyListeners();
+    } on ApiException {
+      // 靜默降級：這不是乘客的錯，也不該打斷叫車流程。
+    }
+  }
 
   /// 司機接近上車點的即時 ETA/距離，來自 driver.location WS 事件（司機移動時更新）。
   int? get liveEtaSec => _liveEtaSec;
@@ -177,6 +222,10 @@ class CustomerController extends ChangeNotifier {
     _activeRide = null;
     _lastActiveRide = null;
     _driverName = null;
+    _driverInfo = null;
+    _cancelReason = null;
+    _cancelledVehicleType = null;
+    _requiredVehicleType = null;
     _liveEtaSec = null;
     _liveDistM = null;
     _liveDriverLat = null;
@@ -233,12 +282,14 @@ class CustomerController extends ChangeNotifier {
     String? dropoffAddress,
     String? driverName,
     int? fareAmountCents,
+    int? cleaningFeeCents,
   }) {
     _completedSummary = CompletedRideSummary(
       rideId: rideId,
       dropoffAddress: dropoffAddress,
       driverName: driverName,
       fareAmountCents: fareAmountCents,
+      cleaningFeeCents: cleaningFeeCents,
     );
     notifyListeners();
   }
@@ -268,6 +319,8 @@ class CustomerController extends ChangeNotifier {
         dropoffAddress: ride.dropoffAddress,
         driverName: _driverName,
         fareAmountCents: (event.payload?['fare_amount_cents'] as num?)?.toInt(),
+        // O6：只有乘客指定寵物車的行程才有；後端未加收時**不帶這個鍵** → null。
+        cleaningFeeCents: (event.payload?['cleaning_fee_cents'] as num?)?.toInt(),
       );
       refreshActive();
       return;
@@ -277,6 +330,8 @@ class CustomerController extends ChangeNotifier {
     switch (event.type) {
       case FleetEventTypes.rideAccepted:
         _driverName = event.payload?['driver_name'] as String?;
+        // O4／O7：車種車牌供路邊對車，電話供直接聯絡（明碼，僅該趟乘客收得到此事件）。
+        _driverInfo = RideDriverInfo.fromPayload(event.payload ?? const {});
         _driverArrived = false;
         refreshActive();
       case FleetEventTypes.driverLocation:
@@ -293,7 +348,13 @@ class CustomerController extends ChangeNotifier {
         _liveDriverLng = null;
         notifyListeners();
       case FleetEventTypes.ridePickedUp:
+        refreshActive();
       case FleetEventTypes.rideCancelled:
+        // P4：以機器可讀的 cancel_reason 判斷，不 parse 後端文案（文案會改）。
+        // 只有逾時取消會帶這兩個鍵；乘客主動取消／司機放棄不帶 → 解析為 null，
+        // UI 走泛用訊息。
+        _cancelReason = CancelReason.fromCode(event.payload?['cancel_reason'] as String?);
+        _cancelledVehicleType = event.payload?['required_vehicle_type'] as String?;
         refreshActive();
       default:
         break;
@@ -433,10 +494,16 @@ class CustomerController extends ChangeNotifier {
         dropoffAddress: dropoffAddress.trim(),
         dropoffLat: dropoffLat,
         dropoffLng: dropoffLng,
+        // P2：null ＝不指定，client 端不會帶這個鍵。
+        requiredVehicleType: _requiredVehicleType?.code,
       );
       _activeRide = ride;
       _lastActiveRide = ride;
       _driverName = null;
+      _driverInfo = null;
+      // 新的一趟開始 → 上一趟的取消原因不該還掛著。
+      _cancelReason = null;
+      _cancelledVehicleType = null;
       _liveEtaSec = null;
       _liveDistM = null;
       _liveDriverLat = null;

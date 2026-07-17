@@ -1,7 +1,10 @@
 import '../config/app_config.dart';
+// RideDriverInfo 用得到 VehicleType；export 只對外，本檔自己用仍需 import。
+import 'vehicle.dart';
 
-// 車種與司機車輛（O1／O2）。獨立成檔避免這份已經很長的 models.dart 再膨脹；
-// 以 export 讓既有 `import 'models.dart'` 的檔案不必改 import。
+// 車種與司機車輛（O1／O2）、取消原因（P4）。獨立成檔避免這份已經很長的 models.dart
+// 再膨脹；以 export 讓既有 `import 'models.dart'` 的檔案不必改 import。
+export 'cancel_reason.dart';
 export 'vehicle.dart';
 
 class AuthSession {
@@ -129,6 +132,7 @@ class CompletedRideSummary {
     this.dropoffAddress,
     this.driverName,
     this.fareAmountCents,
+    this.cleaningFeeCents,
   });
 
   final int rideId;
@@ -137,6 +141,58 @@ class CompletedRideSummary {
 
   /// 車資（分）；來自 ride.completed 事件的 fare_amount_cents（E2）。無則 null。
   final int? fareAmountCents;
+
+  /// 寵物車清潔費（分，O6）；來自 ride.completed 的 cleaning_fee_cents。
+  ///
+  /// **只有乘客指定寵物車的行程才有**：後端未加收時**不帶這個鍵**（不是帶 0），
+  /// 故 null ＝ 沒加收 → 完成卡不該出現清潔費欄位。
+  final int? cleaningFeeCents;
+
+  /// 是否有加收清潔費（供完成卡決定要不要拆分項）。
+  bool get hasCleaningFee => (cleaningFeeCents ?? 0) > 0;
+
+  /// 乘客實付總額（分）＝車資 ＋ 清潔費；無車資（舊後端）時為 null。
+  int? get totalCents =>
+      fareAmountCents == null ? null : fareAmountCents! + (cleaningFeeCents ?? 0);
+}
+
+/// 司機資訊（ride.accepted payload，O4／O7）。
+///
+/// 車種／車牌來自 ride 快照（司機換車後歷史不變），電話為 drivers 即時值
+/// （換號碼後乘客要撥得通的是新號碼）——兩者來源不同，後端刻意沒統一。
+class RideDriverInfo {
+  const RideDriverInfo({
+    this.name,
+    this.vehicleType,
+    this.plateNumber,
+    this.phone,
+  });
+
+  final String? name;
+
+  /// 車種 code（後端只送 code，顯示名由 VehicleType 對應）。
+  final String? vehicleType;
+  final String? plateNumber;
+
+  /// 明碼電話（O7 拍板）；**僅該趟乘客可見**，不可用於任何列表。
+  final String? phone;
+
+  VehicleType? get type => VehicleType.fromCode(vehicleType);
+
+  /// 是否有車輛資訊可顯示（路邊對車用）。
+  bool get hasVehicle => (vehicleType?.isNotEmpty ?? false) && (plateNumber?.isNotEmpty ?? false);
+
+  bool get hasPhone => phone?.isNotEmpty ?? false;
+
+  /// 由 WS payload 解析。**空值不帶鍵**是後端的約定，故缺鍵＝沒有該資訊。
+  factory RideDriverInfo.fromPayload(Map<String, dynamic> payload) {
+    return RideDriverInfo(
+      name: payload['driver_name'] as String?,
+      vehicleType: payload['driver_vehicle_type'] as String?,
+      plateNumber: payload['driver_plate_number'] as String?,
+      phone: payload['driver_phone'] as String?,
+    );
+  }
 }
 
 /// 司機當月收入（對齊後端 GET /api/driver/earnings，F7）。金額欄位皆為「分」。
