@@ -96,6 +96,32 @@ void main() {
       expect(ctrl.error, '連線失敗');
     });
 
+    test('查詢失敗要能被 UI 分辨（否則卡在無限 spinner）', () async {
+      // 模擬器實跑抓到的真 bug：舊 session 對新後端無效 → 查詢失敗 →
+      // vehicleChecked 永遠 false → _DriverRoot 永遠轉圈 → 司機連登出都按不到。
+      // 「尚未查」與「查失敗」都是 vehicleChecked==false，但 UI 後果天差地遠。
+      api.vehicleError = ApiException('找不到司機');
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U', password: 'pw');
+
+      expect(ctrl.vehicleLoadFailed, isTrue);
+      expect(ctrl.vehicleChecked, isFalse);
+    });
+
+    test('重試成功後清除失敗狀態', () async {
+      api.vehicleError = ApiException('連線失敗');
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U', password: 'pw');
+      expect(ctrl.vehicleLoadFailed, isTrue);
+
+      api.vehicleError = null;
+      await ctrl.refreshVehicle();
+
+      expect(ctrl.vehicleLoadFailed, isFalse);
+      expect(ctrl.vehicleChecked, isTrue);
+      expect(ctrl.error, isNull);
+    });
+
     test('儲存後以後端回傳值為準（車牌已正規化）', () async {
       await ctrl.init();
       await ctrl.login(lineUserId: 'U', password: 'pw');
