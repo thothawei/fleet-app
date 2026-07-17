@@ -72,6 +72,7 @@ class CustomerApiClient {
     double? dropoffLat,
     double? dropoffLng,
     String? requiredVehicleType,
+    List<StopInput> stops = const [],
   }) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>('/rides', data: {
@@ -87,6 +88,9 @@ class CustomerApiClient {
         // P2：未指定車種時**不帶這個鍵**，維持後端現行行為（不過濾車種）。
         if (requiredVehicleType != null && requiredVehicleType.isNotEmpty)
           'required_vehicle_type': requiredVehicleType,
+        // N3：多乘客／多停靠點。空 ＝ **不帶這個鍵** ＝ 單點訂單（既有行為）。
+        // 有帶時後端會由 stops 推導 pickup／dropoff 並忽略上面的座標欄位。
+        if (stops.isNotEmpty) 'stops': [for (final s in stops) s.toJson()],
       });
       return CustomerRide.fromJson(res.data!);
     } on DioException catch (e) {

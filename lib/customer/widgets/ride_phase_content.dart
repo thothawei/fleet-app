@@ -8,6 +8,7 @@ import '../../shared/screens/ride_chat_screen.dart';
 import '../customer_controller.dart';
 import '../screens/lost_item_screen.dart';
 import '../screens/map_picker_screen.dart';
+import 'stops_editor.dart';
 
 /// 開啟與司機的即時聊天室（行程中與遺失物協尋共用同一條對話）。
 void openCustomerChat(BuildContext context, CustomerController ctrl, int rideId) {
@@ -310,38 +311,45 @@ class _OrderFormContentState extends State<OrderFormContent> {
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 16),
-        TextField(
-          controller: _dropoff,
-          onChanged: (_) {
-            // 手動編輯地址 → 丟棄地圖座標，改以地址下單
-            if (_dropoffLat != null || _dropoffLng != null) {
-              setState(() {
-                _dropoffLat = null;
-                _dropoffLng = null;
-              });
-            }
-          },
-          decoration: const InputDecoration(
-            labelText: '目的地地址',
-            prefixIcon: Icon(Icons.place),
-            border: OutlineInputBorder(),
+        // 多乘客模式（N3）下每位乘客各自有上／下車點，單一目的地欄位不再適用——
+        // 同時顯示兩者會讓人以為要各填一次。
+        if (!ctrl.multiStopEnabled) ...[
+          TextField(
+            controller: _dropoff,
+            onChanged: (_) {
+              // 手動編輯地址 → 丟棄地圖座標，改以地址下單
+              if (_dropoffLat != null || _dropoffLng != null) {
+                setState(() {
+                  _dropoffLat = null;
+                  _dropoffLng = null;
+                });
+              }
+            },
+            decoration: const InputDecoration(
+              labelText: '目的地地址',
+              prefixIcon: Icon(Icons.place),
+              border: OutlineInputBorder(),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: ctrl.busy ? null : () => _pickOnMap(context),
-          icon: const Icon(Icons.map),
-          label: const Text('在地圖上選目的地'),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _pickup,
-          decoration: const InputDecoration(
-            labelText: '上車地址（選填）',
-            prefixIcon: Icon(Icons.my_location),
-            border: OutlineInputBorder(),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: ctrl.busy ? null : () => _pickOnMap(context),
+            icon: const Icon(Icons.map),
+            label: const Text('在地圖上選目的地'),
           ),
-        ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _pickup,
+            decoration: const InputDecoration(
+              labelText: '上車地址（選填）',
+              prefixIcon: Icon(Icons.my_location),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        // N3：多乘客／多停靠點。預設不啟用＝維持既有的單一目的地流程。
+        StopsEditor(ctrl: ctrl),
         const SizedBox(height: 12),
         // P2：指定車種。預設「不指定」＝維持現行行為（任何車種都可派）。
         VehicleTypePicker(ctrl: ctrl),
@@ -375,7 +383,8 @@ class _OrderFormContentState extends State<OrderFormContent> {
   }
 
   Future<void> _submit(BuildContext context) async {
-    if (_dropoff.text.trim().isEmpty) {
+    // 多乘客模式的目的地來自每位乘客的下車點，不看這個欄位（controller 會擋未填完）。
+    if (!widget.ctrl.multiStopEnabled && _dropoff.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('請先輸入目的地地址')),
       );

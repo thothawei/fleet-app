@@ -49,6 +49,8 @@ class CustomerController extends ChangeNotifier {
   VehicleType? _requiredVehicleType;
   // 寵物車清潔費率（P5）；null ＝尚未查到（費率不常變，快取一次即可）。
   int? _petCleaningFeeBps;
+  // 多乘客行程的編輯狀態（N3）；空 ＝ 單點訂單。
+  final List<PassengerTrip> _passengers = [];
   int? _liveEtaSec;
   int? _liveDistM;
   double? _liveDriverLat;
@@ -92,6 +94,65 @@ class CustomerController extends ChangeNotifier {
 
   /// 寵物車清潔費率（bps，P5）；尚未查到時為 null → UI 降級顯示「上限 30%」。
   int? get petCleaningFeeBps => _petCleaningFeeBps;
+
+  /// 多乘客行程的編輯狀態（N3）；空 ＝ 單點訂單（維持現行行為）。
+  List<PassengerTrip> get passengers => List.unmodifiable(_passengers);
+
+  /// 是否已啟用多乘客模式。
+  bool get multiStopEnabled => _passengers.isNotEmpty;
+
+  /// 可否再加一位（後端 N2 拍板上限 5 位）。
+  bool get canAddPassenger => _passengers.length < maxRidePassengers;
+
+  /// 已填完上下車的乘客數——**只有這些人會被送出**（buildStops 略過未填完的）。
+  int get completePassengerCount => _passengers.where((p) => p.complete).length;
+
+  /// 啟用多乘客模式並加入第一位。
+  ///
+  /// **漸進展開**（App 端待拍板的建議方案）：預設 1 位、按「+ 新增乘客」再加——
+  /// 一次逼使用者填滿 5 位太繁瑣，而多數行程只有 1-2 位。
+  void enableMultiStop() {
+    if (_passengers.isEmpty) addPassenger();
+  }
+
+  /// 關閉多乘客模式，回到單一目的地的既有流程。
+  void disableMultiStop() {
+    _passengers.clear();
+    notifyListeners();
+  }
+
+  /// 新增一位乘客（標籤自動給 A/B/C…，與司機端看到的一致）。
+  void addPassenger() {
+    if (!canAddPassenger) return;
+    _passengers.add(PassengerTrip(label: _labelFor(_passengers.length)));
+    notifyListeners();
+  }
+
+  /// 移除某位乘客；移除後**重新編號**——出現「A、C」的跳號會讓司機困惑。
+  void removePassenger(int index) {
+    if (index < 0 || index >= _passengers.length) return;
+    _passengers.removeAt(index);
+    for (var i = 0; i < _passengers.length; i++) {
+      final old = _passengers[i];
+      _passengers[i] = PassengerTrip(
+        label: _labelFor(i),
+        pickup: old.pickup,
+        dropoff: old.dropoff,
+      );
+    }
+    notifyListeners();
+  }
+
+  /// 設定某位乘客的上車／下車點。
+  void setPassengerPoint(int index, {StopPoint? pickup, StopPoint? dropoff}) {
+    if (index < 0 || index >= _passengers.length) return;
+    if (pickup != null) _passengers[index].pickup = pickup;
+    if (dropoff != null) _passengers[index].dropoff = dropoff;
+    notifyListeners();
+  }
+
+  static String _labelFor(int index) =>
+      String.fromCharCode('A'.codeUnitAt(0) + index);
 
   /// 選擇車種（P2）。選寵物用車時順帶把費率查回來，讓 UI 當場顯示加價。
   Future<void> setRequiredVehicleType(VehicleType? type) async {
@@ -226,6 +287,7 @@ class CustomerController extends ChangeNotifier {
     _cancelReason = null;
     _cancelledVehicleType = null;
     _requiredVehicleType = null;
+    _passengers.clear();
     _liveEtaSec = null;
     _liveDistM = null;
     _liveDriverLat = null;
@@ -470,6 +532,14 @@ class CustomerController extends ChangeNotifier {
     double? dropoffLng,
   }) async {
     if (_busy || _session == null) return;
+    // N3：多乘客模式下，pickup／dropoff 由 stops 推導（後端也是這樣做），
+    // 故不需要定位——但仍沿用同一條建單路徑。
+    final stops = buildStops(_passengers);
+    if (_passengers.isNotEmpty && stops.isEmpty) {
+      _error = '請至少填完一位乘客的上車與下車點';
+      notifyListeners();
+      return;
+    }
     _setBusy(true);
     try {
       final ok = await _ensureLocationPermission();
@@ -494,11 +564,16 @@ class CustomerController extends ChangeNotifier {
         dropoffAddress: dropoffAddress.trim(),
         dropoffLat: dropoffLat,
         dropoffLng: dropoffLng,
+        // N3：有 stops 時後端會用它推導 pickup／dropoff 並覆蓋上面幾個欄位；
+        // 空 list ＝ 不帶這個鍵 ＝ 單點訂單的既有行為。
+        stops: stops,
         // P2：null ＝不指定，client 端不會帶這個鍵。
         requiredVehicleType: _requiredVehicleType?.code,
       );
       _activeRide = ride;
       _lastActiveRide = ride;
+      // 這趟已送出，編輯狀態不該留到下一趟。
+      _passengers.clear();
       _driverName = null;
       _driverInfo = null;
       // 新的一趟開始 → 上一趟的取消原因不該還掛著。
