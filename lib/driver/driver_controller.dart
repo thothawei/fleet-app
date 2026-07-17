@@ -61,6 +61,9 @@ class DriverController extends ChangeNotifier {
   AuthSession? get session => _session;
   bool get isLoggedIn => _session != null;
   bool get loading => _loading;
+
+  /// 操作進行中（接單／完成／標記停靠點…）；供按鈕禁用避免重複送出。
+  bool get busy => _busy;
   String? get error => _error;
   bool get online => _online;
   bool get wsConnected => _wsConnected;
@@ -77,6 +80,33 @@ class DriverController extends ChangeNotifier {
 
   /// 未結案遺失物協尋工作清單。
   List<LostItemRequest> get lostItems => _lostItems;
+
+  /// 標記已到達某停靠點（N7）。成功回 true。
+  Future<bool> markStopArrived(int stopId) => _markStop(stopId, _api.arriveStop);
+
+  /// 標記跳過某停靠點（乘客未出現，N7）。成功回 true。
+  /// **被跳過的站不計入車資**——後端 N5 的計費路線會排除它。
+  Future<bool> markStopSkipped(int stopId) => _markStop(stopId, _api.skipStop);
+
+  Future<bool> _markStop(int stopId, Future<void> Function(int, int) action) async {
+    final ride = _activeRide;
+    if (ride == null) return false;
+    _busy = true;
+    _error = null;
+    notifyListeners();
+    try {
+      await action(ride.rideId, stopId);
+      // 重讀 active 讓停靠點狀態同步回畫面——標記的結果由後端決定，不在本地猜。
+      await _restoreActiveRide();
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message; // 重複標記／已跳過／已完成（409）的訊息已中文化
+      return false;
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
 
   /// 自己的車輛資訊（O2）；尚未載入時為 null。
   DriverVehicle? get vehicle => _vehicle;

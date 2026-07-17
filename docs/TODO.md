@@ -120,10 +120,19 @@
       `shouldSuggestAnyVehicle()` 供 UI 決定要不要給快捷操作。
       **容忍缺席**：只有逾時取消帶 `cancel_reason`，乘客主動取消／司機放棄解析為 null →
       走泛用「行程已取消。」，不編故事。未知 code 也回 null（後端新增原因時不崩潰）。
-- [ ] **多乘客／多停靠點 UI**（N，最大塊）
-      乘客端停靠點編輯（最多 5 位／10 停，配對規則見後端 N2）；
-      司機端行程卡依序列出停靠點、到站／跳過標記（`POST /api/rides/:id/stops/:stop_id/arrive|skip`）；
-      概覽地圖多點連線。`ride.assigned`／司機 active 皆已帶 `stops`。
+- [~] **多乘客／多停靠點 UI**（N，最大塊）——**司機端已完成（2026-07-17），乘客端編輯待做**
+      - [x] **資料鏈路**：`RideStop`／`StopKind`／`StopInput`／`PassengerTrip`／`buildStops`；
+            `ActiveRide` 加 `stops`／`hasStops`／`nextStop`（單點訂單為空 list ＝ 既有行為）。
+            座標解析同時吃 num 與 String——FCM data 值全是字串（見 pitfall-fcm-data-all-strings）。
+      - [x] **司機端行程卡**（N6／N7）：`RideStopsList` 依序列出全程，每站給「是誰、在哪、處理了沒」；
+            **只有「下一站」給操作**（已上車／已下車／跳過），一次一件事避免誤按後面的站；
+            已跳過的站用刪除線。跳過需二次確認並說明「不可復原、不計入車資」。
+            標記後**重讀 active** 讓狀態由後端決定，不在本地猜。
+      - [ ] **乘客端停靠點編輯**：以「人」為單位編輯（最多 5 位），送出前用 `buildStops` 轉成後端要的
+            扁平陣列——該函式**保證**滿足 N2 的配對規則（成對、dropoff.seq > pickup.seq、seq 不重複），
+            已用測試釘住。UI 待做。
+      - [ ] **概覽地圖多點連線**：`DriverRideMap` 目前是「自己 + 單一目標 + 連線」。
+      - [ ] **取消原因 UI 呈現**（P4 的 controller 層已完備）。
 
 ## 🔮 懸而未決（後端已標記，需產品拍板）
 

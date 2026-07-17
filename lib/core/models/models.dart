@@ -1,10 +1,13 @@
 import '../config/app_config.dart';
-// RideDriverInfo 用得到 VehicleType；export 只對外，本檔自己用仍需 import。
+// RideDriverInfo 用得到 VehicleType、ActiveRide 用得到 RideStop；
+// export 只對外，本檔自己用仍需 import。
+import 'ride_stop.dart';
 import 'vehicle.dart';
 
 // 車種與司機車輛（O1／O2）、取消原因（P4）。獨立成檔避免這份已經很長的 models.dart
 // 再膨脹；以 export 讓既有 `import 'models.dart'` 的檔案不必改 import。
 export 'cancel_reason.dart';
+export 'ride_stop.dart';
 export 'vehicle.dart';
 
 class AuthSession {
@@ -474,11 +477,27 @@ class ActiveRide {
     this.dropoffAddress,
     this.dropoffLat,
     this.dropoffLng,
+    this.stops = const [],
   });
 
   final int rideId;
   final String address;
   final DriverRidePhase phase;
+
+  /// 多乘客／多停靠點行程的全程（N4／N6）；**空 ＝ 傳統單點訂單**。
+  /// 依 seq 排序，司機據此知道「下一站是誰、在哪、處理了沒」。
+  final List<RideStop> stops;
+
+  /// 是否為多停靠點行程。
+  bool get hasStops => stops.isNotEmpty;
+
+  /// 下一個待處理的停靠點（未到達也未跳過）；全部處理完回 null。
+  RideStop? get nextStop {
+    for (final s in stops) {
+      if (s.pending) return s;
+    }
+    return null;
+  }
 
   /// 上車點座標；供司機端地圖標出上車點（address 字串無法定位）。
   /// 來源：ride.assigned 事件的 pickup_lat/lng，或 rides/active 的 pickup_point。
@@ -534,6 +553,9 @@ class ActiveRide {
           (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
       dropoffLat: (dropoffPoint?['lat'] as num?)?.toDouble(),
       dropoffLng: (dropoffPoint?['lng'] as num?)?.toDouble(),
+      // N6：DriverRideView 攤平 ride 欄位並多帶 stops；
+      // 單點訂單沒有這個鍵（後端 omitempty）→ 空 list ＝ 既有行為。
+      stops: RideStop.listFrom(json['stops']),
     );
   }
 }

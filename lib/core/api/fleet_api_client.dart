@@ -127,6 +127,28 @@ class FleetApiClient {
     }
   }
 
+  /// 標記已到達某停靠點（對齊 POST /api/rides/:id/stops/:stop_id/arrive，N7）。
+  /// 重複標記或該站已跳過時後端回 409（訊息經 api_error 中文化）。
+  Future<void> arriveStop(int rideId, int stopId) async {
+    try {
+      await _dio.post<Map<String, dynamic>>('/rides/$rideId/stops/$stopId/arrive');
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 標記跳過某停靠點（乘客未出現，N7）。
+  ///
+  /// **已跳過的站不計入車資**（後端 N5 排除）——沒去就沒開那段路。
+  /// 已到達的站不得反悔改成跳過，後端回 409。
+  Future<void> skipStop(int rideId, int stopId) async {
+    try {
+      await _dio.post<Map<String, dynamic>>('/rides/$rideId/stops/$stopId/skip');
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 查自己的車輛資訊（對齊 GET /api/driver/vehicle，O2）。
   /// 未設定時兩欄為空字串、hasVehicle=false，非錯誤。
   Future<DriverVehicle> fetchVehicle() async {
