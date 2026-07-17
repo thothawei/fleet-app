@@ -45,6 +45,9 @@ class CustomerController extends ChangeNotifier {
   // 上一趟的取消原因（P4），來自 ride.cancelled payload 的機器可讀欄位。
   CancelReason? _cancelReason;
   String? _cancelledVehicleType;
+  // 是否有待呈現的取消通知（P4）。reason 為 null 也要通知（乘客主動取消／司機放棄
+  // 走泛用文案），故需獨立旗標，不能只看 _cancelReason。
+  bool _rideCancelled = false;
   // 乘客指定的車種（P2）；null ＝不指定，維持現行行為。
   VehicleType? _requiredVehicleType;
   // 寵物車清潔費率（P5）；null ＝尚未查到（費率不常變，快取一次即可）。
@@ -88,6 +91,23 @@ class CustomerController extends ChangeNotifier {
 
   /// 取消時乘客指定的車種 code（P4，搭配 cancelReason 產生訊息）。
   String? get cancelledVehicleType => _cancelledVehicleType;
+
+  /// 待呈現的取消通知文案（P4）；null ＝ 沒有要顯示的取消。
+  /// 文案由機器可讀的 cancel_reason 產生（cancelMessage），不 parse 後端字串。
+  String? get cancelNotice =>
+      _rideCancelled ? cancelMessage(_cancelReason, _cancelledVehicleType) : null;
+
+  /// 是否該給「改用不指定車種重新叫車」快捷（P4：只有指定車種找不到才建議）。
+  bool get suggestAnyVehicle =>
+      _rideCancelled && shouldSuggestAnyVehicle(_cancelReason);
+
+  /// 關閉取消通知（乘客按「知道了」或採用快捷操作後）。
+  void dismissCancelNotice() {
+    _rideCancelled = false;
+    _cancelReason = null;
+    _cancelledVehicleType = null;
+    notifyListeners();
+  }
 
   /// 乘客指定的車種（P2）；null ＝不指定（任何車種都可派）。
   VehicleType? get requiredVehicleType => _requiredVehicleType;
@@ -286,6 +306,7 @@ class CustomerController extends ChangeNotifier {
     _driverInfo = null;
     _cancelReason = null;
     _cancelledVehicleType = null;
+    _rideCancelled = false;
     _requiredVehicleType = null;
     _passengers.clear();
     _liveEtaSec = null;
@@ -417,6 +438,7 @@ class CustomerController extends ChangeNotifier {
         // UI 走泛用訊息。
         _cancelReason = CancelReason.fromCode(event.payload?['cancel_reason'] as String?);
         _cancelledVehicleType = event.payload?['required_vehicle_type'] as String?;
+        _rideCancelled = true;
         refreshActive();
       default:
         break;
@@ -579,6 +601,7 @@ class CustomerController extends ChangeNotifier {
       // 新的一趟開始 → 上一趟的取消原因不該還掛著。
       _cancelReason = null;
       _cancelledVehicleType = null;
+      _rideCancelled = false;
       _liveEtaSec = null;
       _liveDistM = null;
       _liveDriverLat = null;

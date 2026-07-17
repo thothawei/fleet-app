@@ -304,6 +304,12 @@ class _OrderFormContentState extends State<OrderFormContent> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // P4：上一趟被取消的通知。文案由機器可讀的 cancel_reason 產生；
+        // 指定車種找不到時給「改用不指定車種」快捷，其他情況只陳述事實。
+        if (ctrl.cancelNotice != null) ...[
+          _CancelNoticeCard(ctrl: ctrl),
+          const SizedBox(height: 12),
+        ],
         Text('要去哪裡？', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 4),
         Text(
@@ -395,6 +401,64 @@ class _OrderFormContentState extends State<OrderFormContent> {
       dropoffAddress: _dropoff.text,
       dropoffLat: _dropoffLat,
       dropoffLng: _dropoffLng,
+    );
+  }
+}
+
+/// 上一趟取消的通知卡（P4）。
+///
+/// 只有 WS `ride.cancelled` 會觸發；文案來自 cancelMessage（機器可讀 code，
+/// 不 parse 後端文案）。`no_vehicle_of_type` 時多給「改用不指定車種」快捷——
+/// 泛用訊息會讓乘客反覆重試同一個註定失敗的車種。
+class _CancelNoticeCard extends StatelessWidget {
+  const _CancelNoticeCard({required this.ctrl});
+
+  final CustomerController ctrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.info_outline, size: 20, color: scheme.onErrorContainer),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    ctrl.cancelNotice ?? '',
+                    style: TextStyle(color: scheme.onErrorContainer),
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (ctrl.suggestAnyVehicle)
+                  TextButton(
+                    onPressed: () {
+                      // 快捷：車種改回「不指定」，乘客只要再按一次「叫車」。
+                      ctrl.setRequiredVehicleType(null);
+                      ctrl.dismissCancelNotice();
+                    },
+                    child: const Text('改用不指定車種'),
+                  ),
+                TextButton(
+                  onPressed: ctrl.dismissCancelNotice,
+                  child: const Text('知道了'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

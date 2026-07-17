@@ -120,13 +120,24 @@ class _ActiveRideCard extends StatelessWidget {
 
   final DriverController ctrl;
 
-  /// 概覽地圖（有目標座標才顯示）。前往上車點時目標為上車點，行程中為目的地。
+  /// 概覽地圖（有目標座標才顯示）。前往上車點時目標為上車點，行程中為目的地；
+  /// 多停靠點行程（N）改畫全程：依序的停靠點＋折線＋下一站醒目。
   List<Widget> _buildRideMap(DriverController ctrl, ActiveRide ride) {
+    final pos = ctrl.lastPosition;
+    if (ride.hasStops) {
+      return [
+        DriverRideMap(
+          stops: ride.stops,
+          driverLat: pos?.latitude,
+          driverLng: pos?.longitude,
+        ),
+        const SizedBox(height: 16),
+      ];
+    }
     final toPickup = ride.phase == DriverRidePhase.enRouteToPickup;
     final lat = toPickup ? ride.pickupLat : ride.dropoffLat;
     final lng = toPickup ? ride.pickupLng : ride.dropoffLng;
     if (lat == null || lng == null) return const [];
-    final pos = ctrl.lastPosition;
     return [
       DriverRideMap(
         targetLat: lat,
