@@ -532,6 +532,9 @@ class ActiveRide {
       dropoffAddress: dropoffAddress ?? this.dropoffAddress,
       dropoffLat: dropoffLat ?? this.dropoffLat,
       dropoffLng: dropoffLng ?? this.dropoffLng,
+      // 漏了這行，「乘客已上車」（copyWith 換 phase）後 stops 掉回空 list，
+      // 多停靠點的全程清單與多點地圖在行程中直接消失（模擬器實跑抓到）。
+      stops: stops,
     );
   }
 
