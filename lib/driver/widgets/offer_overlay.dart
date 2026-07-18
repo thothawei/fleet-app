@@ -54,6 +54,13 @@ class OfferOverlay extends StatelessWidget {
                     Chip(label: Text('距離約 ${offer.distM} 公尺')),
                   if (offer.etaLabel.isNotEmpty)
                     Chip(label: Text('ETA ${offer.etaLabel}')),
+                  // N4：接單前就標示這是多乘客行程；全程細節接單後在行程卡
+                  // 逐站呈現——全螢幕接單卡要幾秒內可讀，不塞 10 站清單。
+                  if (offer.hasStops)
+                    Chip(
+                      avatar: const Icon(Icons.alt_route, size: 18),
+                      label: Text('多乘客行程（${offer.stops.length} 站）'),
+                    ),
                 ],
               ),
               const Spacer(),

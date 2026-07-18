@@ -53,12 +53,19 @@ class RideOffer {
     this.dropoffAddress,
     this.dropoffLat,
     this.dropoffLng,
+    this.stops = const [],
   });
 
   final int rideId;
   final String address;
   final int? etaSec;
   final int? distM;
+
+  /// 多停靠點行程的全程（N4，ride.assigned 帶入）；空 ＝ 單點訂單。
+  /// 接單前就看得到是多乘客行程；接單後帶進 ActiveRide 供清單與多點地圖。
+  final List<RideStop> stops;
+
+  bool get hasStops => stops.isNotEmpty;
 
   /// 上車點座標（ride.assigned 帶入）；接單後供司機端地圖標出上車點。
   final double? pickupLat;
@@ -84,6 +91,8 @@ class RideOffer {
           (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
       dropoffLat: (payload?['dropoff_lat'] as num?)?.toDouble(),
       dropoffLng: (payload?['dropoff_lng'] as num?)?.toDouble(),
+      // 缺鍵回空 list（單點訂單／FCM data 不帶陣列時）。
+      stops: RideStop.listFrom(payload?['stops']),
     );
   }
 
