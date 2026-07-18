@@ -54,28 +54,39 @@ flutter run -t lib/main_driver.dart --flavor driver \
 
 ## FCM 推播（司機端 A2）
 
+**App 端（司機 flavor）**：
+
 1. 在 [Firebase Console](https://console.firebase.google.com/) 建立專案，新增 Android App，套件名 **`dev.linefleet.line_fleet_app.driver`**
-2. 下載 `google-services.json` 放到 `android/app/`
+2. 下載 `google-services.json` 放到 `android/app/`（範本 `android/app/google-services.json.example`）
 3. （可選）執行 `dart pub global activate flutterfire_cli && flutterfire configure`
-4. 登入司機 App 後會自動 `POST /api/driver/device-token`；後端目前為 `LogPusher` stub，換真 FCM 後 App 被殺仍可收派單
+4. 登入司機 App 後會自動 `POST /api/driver/device-token`
 
-範本檔：`android/app/google-services.json.example`
+**後端（dispatch）**：真 FCM 已實作（`FCMPusher`，A2）。啟用方式：
 
-推播 data payload 契約（後端真 FCM 實作時應帶）：
+1. Firebase Console → 專案設定 → 服務帳戶 → 產生新的私密金鑰（服務帳戶 JSON）
+2. 把 JSON 掛進 dispatch 容器，設環境變數 `FCM_CREDENTIALS_FILE=<容器內路徑>`
+3. **未設此變數＝降級成 stub**（只記 log、不真的推），派單路徑不受影響——本地開發不必配 Firebase
+
+推播 data payload 契約（後端 `rideOfferPushData` 已依此送出）：
 
 ```json
 {
   "type": "ride.assigned",
   "ride_id": "42",
   "address": "上車地址",
+  "pickup_lat": "25.03",
+  "pickup_lng": "121.56",
+  "eta_sec": "300",
+  "dist_m": "1200",
   "dropoff_address": "目的地",
   "dropoff_lat": "25.06",
   "dropoff_lng": "121.55"
 }
 ```
 
-FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把 `eta_sec`／`dist_m`／
-`dropoff_lat`／`dropoff_lng` 轉回數值。訂單未指定目的地時，後端省略 dropoff 三個鍵即可。
+FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標／`eta_sec`／`dist_m` 轉回數值。
+訂單未指定目的地時省略 dropoff 三鍵。**`stops` 不放進推播**（結構化陣列不塞 FCM data）——
+多停靠點行程的全程由 App 接單後重讀 `rides/active` 補齊（`acceptOffer` → refreshActive）。
 
 ## 功能進度
 
