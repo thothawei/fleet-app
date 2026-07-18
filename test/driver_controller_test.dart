@@ -148,6 +148,63 @@ void main() {
       expect(ctrl.activeRide?.stops.map((s) => s.passengerLabel), ['A', 'A']);
     });
 
+    test('推播喚醒路徑：offer 無 stops，acceptOffer 重讀 active 以後端補齊全程', () async {
+      // FCM data 不帶結構化 stops 陣列，所以推播喚醒的 offer 缺全程；接單後
+      // 重讀 rides/active 以後端為權威補齊，才不必讓推播 payload 塞 stops。
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+
+      // 後端 active 有全程（模擬 rides/active 回傳的多停靠點行程）。
+      api.restoreRide = ActiveRide.fromBackendJson(const {
+        'id': 30,
+        'status': RideStatus.accepted,
+        'pickup_address': '台北101',
+        'pickup_point': {'lat': 25.033, 'lng': 121.5654},
+        'stops': [
+          {'id': 1, 'seq': 1, 'kind': 'pickup', 'lat': 25.033, 'lng': 121.5654, 'passenger_label': 'A'},
+          {'id': 2, 'seq': 2, 'kind': 'pickup', 'lat': 25.036, 'lng': 121.568, 'passenger_label': 'B'},
+          {'id': 3, 'seq': 3, 'kind': 'dropoff', 'lat': 25.048, 'lng': 121.517, 'passenger_label': 'A'},
+          {'id': 4, 'seq': 4, 'kind': 'dropoff', 'lat': 25.04, 'lng': 121.51, 'passenger_label': 'B'},
+        ],
+      });
+
+      // offer 不帶 stops（推播喚醒路徑）。
+      ctrl.handleWsEventForTest(FleetWsEvent(
+        type: FleetEventTypes.rideAssigned,
+        rideId: 30,
+        payload: {'address': '台北101'},
+      ));
+      expect(ctrl.pendingOffer?.hasStops, isFalse, reason: '前提：offer 無 stops');
+
+      await ctrl.acceptOffer();
+      expect(ctrl.activeRide?.hasStops, isTrue,
+          reason: '接單後重讀 active 應補齊全程');
+      expect(ctrl.activeRide?.stops.length, 4);
+    });
+
+    test('acceptOffer 重讀 active 回別的行程／null 時，不覆蓋剛接到的樂觀行程', () async {
+      // 防競態：active API 短暫回 null 或回到別的 rideId 時，不能把剛接到的單清掉。
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+
+      // 後端回 rideId 不符（模擬競態）。
+      api.restoreRide = ActiveRide.fromBackendJson(const {
+        'id': 999,
+        'status': RideStatus.accepted,
+        'pickup_address': '別的行程',
+      });
+
+      ctrl.handleWsEventForTest(FleetWsEvent(
+        type: FleetEventTypes.rideAssigned,
+        rideId: 55,
+        payload: {'address': '士林夜市'},
+      ));
+      await ctrl.acceptOffer();
+
+      expect(ctrl.activeRide?.rideId, 55, reason: '保留樂觀行程，不被別的 rideId 蓋掉');
+      expect(ctrl.activeRide?.address, '士林夜市');
+    });
+
     test('init 還原行程時從 rides/active 的 pickup_point 取得上車點座標', () async {
       await storage.save(const AuthSession(
         driverId: 7,
