@@ -122,6 +122,32 @@ void main() {
       expect(ctrl.activeRide?.pickupLng, 121.5170);
     });
 
+    test('WS ride.assigned 帶 stops → 接單「當下」activeRide 就有全程（N4）', () async {
+      // 實跑抓到：RideOffer 沒解析 stops、acceptOffer 沒帶，接單當下清單與
+      // 多點地圖不出現，要重啟 App 走 rides/active 還原才看得到。
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+
+      ctrl.handleWsEventForTest(FleetWsEvent(
+        type: FleetEventTypes.rideAssigned,
+        rideId: 22,
+        payload: {
+          'address': '台北101',
+          'stops': [
+            {'id': 1, 'seq': 1, 'kind': 'pickup', 'lat': 25.033, 'lng': 121.5654, 'passenger_label': 'A'},
+            {'id': 2, 'seq': 2, 'kind': 'dropoff', 'lat': 25.04, 'lng': 121.51, 'passenger_label': 'A'},
+          ],
+        },
+      ));
+      expect(ctrl.pendingOffer?.hasStops, isTrue);
+      expect(ctrl.pendingOffer?.stops.length, 2);
+
+      await ctrl.acceptOffer();
+      expect(ctrl.activeRide?.hasStops, isTrue,
+          reason: '接單當下就要有全程，不能等 App 重啟還原');
+      expect(ctrl.activeRide?.stops.map((s) => s.passengerLabel), ['A', 'A']);
+    });
+
     test('init 還原行程時從 rides/active 的 pickup_point 取得上車點座標', () async {
       await storage.save(const AuthSession(
         driverId: 7,

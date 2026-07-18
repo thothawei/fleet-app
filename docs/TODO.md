@@ -80,6 +80,42 @@
       地圖為底、sheet 可拖、司機 marker 隨 WS 移動、浮動登出鈕全數模擬器實跑驗過。
       詳見下方「地圖引擎改用 flutter_map + OpenStreetMap」。
 
+## 🧪 模擬器實跑驗收（2026-07-18，`m6_pixel` + 後端 docker，全程截圖）
+
+> 驗「概覽地圖多點連線（N）」與「取消原因 UI 呈現（P4）」兩項 UI。
+> **實跑抓到 3 個 App bug＋1 個後端 bug**，全數當場修掉（app PR #30/#31、dispatch PR #37）——
+> 這些 bug 靜態測試與先前 widget 測試全部測不到，是實跑的直接產出。
+
+**驗過的行為**：
+- **多停靠點概覽地圖**：2 位乘客 4 站單（台北101→國父紀念館→台北車站→西門町）。
+  接單後地圖畫出全程：折線串「司機→下一站→後續待處理站」、下一站全彩＋乘客標籤、
+  之後的站半透明；標記「已上車」→ 該站變灰、下一站前移、地圖即時重框；
+  「跳過」（二次確認）→ 該站從地圖消失、清單刪除線；全站處理完 → 折線消失只剩灰標記；
+  「乘客已上車」進行程中 → 清單與多點地圖仍在。行程走完 status=4、車資 25500 分（8501m）。
+- **WS 路徑（接單當下）**：接單卡帶「多乘客行程（4 站）」chip；按接單**當下**
+  行程卡即有全程清單＋多點地圖（不需重啟還原）——此路徑因下述 3 個 bug 原本全斷。
+- **取消原因 banner（P4）三種文案全驗**：
+  指定寵物車無車 → 「附近暫無寵物用車…」＋**「改用不指定車種」快捷**（按下車種歸不指定、banner 收）；
+  不指定但無司機逾時 → 「抱歉，附近暫無可用司機，請稍後再試。」僅「知道了」；
+  乘客主動取消 → 「行程已取消。」僅「知道了」。
+  P5 順帶驗到 bps=0 顯示「目前不加收清潔費」。
+
+**實跑抓到並修掉的 bug**：
+1. **司機首頁整個 body 空白**（app #30）：RideStopsList 操作鈕放 Row，
+   全域主題按鈕 minimumSize 寬＝infinity → `BoxConstraints forces an infinite width`。
+   **例外只出現在 `flutter attach` console，不進 logcat**——盲抓半天，最後用
+   `(sleep;printf 't';…) | flutter attach` 管線送鍵 dump render tree 才定位。
+   回歸測試改用真 `appLightTheme` pump（先前用預設主題所以綠）。
+2. **「乘客已上車」後多停靠點資訊消失**（app #30）：`ActiveRide.copyWith` 漏帶 stops。
+3. **接單當下沒有全程**（app #31）：`RideOffer` 沒解析 stops、`acceptOffer` 沒帶——
+   只有重啟 App 走 rides/active 還原才看得到。規劃段「接單卡顯示全程」其實從未實作，
+   卻被補完清單的 [x] 蓋過——**分段勾選要對齊，別讓大項 [x] 蓋掉子項 [ ]**。
+4. **後端 dispatch 漏接線**（dispatch #37）：`dispatchService.SetStops` 沒在 main.go 呼叫
+   → WS `ride.assigned` 一律不帶 stops（N4 只做了一半）。
+5. 旁見（環境）：模擬器 Impeller 首幀偶發空白（重啟 App 復現機率高，Skia 同樣出現後
+   確認非 renderer 問題而是上述 1.）；customer flavor build **必須帶 `-t lib/main_customer.dart`**，
+   漏了會把 driver UI 包進 customer 包。
+
 ## 🚨 後端 N/O/P 已全部上線（2026-07-17）——App 端補完進度
 
 > 後端 dispatch 的 **N、O、P 三章已全數實作並合併進 main**（PR #29–#36），

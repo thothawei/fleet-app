@@ -413,6 +413,9 @@ class DriverController extends ChangeNotifier {
         dropoffAddress: offer.dropoffAddress,
         dropoffLat: offer.dropoffLat,
         dropoffLng: offer.dropoffLng,
+        // N4：漏了這行，接單「當下」全程清單與多點地圖不會出現，
+        // 要重啟 App 走 rides/active 還原才看得到（模擬器實跑抓到）。
+        stops: offer.stops,
       );
       _pendingOffer = null;
       _error = null;
