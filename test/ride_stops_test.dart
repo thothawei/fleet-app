@@ -1,8 +1,26 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/models/models.dart';
 
 void main() {
   group('RideStop 解析（N6）', () {
+  test('ActiveRide.copyWith 保留 stops（乘客已上車換 phase 不可弄丟全程）', () {
+    // 回歸：copyWith 漏帶 stops 會讓多停靠點清單與多點地圖在行程中消失（模擬器實跑抓到）。
+    const ride = ActiveRide(
+      rideId: 1,
+      address: '台北101',
+      phase: DriverRidePhase.enRouteToPickup,
+      stops: [
+        RideStop(id: 1, seq: 1, kind: StopKind.pickup, lat: 25.0, lng: 121.0, passengerLabel: 'A'),
+        RideStop(id: 2, seq: 2, kind: StopKind.dropoff, lat: 25.1, lng: 121.1, passengerLabel: 'A'),
+      ],
+    );
+    final onTrip = ride.copyWith(phase: DriverRidePhase.onTrip);
+    expect(onTrip.hasStops, isTrue);
+    expect(onTrip.stops.length, 2);
+  });
+
+
     test('完整欄位', () {
       final s = RideStop.fromJson({
         'id': 11,

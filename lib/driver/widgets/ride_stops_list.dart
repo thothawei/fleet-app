@@ -156,11 +156,16 @@ class _StopTile extends StatelessWidget {
               children: [
                 const SizedBox(width: 26),
                 FilledButton.tonal(
+                  // 全域主題的 minimumSize 是 Size.fromHeight（寬＝infinity），
+                  // 在 Row（寬度無界）裡會炸掉整個 home 的 layout（模擬器實跑抓到，
+                  // 例外只出現在 attach console、不進 logcat）。這裡覆寫回自適應寬。
+                  style: FilledButton.styleFrom(minimumSize: const Size(64, 40)),
                   onPressed: busy ? null : onArrive,
                   child: Text(stop.kind == StopKind.pickup ? '已上車' : '已下車'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton(
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(64, 40)),
                   onPressed: busy ? null : onSkip,
                   child: const Text('跳過'),
                 ),
