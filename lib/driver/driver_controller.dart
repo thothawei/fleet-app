@@ -404,6 +404,7 @@ class DriverController extends ChangeNotifier {
     notifyListeners();
     try {
       await _api.acceptRide(offer.rideId);
+      // 樂觀先以 offer 內容顯示：接單卡立刻消失、行程卡立刻出現，不等網路往返。
       _activeRide = ActiveRide(
         rideId: offer.rideId,
         address: offer.address,
@@ -413,17 +414,35 @@ class DriverController extends ChangeNotifier {
         dropoffAddress: offer.dropoffAddress,
         dropoffLat: offer.dropoffLat,
         dropoffLng: offer.dropoffLng,
-        // N4：漏了這行，接單「當下」全程清單與多點地圖不會出現，
-        // 要重啟 App 走 rides/active 還原才看得到（模擬器實跑抓到）。
         stops: offer.stops,
       );
       _pendingOffer = null;
       _error = null;
+      // 以後端為權威補齊：**推播喚醒路徑**的 offer 來自 FCM data，data 值全是字串、
+      // 不帶結構化的 stops 陣列（見 pitfall-fcm-data-all-strings），所以樂觀行程會缺全程。
+      // 重讀 active 讓多停靠點清單／多點地圖一定齊全，不必讓推播 payload 塞 stops。
+      await _refreshActiveAfterAccept(offer.rideId);
     } on ApiException catch (e) {
       _error = e.message;
     } finally {
       _busy = false;
       notifyListeners();
+    }
+  }
+
+  /// 接單後重讀 active，以後端回傳為權威補齊樂觀 offer 缺的欄位（尤其 stops）。
+  ///
+  /// **只在後端回傳非 null 且 rideId 相符時覆蓋**——active API 對剛接的單短暫回 null
+  /// 或競態回別的行程時，寧可保留樂觀設定，也不要把剛接到的單清掉。
+  /// 重讀失敗（網路）不算接單失敗：吞掉例外、不覆寫 error。
+  Future<void> _refreshActiveAfterAccept(int rideId) async {
+    try {
+      final fresh = await _api.activeRide();
+      if (fresh != null && fresh.rideId == rideId) {
+        _activeRide = fresh;
+      }
+    } on ApiException {
+      // 樂觀行程已足以繼續作業；重讀失敗不打斷接單流程。
     }
   }
 
