@@ -105,6 +105,9 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   （該趟車資×%，建單快照）→ 與司機對話 → 司機尋獲後支付處理費 → 歸還結案；
   司機端 AppBar「遺失物協尋」工作清單（已找到／已歸還／未尋獲結案）。
   處理費% 由 admin 費率設定頁調整（後端 `lost_item_fee_bps`）。
+- **我的行程歷史（2026-07-19）**：乘客首頁右上「我的行程」→ 列出過去行程
+  （狀態／路線／時間／車資）；**有司機的行程可事後「聯絡司機」**開對話
+  （沿用 `RideChatScreen`）。後端 `GET /customer/rides`（只回本人，LEFT JOIN 司機名）。
 - **司機端概覽地圖（2026-07-16）**：接單後行程卡內嵌地圖（flutter_map + OSM，免 key）——
   自己（綠色計程車）＋目標（前往上車點＝紅釘／行程中＝藍旗）＋兩點連線，相機自動框住兩點。
   **只做「看位置」，不做導航**——turn-by-turn 仍由「導航」按鈕跳外部 Google Maps／Waze。
@@ -133,8 +136,6 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
 > 完整規格與待拍板事項見 [`docs/TODO.md`](docs/TODO.md) 與後端
 > [line-fleet-dispatch/docs/TODO.md](../line-fleet-dispatch/docs/TODO.md)。
 
-- **留言板入口補遺**：沿用既有 `RideChatScreen`（本來就有 REST 歷史＋WS 即時），
-  補上「歷史行程也能進入對話」的入口，讓乘客事後（例如找遺失物）仍能聯絡司機。
 - **待產品拍板**（見 TODO「懸而未決」）：O5 admin 車輛審核（會讓司機端三態變四態）、
   多停靠點的**建單前車資預估**（需後端新開報價 API）。
 
