@@ -119,8 +119,18 @@ class DriverController extends ChangeNotifier {
   bool get vehicleChecked => _vehicle != null;
 
   /// 是否已填妥車輛（未載入時為 false，但請搭配 vehicleChecked 判斷）。
-  /// 以後端回的 has_vehicle 為準，不自行判斷「兩欄皆非空」——與 O3 gate 同一條件。
+  /// 以後端回的 has_vehicle 為準，不自行判斷「兩欄皆非空」——與 O2 同一條件。
   bool get hasVehicle => _vehicle?.hasVehicle ?? false;
+
+  /// 車輛審核狀態（O5）；未載入時為 none。
+  VehicleReviewStatus get vehicleReviewStatus =>
+      _vehicle?.reviewStatus ?? VehicleReviewStatus.none;
+
+  /// 能不能接單（O5 gate ＝已核准）。**以後端回的 can_accept 為準**，App 不自行推導。
+  bool get canAcceptRides => _vehicle?.canAccept ?? false;
+
+  /// 退回原因（O5）；rejected 時給司機看。
+  String get vehicleReviewNote => _vehicle?.reviewNote ?? '';
 
   /// 車輛設定儲存中（供設定頁禁用按鈕）。
   bool get vehicleSaving => _vehicleSaving;

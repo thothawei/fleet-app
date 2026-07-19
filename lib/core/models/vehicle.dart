@@ -33,12 +33,33 @@ enum VehicleType {
   }
 }
 
-/// 司機車輛資訊（O2：GET/PUT /api/driver/vehicle）。
+/// 車輛審核狀態（O5）。對齊後端 constants.VehicleReview*。
+enum VehicleReviewStatus {
+  none(''), // 未提交（沒填車輛）
+  pending('pending'), // 待審核
+  approved('approved'), // 已核准（可接單）
+  rejected('rejected'); // 已退回（附原因，可重填）
+
+  const VehicleReviewStatus(this.code);
+  final String code;
+
+  static VehicleReviewStatus fromCode(String? code) {
+    for (final s in VehicleReviewStatus.values) {
+      if (s.code == code) return s;
+    }
+    return VehicleReviewStatus.none; // 後端日後新增狀態而 App 未更新 → 當作未提交，走設定頁
+  }
+}
+
+/// 司機車輛資訊（O2／O5：GET/PUT /api/driver/vehicle）。
 class DriverVehicle {
   const DriverVehicle({
     required this.vehicleType,
     required this.plateNumber,
     required this.hasVehicle,
+    this.reviewStatus = VehicleReviewStatus.none,
+    this.reviewNote = '',
+    this.canAccept = false,
   });
 
   /// 車種 code；'' ＝未設定。
@@ -47,8 +68,17 @@ class DriverVehicle {
   /// 車牌；'' ＝未設定。後端已正規化（去空白、轉大寫）。
   final String plateNumber;
 
-  /// 是否已填妥——**與後端 O3 gate 同一條件**，App 不自行判斷「兩欄皆非空」。
+  /// 是否已填妥（O2）。App 用它決定是否顯示強制設定頁；不代表能接單（見 canAccept）。
   final bool hasVehicle;
+
+  /// 審核狀態（O5）：App 四態路由用（pending 審核中／rejected 已退回）。
+  final VehicleReviewStatus reviewStatus;
+
+  /// 退回原因（O5）：rejected 時給司機看。
+  final String reviewNote;
+
+  /// 能不能接單（O5 gate ＝已核准）。**以後端回的 can_accept 為準**，App 不自行推導。
+  final bool canAccept;
 
   VehicleType? get type => VehicleType.fromCode(vehicleType);
 
@@ -57,6 +87,10 @@ class DriverVehicle {
       vehicleType: json['vehicle_type'] as String? ?? '',
       plateNumber: json['plate_number'] as String? ?? '',
       hasVehicle: json['has_vehicle'] as bool? ?? false,
+      reviewStatus: VehicleReviewStatus.fromCode(json['review_status'] as String?),
+      reviewNote: json['review_note'] as String? ?? '',
+      // 舊後端沒有 can_accept 時退回 has_vehicle（維持 O3 語意，不誤鎖）。
+      canAccept: json['can_accept'] as bool? ?? (json['has_vehicle'] as bool? ?? false),
     );
   }
 
