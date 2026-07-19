@@ -49,6 +49,41 @@ void main() {
       expect(empty.hasVehicle, isFalse);
       expect(empty.type, isNull);
     });
+
+    test('審核狀態（O5）：review_status/can_accept 解析', () {
+      final pending = DriverVehicle.fromJson({
+        'vehicle_type': 'sedan', 'plate_number': 'ABC-1234',
+        'has_vehicle': true, 'review_status': 'pending', 'can_accept': false,
+      });
+      expect(pending.reviewStatus, VehicleReviewStatus.pending);
+      expect(pending.canAccept, isFalse);
+
+      final rejected = DriverVehicle.fromJson({
+        'vehicle_type': 'sedan', 'plate_number': 'ABC-1234',
+        'has_vehicle': true, 'review_status': 'rejected',
+        'review_note': '車牌照片模糊', 'can_accept': false,
+      });
+      expect(rejected.reviewStatus, VehicleReviewStatus.rejected);
+      expect(rejected.reviewNote, '車牌照片模糊');
+
+      final approved = DriverVehicle.fromJson({
+        'vehicle_type': 'sedan', 'plate_number': 'ABC-1234',
+        'has_vehicle': true, 'review_status': 'approved', 'can_accept': true,
+      });
+      expect(approved.reviewStatus, VehicleReviewStatus.approved);
+      expect(approved.canAccept, isTrue);
+    });
+
+    test('未知/缺 review_status → none；舊後端無 can_accept → 退回 has_vehicle', () {
+      // 後端日後新增狀態而 App 未更新 → none（走設定頁，不誤判可接單）。
+      final unknown = DriverVehicle.fromJson({
+        'vehicle_type': 'sedan', 'plate_number': 'A', 'has_vehicle': true,
+        'review_status': 'future_state',
+      });
+      expect(unknown.reviewStatus, VehicleReviewStatus.none);
+      // 舊後端沒有 can_accept 欄位 → 退回 has_vehicle（維持 O3 語意，不誤鎖）。
+      expect(unknown.canAccept, isTrue);
+    });
   });
 
   group('DriverController 車輛狀態（O2／O3）', () {
@@ -84,6 +119,22 @@ void main() {
       expect(ctrl.vehicleChecked, isTrue);
       expect(ctrl.hasVehicle, isTrue);
       expect(ctrl.vehicle?.type, VehicleType.pet);
+    });
+
+    test('審核狀態 getter（O5）：pending/rejected/approved 對映 _DriverRoot 四態', () async {
+      // pending → 審核中畫面；rejected → 已退回（帶原因）；approved → 首頁。
+      api.vehicle = const DriverVehicle(
+        vehicleType: 'sedan', plateNumber: 'ABC-1234', hasVehicle: true,
+        reviewStatus: VehicleReviewStatus.rejected,
+        reviewNote: '車牌照片模糊', canAccept: false,
+      );
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U', password: 'pw');
+
+      expect(ctrl.hasVehicle, isTrue, reason: '填了但');
+      expect(ctrl.vehicleReviewStatus, VehicleReviewStatus.rejected);
+      expect(ctrl.canAcceptRides, isFalse, reason: '未核准不得接單');
+      expect(ctrl.vehicleReviewNote, '車牌照片模糊');
     });
 
     test('查詢失敗時維持「未載入」，不可誤判成沒填', () async {

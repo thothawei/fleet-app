@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/config/app_config.dart';
+import '../core/models/models.dart';
 import '../core/push/driver_push_service.dart';
 import '../core/theme/app_theme.dart';
 import 'driver_controller.dart';
@@ -52,10 +53,152 @@ class _DriverRoot extends StatelessWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (!ctrl.hasVehicle) {
-      // 沒填就進不了首頁。後端 O3 也會擋（API 可被直接呼叫），這裡只是提早給回饋。
+      // 沒填就進不了首頁。後端 O5 也會擋（API 可被直接呼叫），這裡只是提早給回饋。
       return const DriverVehicleScreen(mandatory: true);
     }
-    return const DriverHomeScreen();
+    // O5 四態：填了之後看審核。以後端 can_accept 為 gate，App 不自行推導。
+    // pending → 審核中等待頁；rejected → 已退回（原因＋重填）；approved → 首頁。
+    switch (ctrl.vehicleReviewStatus) {
+      case VehicleReviewStatus.pending:
+        return _VehicleReviewPendingScreen(ctrl: ctrl);
+      case VehicleReviewStatus.rejected:
+        return _VehicleReviewRejectedScreen(ctrl: ctrl);
+      case VehicleReviewStatus.approved:
+      case VehicleReviewStatus.none:
+        // approved → 首頁；none（舊後端無審核欄位）→ 靠 can_accept 決定，退回首頁。
+        return const DriverHomeScreen();
+    }
+  }
+}
+
+/// 待審核等待畫面（O5）：司機填完了卻還不能接單，要明確說明「在等審核」，
+/// 不能讓他以為壞掉。給重新整理（審核結果由 admin 端決定，這裡輪詢/手動刷新）與登出。
+class _VehicleReviewPendingScreen extends StatelessWidget {
+  const _VehicleReviewPendingScreen({required this.ctrl});
+
+  final DriverController ctrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('車輛審核中'),
+        actions: [
+          IconButton(
+            tooltip: '登出',
+            onPressed: ctrl.loading ? null : () => ctrl.logout(),
+            icon: const Icon(Icons.logout),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.hourglass_top, size: 56),
+                const SizedBox(height: 16),
+                Text('車輛資料審核中', style: text.titleLarge),
+                const SizedBox(height: 8),
+                Text(
+                  '已收到你的車種與車牌，審核通過後就能開始接單。\n通常很快，稍後可下拉重新整理。',
+                  textAlign: TextAlign.center,
+                  style: text.bodyMedium,
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: ctrl.loading ? null : () => ctrl.refreshVehicle(),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新整理審核狀態'),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const DriverVehicleScreen(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('修改車輛資料'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 已退回畫面（O5）：顯示 admin 給的原因，讓司機知道哪裡不對、可重填再送審。
+class _VehicleReviewRejectedScreen extends StatelessWidget {
+  const _VehicleReviewRejectedScreen({required this.ctrl});
+
+  final DriverController ctrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final note = ctrl.vehicleReviewNote;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('車輛審核未通過'),
+        actions: [
+          IconButton(
+            tooltip: '登出',
+            onPressed: ctrl.loading ? null : () => ctrl.logout(),
+            icon: const Icon(Icons.logout),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline, size: 56, color: theme.colorScheme.error),
+                const SizedBox(height: 16),
+                Text('車輛審核未通過', style: theme.textTheme.titleLarge),
+                if (note.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    color: theme.colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        '原因：$note',
+                        style: TextStyle(color: theme.colorScheme.onErrorContainer),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  '請依原因修改車種或車牌後重新送審。',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const DriverVehicleScreen(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('修改車輛並重新送審'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
