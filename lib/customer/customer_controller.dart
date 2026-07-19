@@ -70,6 +70,11 @@ class CustomerController extends ChangeNotifier {
   // 遺失物：未結案協尋單（WS lost_item.* 即時更新）。
   List<LostItemRequest> _lostItems = [];
 
+  // 歷史行程（我的行程列表；進畫面時才載入）。
+  List<CustomerRideSummary> _rideHistory = [];
+  bool _historyLoading = false;
+  String? _historyError;
+
   CustomerSession? get session => _session;
   bool get isLoggedIn => _session != null;
   bool get loading => _loading;
@@ -216,6 +221,27 @@ class CustomerController extends ChangeNotifier {
 
   /// 未結案遺失物協尋單。
   List<LostItemRequest> get lostItems => _lostItems;
+
+  /// 歷史行程（我的行程列表）。
+  List<CustomerRideSummary> get rideHistory => List.unmodifiable(_rideHistory);
+  bool get historyLoading => _historyLoading;
+  String? get historyError => _historyError;
+
+  /// 載入歷史行程（進「我的行程」畫面時呼叫）。
+  Future<void> loadRideHistory() async {
+    if (_session == null) return;
+    _historyLoading = true;
+    _historyError = null;
+    notifyListeners();
+    try {
+      _rideHistory = await _api.fetchRideHistory();
+    } on ApiException catch (e) {
+      _historyError = e.message;
+    } finally {
+      _historyLoading = false;
+      notifyListeners();
+    }
+  }
 
   /// 聊天室開啟/關閉；開啟時清未讀並停止累計。
   void setChatVisible(bool visible) {

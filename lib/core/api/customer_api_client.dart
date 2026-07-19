@@ -134,6 +134,24 @@ class CustomerApiClient {
     }
   }
 
+  /// 我的行程歷史（新到舊）。供「事後聯絡司機」的入口。
+  Future<List<CustomerRideSummary>> fetchRideHistory({int limit = 20}) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/customer/rides',
+        queryParameters: {'limit': limit},
+      );
+      final raw = res.data?['rides'];
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map((m) => CustomerRideSummary.fromJson(Map<String, dynamic>.from(m)))
+          .toList();
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 行程內對話歷史（afterId > 0 時做增量補讀，WS 斷線重連後補漏）。
   Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) async {
     try {

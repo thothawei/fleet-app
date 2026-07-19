@@ -7,6 +7,7 @@ import '../../core/models/models.dart';
 import '../../core/util/map_tiles.dart';
 import '../customer_controller.dart';
 import '../widgets/ride_phase_content.dart';
+import 'ride_history_screen.dart';
 
 /// 地圖為底＋Bottom Sheet 主畫面（spec §2.1）。
 /// 圖磚走 OpenStreetMap（flutter_map），不需任何 API key。
@@ -47,10 +48,26 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
           Positioned(
             top: MediaQuery.of(context).padding.top + 12,
             right: 16,
-            child: FloatingActionButton.small(
-              heroTag: 'logout',
-              onPressed: ctrl.loading ? null : () => ctrl.logout(),
-              child: const Icon(Icons.logout),
+            child: Column(
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'history',
+                  tooltip: '我的行程',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const CustomerRideHistoryScreen(),
+                    ),
+                  ),
+                  child: const Icon(Icons.receipt_long),
+                ),
+                const SizedBox(height: 12),
+                FloatingActionButton.small(
+                  heroTag: 'logout',
+                  tooltip: '登出',
+                  onPressed: ctrl.loading ? null : () => ctrl.logout(),
+                  child: const Icon(Icons.logout),
+                ),
+              ],
             ),
           ),
           DraggableScrollableSheet(
