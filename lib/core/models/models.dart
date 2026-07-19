@@ -269,6 +269,26 @@ abstract final class RideStatus {
       status == completed || status == cancelled;
 }
 
+/// 訂單狀態的中文標籤（乘客端共用）。
+String rideStatusLabel(int status) {
+  switch (status) {
+    case RideStatus.requested:
+      return '尋找司機中';
+    case RideStatus.assigned:
+      return '派單中';
+    case RideStatus.accepted:
+      return '司機前往上車點';
+    case RideStatus.pickedUp:
+      return '行程中';
+    case RideStatus.completed:
+      return '已完成';
+    case RideStatus.cancelled:
+      return '已取消';
+    default:
+      return '狀態 $status';
+  }
+}
+
 /// 乘客端當前訂單。狀態碼對齊後端 constants.RideStatus*。
 /// 來源可能是下單回應（snake key: ride_id/status）或查詢 model.Ride
 /// （無 json tag → PascalCase key: ID/Status），故解析時兩者皆容。
@@ -302,24 +322,7 @@ class CustomerRide {
     return '約 ${(etaPickupSec! / 60).ceil()} 分鐘抵達';
   }
 
-  String get statusLabel {
-    switch (status) {
-      case RideStatus.requested:
-        return '尋找司機中';
-      case RideStatus.assigned:
-        return '派單中';
-      case RideStatus.accepted:
-        return '司機前往上車點';
-      case RideStatus.pickedUp:
-        return '行程中';
-      case RideStatus.completed:
-        return '已完成';
-      case RideStatus.cancelled:
-        return '已取消';
-      default:
-        return '狀態 $status';
-    }
-  }
+  String get statusLabel => rideStatusLabel(status);
 
   /// 乘客端分階段文案。`driverArrived` 來自 WS `driver.arrived`
   ///（後端狀態仍為 Accepted，不另存 DB flag）。
@@ -349,6 +352,58 @@ class CustomerRide {
       etaPickupSec: (eta as num?)?.toInt(),
       pickupLat: pickupLat,
       pickupLng: pickupLng,
+    );
+  }
+}
+
+/// 乘客端「我的行程」歷史列表的單筆（後端 GET /customer/rides 的 CustomerRideRow）。
+/// 夠渲染清單與開對話即可；`driverName` 只在有派到司機時非空 → 決定是否顯示「聯絡司機」。
+class CustomerRideSummary {
+  const CustomerRideSummary({
+    required this.rideId,
+    required this.status,
+    required this.pickupAddress,
+    this.dropoffAddress,
+    this.requestedAt,
+    this.completedAt,
+    this.fareAmountCents,
+    this.driverId,
+    this.driverName,
+  });
+
+  final int rideId;
+  final int status;
+  final String pickupAddress;
+  final String? dropoffAddress;
+  final DateTime? requestedAt;
+  final DateTime? completedAt;
+  final int? fareAmountCents;
+  final int? driverId;
+  final String? driverName;
+
+  /// 有派到司機才給「聯絡司機」——取消於派單前的行程沒有對象可聯絡。
+  bool get hasDriver => driverId != null;
+
+  String get statusLabel => rideStatusLabel(status);
+
+  static DateTime? _parseTime(Object? v) {
+    if (v is! String || v.isEmpty) return null;
+    return DateTime.tryParse(v);
+  }
+
+  factory CustomerRideSummary.fromJson(Map<String, dynamic> json) {
+    return CustomerRideSummary(
+      rideId: (json['id'] as num).toInt(),
+      status: (json['status'] as num?)?.toInt() ?? 0,
+      pickupAddress: json['pickup_address'] as String? ?? '',
+      dropoffAddress: (json['dropoff_address'] as String?)?.isNotEmpty == true
+          ? json['dropoff_address'] as String
+          : null,
+      requestedAt: _parseTime(json['requested_at']),
+      completedAt: _parseTime(json['completed_at']),
+      fareAmountCents: (json['fare_amount_cents'] as num?)?.toInt(),
+      driverId: (json['driver_id'] as num?)?.toInt(),
+      driverName: json['driver_name'] as String?,
     );
   }
 }
