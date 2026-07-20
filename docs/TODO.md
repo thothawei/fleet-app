@@ -189,18 +189,38 @@
             `_rideCancelled` 旗標，不能只看 cancelReason。
             新叫車／登出時清空；反向確認拿掉旗標會讓測試 FAIL。
 
-## 🔮 懸而未決（後端已標記，需產品拍板）
+## ✅ O5：admin 車輛審核（2026-07-19 拍板並完成，三端）
 
-> 這兩項由 2026-07-17 的後端實作過程浮現，**皆非 App 端能自行決定**，記錄在此避免遺忘。
+> 使用者 2026-07-19 拍板「O5 先做」。O3 gate（**有填**車種車牌）已升級為
+> O5 gate（**已審核**）；三個 repo 同批上線，契約一致。
 
-1. **O5：admin 車輛審核（可選、待拍板）**
-   目前 O3 gate 的條件是「**有填**車種車牌」。若要做審核，gate 條件要改成「**已審核**」——
-   屆時 App 端的強制跳轉還要多一種狀態：「已填但待審核」（司機填完了卻仍不能接單，
-   需要明確的等待畫面，不能讓他以為壞掉）。
-   **影響 App**：`_DriverRoot` 的三態會變四態；`DriverVehicle` 需要審核狀態欄位。
-   **未拍板前不要做**——猜錯會做出跟後端不一致的 gate。
+- **後端**（dispatch PR #40）：migration 000022 加 `vehicle_review_status`／`note`＋CHECK；
+  `VehicleApproved()` 取代 `HasVehicle()` 當 gate（派單側＋接單側）；接單側分
+  `ErrDriverNoVehicle`（沒填）與 `ErrDriverNotApproved`（待審核），司機知道下一步；
+  `UpdateVehicle` **原子地**把 review 重置 pending（改車一律重審）；
+  admin `POST /drivers/:id/vehicle-review`（ops 角色，只有 pending 可審、退回必附原因）；
+  司機 `GET /driver/vehicle` 加 `review_status`／`review_note`／`can_accept`。
+- **司機 App**（fleet-app PR #35）：`_DriverRoot` 三態→**四態**——未填→強制設定頁、
+  pending→審核中等待頁、rejected→已退回（顯示原因＋重填重送審）、approved→首頁。
+  `DriverVehicle` 加 `reviewStatus`／`reviewNote`／`canAccept`（**以後端 `can_accept` 為準**，
+  App 不自行推導）；未知狀態→`none`、舊後端無 `can_accept` 時退回 `has_vehicle`（不誤鎖）。
+- **Admin**（fleet-frontEnd PR #20）：司機管理頁加車輛欄（車種＋等寬車牌）、審核狀態 tag
+  （退回 tooltip 帶原因）、待審核列的核准／退回（退回開 modal 填原因）；
+  「N 台車輛待審核」快捷 tag＋篩選；搜尋含車牌。
 
-2. **N 的衍生風險：乘客看不到預估車資**
+**導入決策（一句 SQL 可改）**：既有已填車輛的司機**祖父化為 approved**，不因導入審核被鎖出；
+新填／改動才進 pending。若要全體重審，改 migration 000022 的那行 UPDATE 即可。
+
+**驗收**：三端各自 build/lint/test 綠（dispatch go test、app flutter test 169、admin vitest 110）；
+**模擬器四態全走通**（未填→設定頁→填車→審核中→退回顯示原因→重送→核准→首頁）；
+**admin 瀏覽器 E2E**（核准／退回附原因皆與後端一致）；
+**後端 runtime 全鏈路**（待審核接單被擋「車輛審核中」→核准後接單成功）。
+
+## 🔮 懸而未決（需產品拍板）
+
+> **等使用者拍板，未拍板前不要做**（2026-07-19 使用者：其他等我拍板）。
+
+1. **N 的衍生風險：乘客看不到預估車資**
    N5 拍板「車資＝全程實際路線（含繞路）」＋ 多停靠點 → **繞路越多車資越高**，
    但乘客建單時**完全看不到預估**（後端只在完成時定格計費，**沒有報價 API**）。
    多停靠點會放大這個問題：乘客排了 5 位乘客 10 個停靠點，卻要到行程結束才知道多少錢。

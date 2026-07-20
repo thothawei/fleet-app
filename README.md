@@ -129,15 +129,20 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
 - **取消原因呈現（P4，2026-07-17）**：以機器可讀 `cancel_reason` 判斷（不 parse 文案），
   叫車表單頂部通知卡；指定車種找不到時給「改用不指定車種」快捷。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **155 passed**。
+- **車輛審核四態（O5，2026-07-19）**：司機填/改車輛後需 admin 核准才能接單。
+  `_DriverRoot` 四態——未填→強制設定頁、**待審核**→等待頁、**已退回**→顯示原因＋重送審、
+  已核准→首頁；能不能接單以後端 `can_accept` 為準（App 不自行推導）。
+  admin 端在司機管理頁核准／退回（退回須附原因）。
+
+**目前**：`flutter analyze` 無 issue、`flutter test` **169 passed**。
 
 ## 規劃中（尚未實作）
 
 > 完整規格與待拍板事項見 [`docs/TODO.md`](docs/TODO.md) 與後端
 > [line-fleet-dispatch/docs/TODO.md](../line-fleet-dispatch/docs/TODO.md)。
 
-- **待產品拍板**（見 TODO「懸而未決」）：O5 admin 車輛審核（會讓司機端三態變四態）、
-  多停靠點的**建單前車資預估**（需後端新開報價 API）。
+- **待產品拍板**（見 TODO「懸而未決」）：多停靠點的**建單前車資預估**
+  （需後端新開報價 API；要嘛接受「先搭後知價」，要嘛投資一支 API）。
 
 ## 相關文件
 
