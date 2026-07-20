@@ -45,7 +45,9 @@
       A1 鎖屏長跑仍待真機）。
 - [ ] A5. iOS build — **規劃已展開，見 [`docs/IOS_PLAN.md`](IOS_PLAN.md)**（2026-07-20）。
       Xcode 26.6 已安裝，但 `xcode-select` 仍指向 CommandLineTools、CocoaPods 未安裝、
-      無 iOS 模擬器 runtime，三者是第一階段阻塞。階段 5（FCM 推播）需付費 Apple Developer 帳號。
+      無 iOS 模擬器 runtime，三者是第一階段阻塞。
+      **實機已有、Apple 帳號為免費 Personal Team**：階段 1–5（含實機部署與 A1 背景定位實機驗收）
+      皆可執行；只有階段 6（FCM 推播）因 APNs 需付費 Developer Program 而卡住。
 
 ## 2026-07-10 修掉的既有阻塞（非 UI 翻新引入）
 

@@ -75,8 +75,8 @@
       iOS 14+ 存取區網要 `NSLocalNetworkUsageDescription`。
       驗收：真機第一次連 `192.168.x.x:8080` 時出現權限詢問並可連線。
 - [ ] **3-4 背景定位 Info.plist 補齊**
-      現況已有 `UIBackgroundModes: location` + 兩則位置用途說明 ✅；
-      推播還需要補 `remote-notification` 到同一個 array。
+      現況已有 `UIBackgroundModes: location` + 兩則位置用途說明 ✅，階段 5 實機驗背景定位夠用。
+      `remote-notification` 留到階段 6（買付費帳號）再補——現在加了也沒有 APNs 可用。
       程式面 [`driver_location_settings.dart`](../lib/core/location/driver_location_settings.dart)
       的 `AppleSettings` 已寫好（`automotiveNavigation` + 不自動暫停），這塊不用改。
 - [ ] **3-5 `permission_handler` 的 Podfile 巨集**
@@ -117,42 +117,90 @@ Android 已用 `productFlavors` 分 `.driver` / `.customer`
 
 ---
 
-## 階段 5 — FCM 推播（司機端 A2 的 iOS 半邊）
+## 階段 5 — 實機部署（免費 Apple ID / Personal Team）
 
-**前置條件：需要付費的 Apple Developer Program（$99/年）**——APNs key 沒有免費方案。
-沒有帳號前，階段 1–4 全部可做，只有這階段卡住。
+**現況：有實機、有 Apple ID，但非付費 Developer Program。** 免費帳號可以簽名裝上自己的裝置，
+所以本階段做得了——而且能補掉 `docs/TODO.md` 裡 **A1 待驗的「鎖屏長跑背景定位」** iOS 那半。
 
-- [ ] **5-1 Firebase Console 新增 iOS App**，bundle id `dev.linefleet.line_fleet_app.driver`，
+- [ ] **5-1 Xcode Signing 設定**：Runner target → Signing & Capabilities →
+      勾 Automatically manage signing → Team 選自己的 Personal Team。
+      兩個 flavor 的 bundle id 都要能註冊成功。
+- [ ] **5-2 裝置信任**：裝置接上後 Xcode 註冊裝置；首次安裝要在 iPhone
+      設定 → 一般 → VPN 與裝置管理 → 信任該開發者憑證，否則點 App 會直接跳「不受信任的開發者」。
+- [ ] **5-3 實機跑兩端**：
+      `flutter run -d <device-id> -t lib/main_driver.dart --flavor driver --dart-define=API_BASE=http://<電腦區網IP>:8080`
+      驗收：登入、WS 連得上（此時階段 3-3 的區網權限詢問會出現）。
+- [ ] **5-4 A1 背景定位實機驗收（iOS 半邊）**：司機上線 → 鎖屏 10 分鐘 →
+      確認後台地圖座標仍持續更新、狀態列有藍色定位指示
+      （`showBackgroundLocationIndicator: true` 的效果）。
+      這項模擬器測不出來，是本階段最主要的產出。
+- [ ] **5-5 順帶實測 WS 降級邊界**（決定階段 6 的急迫性，見下）：
+      iOS 司機端鎖屏／切到別的 App 時，WebSocket 派單還收不收得到。
+
+### 免費帳號的三個硬限制（直接影響開發節奏）
+
+1. **描述檔 7 天到期**：免費 Personal Team 簽的 App 約 7 天後就無法啟動，必須重新
+   `flutter run` 重簽。跨週的長時間放置測試要留意這點，別把「App 打不開」誤判成 App bug。
+2. **同時安裝數與 App ID 配額有上限**：driver + customer 兩個 flavor 佔 2 個名額，還算夠用；
+   但別反覆亂改 bundle id，每 7 天的 App ID 註冊配額會被吃掉。
+3. **不能用 TestFlight、不能上架**，也拿不到需付費才有的 capability（見階段 6）。
+
+> 上述限制以執行當下 Xcode 實際回報的錯誤訊息為準；配額數字若有出入以 Apple 官方文件為準。
+
+---
+
+## 階段 6 — FCM 推播（司機端 A2 的 iOS 半邊）🔒 目前被帳號層級擋住
+
+**阻塞原因：APNs 的 `aps-environment` entitlement 只開放給付費 Apple Developer Program（$99/年）。**
+免費 Personal Team 在 Xcode 勾 Push Notifications capability 會被直接拒絕
+（訊息類似 *Personal development teams do not support the Push Notifications capability*）。
+這不是設定繞得過的問題，是帳號層級限制——**買帳號之前這階段完全動不了**。
+
+### 在此之前 iOS 司機端能不能用？能，但降級
+
+App 既有的 **WebSocket 派單路徑（`ride.assigned`）不依賴 APNs**，前景時接單完全正常。
+司機上線時因為有背景定位 background mode，App 在背景**可能**維持存活、WS 不斷線——
+**但這條推論尚未在 iOS 實機驗證**（所以列為 5-5）。App 被系統回收或使用者手動殺掉後一定收不到，
+那正是推播存在的理由。
+
+→ 5-5 的實測結果決定「iOS 司機端在買帳號前能不能小規模試用」，也決定買帳號的優先順序。
+
+以下項目**待購買付費帳號後**執行：
+
+- [ ] **6-1 Firebase Console 新增 iOS App**，bundle id `dev.linefleet.line_fleet_app.driver`，
       下載 `GoogleService-Info.plist` 放進 `ios/Runner/`（**加進 `.gitignore`**，比照
       `google-services.json` 的作法，repo 只留 `.example`）。
-- [ ] **5-2 產生 APNs Auth Key（.p8）** 上傳到 Firebase Console → Cloud Messaging。
-- [ ] **5-3 Xcode Capabilities**：Push Notifications + Background Modes
+- [ ] **6-2 產生 APNs Auth Key（.p8）** 上傳到 Firebase Console → Cloud Messaging。
+- [ ] **6-3 Xcode Capabilities**：Push Notifications + Background Modes
       （勾 Remote notifications、Location updates）。
-- [ ] **5-4 `AppDelegate.swift`** 確認有 `FirebaseApp.configure()` 之前不會早於 Flutter 註冊；
+- [ ] **6-4 `AppDelegate.swift`** 確認有 `FirebaseApp.configure()` 之前不會早於 Flutter 註冊；
       對照現有踩坑卡 `pitfall-firebase-instance-in-constructor`——Dart 端已修成
       initializeApp 之後才取 instance，iOS 端別再引入同型別問題。
-- [ ] **5-5 真機驗收**：App 被殺 → 後端派單 → 收到推播 → 點擊可接單。
+- [ ] **6-5 真機驗收**：App 被殺 → 後端派單 → 收到推播 → 點擊可接單。
       推播 data 全是字串（`pitfall-fcm-data-all-strings`），已有回歸測試守著。
-- [ ] **5-6 模擬器退路**：iOS 16+ 模擬器可用 `xcrun simctl push` 灌假推播測 UI，
+- [ ] **6-6 模擬器退路**：iOS 16+ 模擬器可用 `xcrun simctl push` 灌假推播測 UI，
       但**拿不到真 token**，只能驗畫面不能驗全鏈路。
 
 ---
 
-## 階段 6 — 收尾
+## 階段 7 — 收尾
 
-- [ ] **6-1 CI 加 iOS job**：`.github/workflows/flutter-ci.yml` 補
+- [ ] **7-1 CI 加 iOS job**：`.github/workflows/flutter-ci.yml` 補
       `macos-latest` 上的 `flutter build ios --no-codesign`（先只跑 customer flavor 控時間）。
-- [ ] **6-2 README 補 iOS 段**：環境需求（Xcode 26 / CocoaPods）、兩個 flavor 的 run 指令、
+- [ ] **7-2 README 補 iOS 段**：環境需求（Xcode 26 / CocoaPods）、兩個 flavor 的 run 指令、
       `API_BASE` 在 iOS 的差異、`GoogleService-Info.plist` 放置說明。
-- [ ] **6-3 回填 `docs/TODO.md` A5**，把本檔各階段的實跑證據寫進去。
+- [ ] **7-3 回填 `docs/TODO.md` A5**，把本檔各階段的實跑證據寫進去。
 
 ---
 
 ## 風險與待決事項
 
-1. **Apple Developer 帳號**：階段 5 的硬前置。要先確認是否已有／要不要買——這決定 iOS 推播能不能做，
-   也決定 TestFlight／上架的時程。
-2. **實機測試裝置**：背景定位鎖屏長跑（A1 待驗項）與推播都必須真機，模擬器測不出來。
+1. **Apple 帳號只有免費 Personal Team（2026-07-20 確認）**：階段 1–5 全部不受影響，
+   **只有階段 6（FCM 推播）動不了**。要不要買 $99/年，建議等 5-5 的 WS 降級實測結果再決定：
+   若鎖屏／切換 App 時 WS 仍收得到派單，iOS 司機端可以先小規模試用；若收不到，推播就是上線前提，
+   帳號要優先買。上架／TestFlight 同樣需要付費帳號。
+2. **實機測試裝置：已有 ✅**。背景定位鎖屏長跑（A1 待驗項）現在做得了，是階段 5 的主要產出。
+   免費簽名的 7 天到期限制會影響長時間放置測試，見階段 5。
 3. **deployment target 拉到 15.0** 可能連帶影響其他套件版本，階段 2 若卡住優先看這裡。
 4. **本規劃全部未實跑驗證**——階段 0 的環境現況是實測的，階段 1 之後的預期踩坑是依套件文件與
    既有 Android 設定推論，實際執行時以當下錯誤訊息為準。
