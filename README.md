@@ -25,6 +25,8 @@ lib/
 - Flutter 3.44+、**JDK 17**（JDK 26 會導致 Android build 失敗）
 - Android SDK 36
 - 後端 `line-fleet-dispatch` 跑在 `:8080`
+- **iOS 尚未可 build**（2026-07-20）：Xcode 26.6 已裝但工具鏈未打通、CocoaPods 未安裝、
+  iOS 端無 flavor 設定。開工步驟見 [`docs/IOS_PLAN.md`](docs/IOS_PLAN.md)。
 
 ## 執行
 
