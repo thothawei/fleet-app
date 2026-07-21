@@ -61,6 +61,11 @@ class DriverController extends ChangeNotifier {
   // 混為一談會讓 _DriverRoot 卡在無限 spinner，司機連登出都按不到。
   bool _vehicleLoadFailed = false;
 
+  // 司機個資（目前只用聯絡電話）。null ＝尚未載入；載入失敗不阻擋任何流程——
+  // 電話是選填，查不到就讓欄位留白，不能因此擋住車輛設定頁。
+  DriverProfile? _profile;
+  bool _phoneSaving = false;
+
   AuthSession? get session => _session;
   bool get isLoggedIn => _session != null;
   bool get loading => _loading;
@@ -158,6 +163,50 @@ class DriverController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 目前的聯絡電話；'' ＝未填或尚未載入。
+  String get phone => _profile?.phone ?? '';
+
+  /// 是否已填聯絡電話。未填時乘客端看不到撥號按鈕。
+  bool get hasPhone => _profile?.hasPhone ?? false;
+
+  /// 電話儲存中（UI 用來 disable 欄位與按鈕）。
+  bool get phoneSaving => _phoneSaving;
+
+  /// 載入司機個資（目前只為了聯絡電話）。
+  ///
+  /// **失敗時刻意不設 _error**：電話是選填欄位，查不到就讓它留白即可；
+  /// 若在這裡設錯誤，車輛設定頁會掛著一條與當前操作無關的紅字，
+  /// 讓司機以為車輛沒存成功。
+  Future<void> refreshProfile() async {
+    if (_session == null) return;
+    try {
+      _profile = await _api.fetchProfile();
+      notifyListeners();
+    } on ApiException {
+      // 靜默降級：維持 _profile 原值（可能為 null），不擋任何流程。
+    }
+  }
+
+  /// 設定聯絡電話。成功回 true。
+  ///
+  /// 以後端回傳值更新狀態（號碼已正規化），不要用送出去的字串。
+  /// 傳空字串＝清除號碼。
+  Future<bool> savePhone(String phone) async {
+    _phoneSaving = true;
+    _error = null;
+    notifyListeners();
+    try {
+      _profile = await _api.updatePhone(phone);
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message; // 格式錯誤（400）等訊息已由 api_error 中文化
+      return false;
+    } finally {
+      _phoneSaving = false;
+      notifyListeners();
+    }
+  }
+
   /// 設定車種與車牌（O2）。成功回 true。
   /// 以後端回傳值更新狀態（車牌已正規化），不要用送出去的字串。
   Future<bool> saveVehicle({
@@ -211,6 +260,7 @@ class DriverController extends ChangeNotifier {
       await refreshLostItems();
       // O3 gate 的 App 端引導：一還原 session 就查車輛，_DriverRoot 才知道要不要跳設定頁。
       await refreshVehicle();
+      await refreshProfile();
     }
     await _bindPushListener();
   }
@@ -275,6 +325,7 @@ class DriverController extends ChangeNotifier {
       await refreshLostItems();
       // 登入後立刻查車輛：沒填的話 _DriverRoot 會直接導去設定頁（O3 gate 的 App 端引導）。
       await refreshVehicle();
+      await refreshProfile();
     } on ApiException catch (e) {
       _error = e.message;
     } finally {

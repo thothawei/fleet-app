@@ -149,6 +149,35 @@ class FleetApiClient {
     }
   }
 
+  /// 查自己的個資（對齊 GET /api/driver/me）。目前只用 `phone`。
+  Future<DriverProfile> fetchProfile() async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('/driver/me');
+      return DriverProfile.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 設定聯絡電話（對齊 PUT /api/driver/profile）。
+  ///
+  /// **刻意不走 `/driver/vehicle`**：那支會把車輛審核重置為 pending（O5），
+  /// 司機改一次電話就會被踢回「審核中」而無法接單。
+  ///
+  /// 後端會正規化號碼（去空白與 `-`、`(`、`)`）並回傳正規化後的值——**以回傳值為準**。
+  /// 傳空字串＝清除號碼（乘客端撥號按鈕隨之消失）。
+  Future<DriverProfile> updatePhone(String phone) async {
+    try {
+      final res = await _dio.put<Map<String, dynamic>>(
+        '/driver/profile',
+        data: {'phone': phone},
+      );
+      return DriverProfile.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 查自己的車輛資訊（對齊 GET /api/driver/vehicle，O2）。
   /// 未設定時兩欄為空字串、hasVehicle=false，非錯誤。
   Future<DriverVehicle> fetchVehicle() async {

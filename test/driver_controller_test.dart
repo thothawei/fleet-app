@@ -421,6 +421,12 @@ class _FakeFleetApi extends FleetApiClient {
     plateNumber: 'ABC-1234',
     hasVehicle: true,
   );
+  DriverProfile profile = const DriverProfile(
+    driverId: 1,
+    name: '測試司機',
+    phone: '',
+  );
+  ApiException? phoneError;
   ApiException? vehicleError;
   final savedVehicles = <String>[];
   DropoffInfo pickUpDropoff = const DropoffInfo();
@@ -454,6 +460,17 @@ class _FakeFleetApi extends FleetApiClient {
   Future<DriverVehicle> fetchVehicle() async {
     if (vehicleError != null) throw vehicleError!;
     return vehicle;
+  }
+
+  // init()／login() 也會呼叫 fetchProfile，理由同上方 fetchVehicle 的註解。
+  @override
+  Future<DriverProfile> fetchProfile() async => profile;
+
+  @override
+  Future<DriverProfile> updatePhone(String phone) async {
+    if (phoneError != null) throw phoneError!;
+    profile = DriverProfile(driverId: 1, name: '測試司機', phone: phone.trim());
+    return profile;
   }
 
   @override

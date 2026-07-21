@@ -195,6 +195,118 @@ void main() {
     });
   });
 
+  group('聯絡電話（乘客端撥號按鈕的資料來源）', () {
+    testWidgets('儲存電話走 profile 端點，不動車輛審核狀態', (tester) async {
+      // 這是本功能存在的理由：改電話若走 PUT /driver/vehicle，
+      // 後端會把審核重置為 pending，司機每改一次號碼就被鎖出接單（O5 gate）。
+      final api = _VehicleFakeApi()
+        ..vehicle = const DriverVehicle(
+          vehicleType: 'sedan',
+          plateNumber: 'ABC-1234',
+          hasVehicle: true,
+          reviewStatus: VehicleReviewStatus.approved,
+          canAccept: true,
+        );
+      final ctrl = DriverController(
+        storage: MemoryDriverAuthStore(),
+        api: api,
+        wsFactory: FleetWsClient.silent,
+      );
+      addTearDown(ctrl.dispose);
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U', password: 'pw');
+      expect(ctrl.canAcceptRides, isTrue, reason: '前置：這位司機原本已核准可接單');
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<DriverController>.value(
+          value: ctrl,
+          child: const MaterialApp(home: DriverVehicleScreen()),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '電話（選填）'),
+        '0912-345-678',
+      );
+      await tester.tap(find.text('儲存聯絡電話'));
+      await tester.pumpAndSettle();
+
+      expect(api.savedPhones, ['0912-345-678']);
+      // 沒有碰到車輛端點——否則審核會被重置。
+      expect(api.savedVehicles, isEmpty);
+      expect(ctrl.vehicleReviewStatus, VehicleReviewStatus.approved);
+      expect(ctrl.canAcceptRides, isTrue);
+      expect(ctrl.hasPhone, isTrue);
+    });
+
+    testWidgets('留空代表清除號碼，不被必填擋下', (tester) async {
+      // 司機不想公開號碼時要有辦法收回；乘客端隨之不顯示撥號按鈕。
+      final api = _VehicleFakeApi()
+        ..profile = const DriverProfile(
+          driverId: 1,
+          name: '測試司機',
+          phone: '0912345678',
+        );
+      final ctrl = DriverController(
+        storage: MemoryDriverAuthStore(),
+        api: api,
+        wsFactory: FleetWsClient.silent,
+      );
+      addTearDown(ctrl.dispose);
+      // 走正式路徑載入 profile（login 後會 refreshProfile），欄位才會帶出既有號碼。
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U', password: 'pw');
+      expect(ctrl.hasPhone, isTrue, reason: '前置：欄位應帶出既有號碼');
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<DriverController>.value(
+          value: ctrl,
+          child: const MaterialApp(home: DriverVehicleScreen()),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '電話（選填）'),
+        '',
+      );
+      await tester.tap(find.text('儲存聯絡電話'));
+      await tester.pumpAndSettle();
+
+      expect(api.savedPhones, ['']);
+      expect(ctrl.hasPhone, isFalse);
+    });
+
+    testWidgets('太短的號碼在本地就擋下，不送出', (tester) async {
+      final api = _VehicleFakeApi();
+      final ctrl = DriverController(
+        storage: MemoryDriverAuthStore(),
+        api: api,
+        wsFactory: FleetWsClient.silent,
+      );
+      addTearDown(ctrl.dispose);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<DriverController>.value(
+          value: ctrl,
+          child: const MaterialApp(home: DriverVehicleScreen()),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '電話（選填）'),
+        '12345',
+      );
+      await tester.tap(find.text('儲存聯絡電話'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('電話長度不足'), findsOneWidget);
+      expect(api.savedPhones, isEmpty);
+    });
+  });
+
   group('DriverVehicleScreen（強制情境）', () {
     testWidgets('強制情境沒有返回鍵，且顯示提示', (tester) async {
       final api = _VehicleFakeApi()
@@ -245,7 +357,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.text('儲存'));
+      await tester.tap(find.text('儲存車輛資訊'));
       await tester.pump();
 
       expect(find.text('請選擇車種'), findsOneWidget);
@@ -263,6 +375,13 @@ class _VehicleFakeApi extends FleetApiClient {
     plateNumber: 'ABC-1234',
     hasVehicle: true,
   );
+  DriverProfile profile = const DriverProfile(
+    driverId: 1,
+    name: '測試司機',
+    phone: '',
+  );
+  ApiException? phoneError;
+  final List<String> savedPhones = [];
   ApiException? vehicleError;
   final savedVehicles = <String>[];
 
@@ -286,6 +405,18 @@ class _VehicleFakeApi extends FleetApiClient {
   Future<DriverVehicle> fetchVehicle() async {
     if (vehicleError != null) throw vehicleError!;
     return vehicle;
+  }
+
+  // init()／login() 也會呼叫 fetchProfile，Fake 沒覆蓋就會打真網路卡死 FakeAsync。
+  @override
+  Future<DriverProfile> fetchProfile() async => profile;
+
+  @override
+  Future<DriverProfile> updatePhone(String phone) async {
+    if (phoneError != null) throw phoneError!;
+    savedPhones.add(phone);
+    profile = DriverProfile(driverId: 1, name: '測試司機', phone: phone.trim());
+    return profile;
   }
 
   @override
