@@ -62,6 +62,13 @@ class FleetWsClient {
   /// 關閉舊連線的等待上限（對端已消失時 close handshake 不會回來）。
   static const _closeTimeout = Duration(seconds: 2);
 
+  /// 重連退避的起始秒數與上限（見 `_nextReconnectDelay`）。
+  static const _reconnectBackoffSec = 3;
+  static const _maxReconnectBackoffSec = 30;
+
+  /// 連續失敗次數；握手成功或 `connect()` 時歸零。
+  int _reconnectAttempts = 0;
+
   /// 已完成握手才算連線（`_channel` 只在 `ready` 後才設）。
   bool get isConnected => _channel != null;
 
@@ -71,6 +78,7 @@ class FleetWsClient {
     // 擋掉舊 token 的自動重連，若不在明確重連時重置，_open()／_scheduleReconnect()
     // 會永遠早退，導致重新登入後 WebSocket 一直連不上（只有冷啟動重建 client 才會通）。
     _disposed = false;
+    _reconnectAttempts = 0;
     _reconnectTimer?.cancel();
     // 握手要等 `ready`，網路不通時可能卡到 TCP 逾時；不能讓登入流程陪它一起卡住。
     // 連線在背景進行，狀態一律由 onConnectionChanged 回報。
@@ -116,6 +124,8 @@ class FleetWsClient {
         return;
       }
       _channel = channel;
+      // 真的連上了：退避歸零，下次閃斷仍在 3 秒內恢復。
+      _reconnectAttempts = 0;
       onConnectionChanged?.call(true);
       _sub = channel.stream.listen(
         (raw) {
@@ -144,11 +154,36 @@ class FleetWsClient {
     } catch (_) {}
   }
 
+  /// 下一次重連的等待時間：3、6、12、24、30、30…（秒）。
+  ///
+  /// 固定 3 秒重試在**長時間離線**（司機進隧道、後端維護）時會一直打空包，
+  /// 白白耗電與流量；退避後最壞情況是恢復連線最多晚 30 秒，對派單可接受。
+  /// 第一次仍是 3 秒，短暫閃斷的恢復速度不變。
+  @visibleForTesting
+  static Duration reconnectDelayFor(int attempt) {
+    // attempt 很大時左移會溢位成負數，直接夾到上限（此處不能只判 `>`）。
+    final seconds = attempt >= 32 ? -1 : _reconnectBackoffSec << attempt;
+    return Duration(
+      seconds: seconds > _maxReconnectBackoffSec || seconds <= 0
+          ? _maxReconnectBackoffSec
+          : seconds,
+    );
+  }
+
+  /// 連續失敗次數（測試用；握手成功會歸零）。
+  @visibleForTesting
+  int get reconnectAttempts => _reconnectAttempts;
+
+  Duration get _nextReconnectDelay => reconnectDelayFor(_reconnectAttempts);
+
   void _scheduleReconnect() {
     if (_disposed) return;
     onConnectionChanged?.call(false);
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(const Duration(seconds: 3), _open);
+    final delay = _nextReconnectDelay;
+    // 次數只在排程時累加；握手成功會歸零，所以「連上又斷」不會沿用上一輪的長間隔。
+    if (delay.inSeconds < _maxReconnectBackoffSec) _reconnectAttempts++;
+    _reconnectTimer = Timer(delay, _open);
   }
 
   /// 測試替身：不開真實 WebSocket，只更新連線旗標。

@@ -300,11 +300,40 @@ class CustomerRide {
     this.etaPickupSec,
     this.pickupLat,
     this.pickupLng,
+    this.stops = const [],
   });
 
   final int rideId;
   final int status;
   final String? dropoffAddress;
+
+  /// 多乘客／多停靠點行程的全程（N8）；**空 ＝ 傳統單點訂單**。
+  /// 與司機端 `ActiveRide.stops` 同一份後端形狀，共用 `RideStop` 解析。
+  final List<RideStop> stops;
+
+  bool get hasStops => stops.isNotEmpty;
+
+  /// 下一個待處理的停靠點（未到達也未跳過）；全部處理完回 null。
+  RideStop? get nextStop {
+    for (final s in stops) {
+      if (s.pending) return s;
+    }
+    return null;
+  }
+
+  /// 已處理（到達或跳過）的站數，供「第 N 站／共 M 站」進度呈現。
+  int get handledStopCount => stops.where((s) => !s.pending).length;
+
+  /// 換掉整趟停靠點（WS `ride.stop_updated` 帶整批，直接覆蓋不套用差異）。
+  CustomerRide withStops(List<RideStop> next) => CustomerRide(
+        rideId: rideId,
+        status: status,
+        dropoffAddress: dropoffAddress,
+        etaPickupSec: etaPickupSec,
+        pickupLat: pickupLat,
+        pickupLng: pickupLng,
+        stops: next,
+      );
 
   /// 接單時後端估算的到達上車點秒數（model.Ride.EtaPickupSec）。
   final int? etaPickupSec;
@@ -352,6 +381,8 @@ class CustomerRide {
       etaPickupSec: (eta as num?)?.toInt(),
       pickupLat: pickupLat,
       pickupLng: pickupLng,
+      // N8：後端 customer active／單筆查詢帶的全程；單點訂單缺這個鍵 → 空 list。
+      stops: RideStop.listFrom(json['stops']),
     );
   }
 }

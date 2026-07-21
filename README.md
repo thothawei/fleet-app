@@ -25,8 +25,10 @@ lib/
 - Flutter 3.44+、**JDK 17**（JDK 26 會導致 Android build 失敗）
 - Android SDK 36
 - 後端 `line-fleet-dispatch` 跑在 `:8080`
-- **iOS 尚未可 build**（2026-07-20）：Xcode 26.6 已裝但工具鏈未打通、CocoaPods 未安裝、
-  iOS 端無 flavor 設定。開工步驟見 [`docs/IOS_PLAN.md`](docs/IOS_PLAN.md)。
+- **iOS**：Xcode 26+（`xcode-select -p` 要指向 `/Applications/Xcode.app/Contents/Developer`，
+  不是 CommandLineTools）、iOS 模擬器 runtime（`xcodebuild -downloadPlatform iOS`）、
+  **CocoaPods**（建議 `brew install cocoapods`，避開系統 Ruby 2.6）。
+  `flutter doctor` 的 Xcode 與 CocoaPods 兩列都要是 ✓。詳見 [`docs/IOS_PLAN.md`](docs/IOS_PLAN.md)。
 
 ## 執行
 
@@ -41,6 +43,34 @@ flutter run -t lib/main_customer.dart --flavor customer
 flutter run -t lib/main_driver.dart --flavor driver \
   --dart-define=API_BASE=http://192.168.1.100:8080
 ```
+
+**`API_BASE` 的平台預設值**（沒帶 `--dart-define` 時，見
+[`lib/core/config/app_config.dart`](lib/core/config/app_config.dart)）：
+
+| 平台 | 預設 | 原因 |
+| --- | --- | --- |
+| Android 模擬器 | `http://10.0.2.2:8080` | 模擬器對映到主機 loopback 的專用位址 |
+| iOS／macOS 模擬器 | `http://127.0.0.1:8080` | iOS 模擬器與主機共用網路，`10.0.2.2` 連不到 |
+| 任何真機 | 無預設可用 | 一律要帶 `--dart-define=API_BASE=http://<電腦區網 IP>:8080` |
+
+## iOS
+
+兩個 flavor 與 Android 對齊（`.driver` / `.customer`），scheme 與 build configuration 都已建好：
+
+```bash
+flutter run -t lib/main_driver.dart --flavor driver      # 顯示名「司機端」
+flutter run -t lib/main_customer.dart --flavor customer  # 顯示名「乘客端」
+```
+
+- **bundle id**：`dev.linefleet.line_fleet_app.driver` / `.customer`（與 Android `applicationId` 一致）。
+- **顯示名**：`Info.plist` 的 `CFBundleDisplayName` 吃 `$(APP_DISPLAY_NAME)`，值在
+  `ios/Flutter/<Configuration>.xcconfig`。
+- **開發環境是 `http://` + `ws://`**：`Info.plist` 已設 ATS `NSAllowsLocalNetworking`
+  （只放行本機／區網，沒有用 `NSAllowsArbitraryLoads`）＋ `NSLocalNetworkUsageDescription`。
+- **`--flavor` 一定要配對 `-t`**，漏了會裝出另一端的 UI。
+- **`GoogleService-Info.plist`（iOS 推播）尚未導入**：APNs 需要付費 Apple Developer Program，
+  免費 Personal Team 拿不到 `aps-environment` entitlement。進度與計畫見
+  [`docs/IOS_PLAN.md`](docs/IOS_PLAN.md) 階段 6。
 
 ## 地圖（乘客端 B2/B3）— 免 API key
 
@@ -110,6 +140,11 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
 - **我的行程歷史（2026-07-19）**：乘客首頁右上「我的行程」→ 列出過去行程
   （狀態／路線／時間／車資）；**有司機的行程可事後「聯絡司機」**開對話
   （沿用 `RideChatScreen`）。後端 `GET /customer/rides`（只回本人，LEFT JOIN 司機名）。
+- **乘客端多停靠點行程進度（2026-07-21）**：多乘客訂單在地圖上依序畫出全程停靠點
+  （乘客標籤 A/B…）＋「司機→下一站→之後待處理站」折線，sheet 內「行程進度 N／M 站」
+  與全程清單。司機每標記一站，WS **`ride.stop_updated`**（payload 帶整趟 stops）即時更新，
+  乘客不必重整。**唯讀**：乘客只看進度，不做標記。單點訂單畫面不變。
+  依賴後端 dispatch N8（customer active／單筆查詢帶 stops）。
 - **司機端概覽地圖（2026-07-16）**：接單後行程卡內嵌地圖（flutter_map + OSM，免 key）——
   自己（綠色計程車）＋目標（前往上車點＝紅釘／行程中＝藍旗）＋兩點連線，相機自動框住兩點。
   **只做「看位置」，不做導航**——turn-by-turn 仍由「導航」按鈕跳外部 Google Maps／Waze。
@@ -136,7 +171,7 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   已核准→首頁；能不能接單以後端 `can_accept` 為準（App 不自行推導）。
   admin 端在司機管理頁核准／退回（退回須附原因）。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **169 passed**。
+**目前**：`flutter analyze` 無 issue、`flutter test` **179 passed**。
 
 ## 規劃中（尚未實作）
 

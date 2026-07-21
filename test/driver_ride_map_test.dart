@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:line_fleet_app/core/models/models.dart';
-import 'package:line_fleet_app/driver/widgets/driver_ride_map.dart';
+import 'package:line_fleet_app/core/util/route_stops.dart';
 
 RideStop _stop(
   int id, {

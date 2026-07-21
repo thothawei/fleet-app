@@ -9,6 +9,13 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # iOS build 會把 Swift Package Manager 相依（flutterfire 等）clone 進
+    # build/ios/SourcePackages/checkouts/，裡面的範例程式（dartpad 等）本來就編不過，
+    # 不排除的話 `flutter analyze` 會多出上萬則不屬於本專案的錯誤。
+    - build/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`

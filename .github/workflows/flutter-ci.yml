@@ -25,3 +25,21 @@ jobs:
 
       - name: Test
         run: flutter test
+
+  # iOS 只跑一個 flavor（customer）控制 macOS runner 時間；
+  # 兩個 flavor 共用同一份 Runner target，會壞的東西（Podfile、xcconfig、Info.plist）一個就測得出來。
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Build iOS (customer, 不簽名)
+        run: flutter build ios --no-codesign --flavor customer -t lib/main_customer.dart

@@ -8,6 +8,7 @@ import '../../shared/screens/ride_chat_screen.dart';
 import '../customer_controller.dart';
 import '../screens/lost_item_screen.dart';
 import '../screens/map_picker_screen.dart';
+import 'ride_stops_progress.dart';
 import 'stops_editor.dart';
 
 /// 開啟與司機的即時聊天室（行程中與遺失物協尋共用同一條對話）。
@@ -151,6 +152,8 @@ class DriverEnRouteContent extends StatelessWidget {
         ] else ...[
           Text('司機前往中', style: Theme.of(context).textTheme.bodyMedium),
         ],
+        // N8：多乘客行程在司機到達前就該看得到全程（自己排的順序有沒有被走到）。
+        RideStopsProgress(ride: ride),
         const SizedBox(height: 16),
         ContactDriverButton(ctrl: ctrl, rideId: ride.rideId),
         if (ride.cancellable) ...[
@@ -182,11 +185,15 @@ class OnTripContent extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 8),
-        if (ride.dropoffAddress != null) ...[
+        // 多停靠點行程的「目的地」只是最後一站，全程交給進度卡講；
+        // 兩者都顯示會讓乘客以為現在正開往終點。
+        if (ride.dropoffAddress != null && !ride.hasStops) ...[
           Text('目的地：${ride.dropoffAddress}'),
           const SizedBox(height: 4),
         ],
         if (ctrl.driverName != null) Text('司機：${ctrl.driverName}'),
+        // N8：走到第幾站、下一站是誰（單點訂單為空 → 整塊不顯示）。
+        RideStopsProgress(ride: ride),
         const SizedBox(height: 16),
         ContactDriverButton(ctrl: ctrl, rideId: ride.rideId),
       ],
