@@ -51,6 +51,15 @@
 	<array>
 		<string>location</string>
 	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- 開發環境後端是 http:// + ws://，iOS 預設全擋。只放行本機／區網，
+		     不用 NSAllowsArbitraryLoads（那會連公網 http 一起放行）。 -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>需要連線至區網內的派單伺服器，才能取得行程指派與即時位置更新。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>上線時需要定位以回報司機位置供派單使用。</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

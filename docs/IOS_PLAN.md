@@ -1,7 +1,18 @@
 # iOS 開發規劃（A5 展開）
 
 > 建立：2026-07-20。對應 [`docs/TODO.md`](TODO.md) 的 **A5. iOS build**。
-> 本檔只做規劃，**尚未動任何 iOS 設定**。下次 session 依「階段」順序執行，每階段跑完驗收才往下。
+> 依「階段」順序執行，每階段跑完驗收才往下。
+
+## 執行進度（2026-07-21）
+
+- ✅ **1-4 CocoaPods 已安裝**：`brew install cocoapods` → `pod --version` = **1.17.0**（`/opt/homebrew/bin/pod`）。
+- ✅ **階段 3 的純程式碼／plist 缺口先行補完**（不需 Xcode 即可做）：3-1、3-2、3-3 已改，
+  3-6 查證後確認**本來就不需要改**。靜態驗收：`plutil -lint` OK、`flutter analyze` 無 issue、
+  `flutter test` **169 passed**。**這三項的 runtime 驗收都要等階段 2 模擬器跑起來才算數。**
+- ⛔ **1-1／1-2 卡在 sudo 密碼**（Claude 無法代打），1-3／1-5 連帶被擋。
+  2026-07-21 重測環境與 07-20 完全一致：`xcode-select -p` 仍是 CommandLineTools、
+  `xcodebuild -version` 仍報錯、`xcrun simctl` 仍找不到裝置。
+  **下一步請使用者自己跑階段 1 的 1-1～1-3 三行指令**，跑完 Claude 就能接手階段 2。
 
 ## 0. 環境現況（2026-07-20 實測）
 
@@ -31,9 +42,9 @@
 - [ ] **1-3 安裝 iOS 模擬器 runtime**（Xcode 26 預設不含）
       `xcodebuild -downloadPlatform iOS`
       驗收：`xcrun simctl list devices available | grep iPhone` 有裝置。
-- [ ] **1-4 安裝 CocoaPods**
-      建議 `brew install cocoapods`（避開系統 Ruby 2.6）。
-      驗收：`pod --version` 有輸出。
+- [x] **1-4 安裝 CocoaPods** ✅ 2026-07-21
+      `brew install cocoapods`（避開系統 Ruby 2.6）。
+      驗收：`pod --version` → **1.17.0**，`which pod` → `/opt/homebrew/bin/pod`。
 - [ ] **1-5 `flutter doctor -v`**
       驗收：Xcode 與 CocoaPods 兩列都是 ✓，無 `!`。
 
@@ -60,19 +71,24 @@
 
 以下都是掃過現有程式碼確認的**真實缺口**，不是通用清單：
 
-- [ ] **3-1 `AppConfig.apiBase` 的 iOS 預設值**
-      現況 [`lib/core/config/app_config.dart`](../lib/core/config/app_config.dart) 硬寫
+- [x] **3-1 `AppConfig.apiBase` 的 iOS 預設值** ✅ 2026-07-21（程式已改，runtime 待階段 2）
+      原本 [`lib/core/config/app_config.dart`](../lib/core/config/app_config.dart) 硬寫
       `http://10.0.2.2:8080`——那是 **Android 模擬器**專用位址，iOS 模擬器要用
       `http://127.0.0.1:8080`。
-      作法：依 `Platform.isIOS` 分流預設值（`--dart-define` 仍優先）。
-      驗收：iOS 模擬器不帶 `--dart-define` 也連得到本機後端。
-- [ ] **3-2 ATS（App Transport Security）擋 http/ws**
+      改法：`apiBase` 從 `const` 改成 **getter**，`--dart-define=API_BASE` 有值時一律優先
+      （`_apiBaseOverride.isNotEmpty`），沒帶才依 `Platform.isIOS || Platform.isMacOS` 分流。
+      全 repo 無 const 情境使用 `AppConfig.apiBase`（已 grep），改 getter 不會編譯失敗。
+      **驗收待辦**：iOS 模擬器不帶 `--dart-define` 也連得到本機後端。
+- [x] **3-2 ATS（App Transport Security）擋 http/ws** ✅ 2026-07-21（plist 已加，runtime 待階段 2）
       後端開發環境是 `http://` + `ws://`，iOS 預設全擋。
-      作法：`ios/Runner/Info.plist` 加 `NSAppTransportSecurity` →
-      `NSAllowsLocalNetworking = true`（只放行區網，不要用 `NSAllowsArbitraryLoads`）。
+      `ios/Runner/Info.plist` 已加 `NSAppTransportSecurity` → `NSAllowsLocalNetworking = true`
+      （**刻意不用 `NSAllowsArbitraryLoads`**，那會連公網 http 一起放行）。`plutil -lint` OK。
+      **未驗證**：`NSAllowsLocalNetworking` 對 `127.0.0.1` 與 RFC1918 私有 IP 的實際涵蓋範圍
+      沒有查到 Apple 原文（文件頁是 JS 渲染，抓不到內文），**以階段 2 模擬器實跑的結果為準**；
+      若模擬器連 `127.0.0.1` 仍被擋，再依當下錯誤訊息調整。
       驗收：模擬器能打 API 且 WebSocket 連得上（司機 marker 會動）。
-- [ ] **3-3 區網權限說明（真機連電腦 IP 才會遇到）**
-      iOS 14+ 存取區網要 `NSLocalNetworkUsageDescription`。
+- [x] **3-3 區網權限說明** ✅ 2026-07-21（plist 已加，驗收要等階段 5 真機）
+      iOS 14+ 存取區網要 `NSLocalNetworkUsageDescription`，已寫入 Info.plist。
       驗收：真機第一次連 `192.168.x.x:8080` 時出現權限詢問並可連線。
 - [ ] **3-4 背景定位 Info.plist 補齊**
       現況已有 `UIBackgroundModes: location` + 兩則位置用途說明 ✅，階段 5 實機驗背景定位夠用。
@@ -85,11 +101,11 @@
       對照現有用法：[`driver_location_permissions.dart`](../lib/core/location/driver_location_permissions.dart)
       用了 `Permission.notification` 與 `Permission.locationAlways`。
       驗收：司機端上線時 iOS 跳出通知與定位權限詢問。
-- [ ] **3-6 `url_launcher` 開外部地圖**
-      [`lib/core/util/maps.dart`](../lib/core/util/maps.dart) 開 Google Maps deep link；
-      iOS 若要用 `comgooglemaps://` 需在 Info.plist 宣告 `LSApplicationQueriesSchemes`，
-      否則 `canLaunchUrl` 回 false。退路：一律用 `https://maps.google.com/...`（免宣告，會開 Safari 或轉 App）。
-      決策：**先走 https 退路**，真機驗完再決定要不要加 scheme。
+- [x] **3-6 `url_launcher` 開外部地圖** ✅ 2026-07-21 查證後**不需要改任何東西**
+      重讀 [`lib/core/util/maps.dart`](../lib/core/util/maps.dart)：只組
+      `https://www.google.com/maps/search/?api=1&query=...` 並 `launchUrl(externalApplication)`，
+      **沒有 `comgooglemaps://`、也沒有 `canLaunchUrl`** → 不需要 `LSApplicationQueriesSchemes`。
+      規劃時寫的「先走 https 退路」其實就是現況。真機若想改開 Google Maps App 再另議。
 - [ ] **3-7 `flutter_secure_storage` Keychain**
       iOS 走 Keychain，模擬器通常免設定；若出現 `-34018` 錯誤才需要加
       Keychain Sharing entitlement。列為觀察項，不預先加。

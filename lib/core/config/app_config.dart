@@ -1,10 +1,18 @@
+import 'dart:io' show Platform;
+
 /// App 設定：API 位址可透過 --dart-define=API_BASE=... 覆寫。
-/// Android 模擬器連本機後端用 10.0.2.2；真機請改為電腦區網 IP。
+/// 未覆寫時依平台給「模擬器連本機後端」的預設值：
+/// Android 模擬器是 10.0.2.2，iOS／macOS 模擬器是 127.0.0.1（10.0.2.2 只有 Android 模擬器認得）。
+/// 真機一律請帶 --dart-define=API_BASE=http://<電腦區網 IP>:8080。
 class AppConfig {
-  static const apiBase = String.fromEnvironment(
-    'API_BASE',
-    defaultValue: 'http://10.0.2.2:8080',
-  );
+  static const _apiBaseOverride = String.fromEnvironment('API_BASE');
+
+  static String get apiBase {
+    if (_apiBaseOverride.isNotEmpty) return _apiBaseOverride;
+    return (Platform.isIOS || Platform.isMacOS)
+        ? 'http://127.0.0.1:8080'
+        : 'http://10.0.2.2:8080';
+  }
 
   static String get wsBase {
     final uri = Uri.parse(apiBase);

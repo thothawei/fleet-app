@@ -43,9 +43,13 @@
       + 真裝置驗收（App 被殺點推播可接單）。
 - [x] A4. 回填 M6 計畫勾選框 + 同步後端 STATUS.md（2026-07-08；證據以 commit / `flutter test` 為主，
       A1 鎖屏長跑仍待真機）。
-- [ ] A5. iOS build — **規劃已展開，見 [`docs/IOS_PLAN.md`](IOS_PLAN.md)**（2026-07-20）。
-      Xcode 26.6 已安裝，但 `xcode-select` 仍指向 CommandLineTools、CocoaPods 未安裝、
-      無 iOS 模擬器 runtime，三者是第一階段阻塞。
+- [~] A5. iOS build — **規劃已展開，見 [`docs/IOS_PLAN.md`](IOS_PLAN.md)**（2026-07-20）。
+      **2026-07-21 進度**：CocoaPods 已裝好（`pod 1.17.0`，階段 1-4 ✅）；
+      階段 3 不需 Xcode 的缺口先補完——`AppConfig.apiBase` 依平台分流（iOS→`127.0.0.1`）、
+      Info.plist 加 ATS `NSAllowsLocalNetworking` 與 `NSLocalNetworkUsageDescription`、
+      3-6 查證後確認不需改（現況已走 https 退路）。`flutter analyze` 無 issue、`flutter test` 169 passed。
+      **⛔ 仍卡住**：`xcode-select -s`／`xcodebuild -license accept` 需 sudo 密碼，Claude 代打不了，
+      模擬器 runtime（1-3）連帶被擋 → **請使用者跑 IOS_PLAN 階段 1 的 1-1～1-3**，之後才能進階段 2 首次 build。
       **實機已有、Apple 帳號為免費 Personal Team**：階段 1–5（含實機部署與 A1 背景定位實機驗收）
       皆可執行；只有階段 6（FCM 推播）因 APNs 需付費 Developer Program 而卡住。
 
