@@ -220,6 +220,11 @@ class _FakeFleetApi extends FleetApiClient {
         hasVehicle: true,
       );
 
+  // init() 也會呼叫 fetchProfile，Fake 沒覆蓋就會打真網路卡死 FakeAsync。
+  @override
+  Future<DriverProfile> fetchProfile() async =>
+      const DriverProfile(driverId: 1, name: '測試司機', phone: '0912345678');
+
   @override
   Future<String> acceptRide(int rideId) async => '接單成功';
 

@@ -96,3 +96,33 @@ class DriverVehicle {
 
   static const empty = DriverVehicle(vehicleType: '', plateNumber: '', hasVehicle: false);
 }
+
+/// 司機個資（對齊後端 `driverPublic`：`GET /api/driver/me`、`PUT /api/driver/profile`）。
+///
+/// 目前 App 只用到 `phone`——乘客端在「司機前往上車點」階段用它撥號（O7），
+/// 而司機端在此之前**沒有任何填寫入口**，號碼永遠是空的、撥號按鈕永遠不顯示。
+class DriverProfile {
+  const DriverProfile({
+    required this.driverId,
+    required this.name,
+    required this.phone,
+  });
+
+  final int driverId;
+  final String name;
+
+  /// 聯絡電話；'' ＝未填（乘客端整塊撥號按鈕不顯示）。後端已正規化（去空白與分隔符號）。
+  final String phone;
+
+  bool get hasPhone => phone.isNotEmpty;
+
+  factory DriverProfile.fromJson(Map<String, dynamic> json) {
+    return DriverProfile(
+      driverId: (json['driver_id'] as num?)?.toInt() ?? 0,
+      name: json['name'] as String? ?? '',
+      phone: json['phone'] as String? ?? '',
+    );
+  }
+
+  static const empty = DriverProfile(driverId: 0, name: '', phone: '');
+}

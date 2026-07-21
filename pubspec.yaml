@@ -29,6 +29,9 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # 在真模擬器/裝置上驅動 UI（點擊由 Flutter 自己派送，不需要系統層的合成滑鼠事件）。
+  integration_test:
+    sdk: flutter
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
 
