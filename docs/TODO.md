@@ -233,7 +233,68 @@
 
 ---
 
-## 下次任務
+## 📋 下次任務（2026-07-20 盤點）
+
+> 現況實測：`flutter analyze` 無 issue、`flutter test` **169 passed**（2026-07-20 本機跑過）。
+> 主鏈路（叫車→派單→接單→行程→完成→計費）三端已通，N/O/P/O5 全部上線。
+> **剩下的三類**：① 等拍板 ② 卡外部資源 ③ 一句 SQL 的既有決策。以下依「能不能現在動手」排序。
+
+### T1. 【等拍板】多停靠點的建單前車資預估 — 唯一懸而未決
+
+- [ ] **T1-0 使用者拍板**：二選一（見上方「懸而未決」第 1 點）。**未拍板前不要動工。**
+  - **方案 A：接受「先搭後知價」**（零開發）——只在 App 端補期望值管理。
+  - **方案 B：投資一支報價 API**（後端先行）——建單前顯示預估。
+- [ ] **T1-A（若選 A，App 端，約半天）**：叫車表單在**多停靠點**時顯示提示
+      「車資依實際路線計算，繞路越多車資越高，完成後結算」；
+      `StopsEditor` 加第 2 站以上時才出現（單一目的地維持現狀不動）。
+      驗收：widget test 斷言「單一目的地不顯示／兩站以上顯示」＋模擬器實跑一次。
+- [ ] **T1-B1（若選 B，後端 dispatch 先做）**：新開 `POST /api/customer/fare-quote`，
+      收全程停靠點座標，回 `estimated_fare_cents`＋`distance_m`＋`quote_id`＋有效期限。
+      **需先定案**：用 OSRM 路線試算（沿用 F3 里程退路那套）；預估與實際的差異責任歸屬
+      （是純參考、還是上限保證）——**這是 T1-0 拍板時要一起講清楚的**。
+- [ ] **T1-B2（App 端，等 T1-B1 上線）**：叫車表單停靠點變動時 debounce 呼叫報價 API，
+      顯示「預估車資 NT$ …（實際依路線計算）」；**API 失敗一律降級為方案 A 的文字提示，不擋叫車**
+      （沿用 P 的 `GET /api/customer/fees` 降級模式）。
+      驗收：報價成功／失敗／逾時三條路徑各一個 widget test ＋ 模擬器實跑。
+
+### T2. 【卡外部資源】A2 真裝置推播 E2E — 程式已就緒，只缺 Firebase 憑證
+
+> **程式碼兩端都寫完了**（App 端 `firebase_messaging` ＋ 後端 `FCMPusher`），
+> 純粹缺一個 Firebase 專案。沒有憑證時後端自動降級 stub，本地開發不受影響。
+
+- [ ] **T2-1（使用者操作，我做不了）**：建 Firebase 專案 → 新增 Android App，
+      套件名 **`dev.linefleet.line_fleet_app.driver`** → 下載 `google-services.json`。
+- [ ] **T2-2**：`google-services.json` 放進 `android/app/`（**不進 git**，範本已有 `.example`）。
+- [ ] **T2-3**：Firebase Console → 服務帳戶 → 產生私密金鑰 JSON → 掛進 dispatch 容器，
+      設 `FCM_CREDENTIALS_FILE=<容器內路徑>`。
+- [ ] **T2-4 驗收（真裝置，非模擬器）**：**App 被殺**（不是退到背景）→ 後端派單 →
+      收到推播 → 點推播 → **直接開出全螢幕接單卡**且上車點／目的地／ETA 正確。
+      特別要驗：多停靠點訂單（`stops` 不放進推播）點推播接單後，
+      `acceptOffer → refreshActive` 有把全程補齊（N4 那條路徑）。
+
+### T3. 【卡外部資源】A5 iOS build
+
+- [ ] **T3-1（環境）**：完整 Xcode ＋ CocoaPods。
+- [ ] **T3-2**：`pod install` → 兩 flavor（driver/customer）各自 build 過。
+- [ ] **T3-3**：驗 iOS 背景定位（`UIBackgroundModes: location` 已設）鎖屏後座標仍回報。
+
+### T4. 【一句 SQL】O5 導入的祖父化決策 — 現況已定，除非你要改
+
+- [x] 現況：既有已填車輛的司機**祖父化為 `approved`**，不因導入審核被鎖出（2026-07-19 導入時決定）。
+- [ ] **只有在你想要「全體重審」時才做**：改後端 migration `000022` 的那行 `UPDATE`
+      （把祖父化那句拿掉／改成寫 `pending`）。
+      ⚠️ **注意**：這會讓**所有現役司機立刻無法接單**，直到 admin 逐一核准完。
+      要做的話請一併排 admin 端的批次核准，否則等於全線停擺。
+      **這屬於會寫入 DB 的操作，動手前一定先問過。**
+
+### T5. 【隨時可做】收尾雜項
+
+- [ ] **T5-1 A1 真機背景定位驗收**：鎖屏 10 分鐘後後台地圖座標仍更新（模擬器驗不出來，需真機）。
+- [ ] **T5-2 B5 評分／付款真實 API**：目前是入口佔位（按鈕 disabled）。**依賴後端 Phase C**，後端未開工前不動。
+
+---
+
+## 下次任務（歷史紀錄）
 
 > **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
 > 以 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸，driver/customer 兩 flavor 共用。
