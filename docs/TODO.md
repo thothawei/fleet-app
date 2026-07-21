@@ -55,7 +55,11 @@
       **iPhone 17 Pro 模擬器實跑**：乘客端登入＋OSM 圖磚；司機端登入→車輛 gate 強制跳轉→
       上線（iOS 定位權限對話框）→ **WS 派單接單卡 ride #12** → 接單後內嵌 OSM 概覽地圖。
       `http://` 與 `ws://` 皆通過 ATS，後端 log 交叉驗證。
-      **➡️ 下一步：階段 4 雙 flavor（driver／customer 目前共用同一 bundle id，會互相覆蓋）。**
+      **✅ 階段 4 雙 flavor 也完成（2026-07-21）**：9 組 build configuration＋`driver`／`customer`
+      兩個 shared scheme，bundle id 對齊 Android（`dev.linefleet.line_fleet_app.driver`／`.customer`），
+      顯示名走 xcconfig 變數；模擬器主畫面「司機端」「乘客端」**兩個 icon 並存不互相覆蓋**。
+      **➡️ 下一步：階段 5 實機部署**（需使用者接上 iPhone＋Xcode 選 Personal Team＋手機信任憑證），
+      產出是 A1「鎖屏長跑背景定位」的 iOS 實機驗收。
       **實機已有、Apple 帳號為免費 Personal Team**：階段 1–5（含實機部署與 A1 背景定位實機驗收）
       皆可執行；只有階段 6（FCM 推播）因 APNs 需付費 Developer Program 而卡住。
 

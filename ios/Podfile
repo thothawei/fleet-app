@@ -4,10 +4,18 @@
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
+# 每個 build configuration 都要對應到 debug/release，否則 pod install 會漏產該組 xcconfig。
+# driver / customer 兩個 flavor 各有三組（對齊 android 的 productFlavors）。
 project 'Runner', {
   'Debug' => :debug,
   'Profile' => :release,
   'Release' => :release,
+  'Debug-driver' => :debug,
+  'Profile-driver' => :release,
+  'Release-driver' => :release,
+  'Debug-customer' => :debug,
+  'Profile-customer' => :release,
+  'Release-customer' => :release,
 }
 
 def flutter_root

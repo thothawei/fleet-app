@@ -37,9 +37,15 @@
   `xcodebuild -version` = **Xcode 26.6 (17F113)**、`xcrun simctl` 有 **iOS 26.5 runtime**
   ＋ iPhone 17 Pro／17 Pro Max。
 - ✅ **1-5 `flutter doctor -v`**：Xcode ✓（CocoaPods 1.17.0）、**No issues found!**
-- ✅ **階段 2、階段 3 全部完成並實跑驗過**（見上方實跑驗收段）。
-- ➡️ **下一步：階段 4（雙 flavor）** —— iOS 目前只有一個 Runner scheme、bundle id
-  `dev.linefleet.lineFleetApp`，driver／customer 會互相覆蓋。
+- ✅ **階段 2、3、4 全部完成並實跑驗過**（見上方實跑驗收段與階段 4 各項）。
+- 🧹 **順手修掉一個 iOS build 帶進來的副作用**：`flutter analyze` 一度冒出 **13158 個 issue**，
+  全部來自 `build/ios/SourcePackages/checkouts/`（iOS build 把 flutterfire 等 SPM 相依 clone 進
+  `build/`，裡面的 dartpad 範例本來就編不過）。`analysis_options.yaml` 加 `exclude: build/**` 後
+  回到 **No issues found**、`flutter test` 169 passed。CI 是乾淨 checkout 所以沒被影響，
+  但本機分析會被淹沒。
+- ➡️ **下一步：階段 5（實機部署）** —— 需要使用者把 iPhone 接上電腦，並在
+  Xcode 幫 Runner target 選 Personal Team（簽名）＋在手機上信任開發者憑證。
+  這階段最大的產出是 **A1「鎖屏長跑背景定位」的 iOS 實機驗收**，模擬器測不出來。
 
 ## 0. 環境現況（2026-07-20 實測）
 
@@ -153,17 +159,33 @@
 Android 已用 `productFlavors` 分 `.driver` / `.customer`
 （見 `android/app/build.gradle.kts`），iOS 目前**只有一個 Runner scheme**，要補對等設定。
 
-- [ ] **4-1 建立兩組 Xcode scheme**：`driver`、`customer`。
-- [ ] **4-2 建立對應 build configuration**
-      （`Debug-driver` / `Release-driver` / `Profile-driver`，customer 同理），
-      各自指向 `ios/Flutter/Debug.xcconfig` 等，並設定
-      `PRODUCT_BUNDLE_IDENTIFIER = dev.linefleet.line_fleet_app.driver` / `.customer`
-      —— 與 Android 的 `applicationIdSuffix` 對齊，否則 Firebase 認不出來。
-- [ ] **4-3 顯示名稱分流**：`CFBundleDisplayName` 分別為「司機端」「乘客端」。
-- [ ] **4-4 驗收**：
-      `flutter run -t lib/main_driver.dart --flavor driver` 與
-      `flutter run -t lib/main_customer.dart --flavor customer` 都能裝上模擬器且**不互相覆蓋**
-      （兩個 icon 並存）。
+- [x] **4-1 建立兩組 shared scheme** ✅ 2026-07-21：`driver`、`customer`
+      （`ios/Runner.xcodeproj/xcshareddata/xcschemes/`），launch/test/analyze 走 `Debug-<flavor>`、
+      profile 走 `Profile-<flavor>`、archive 走 `Release-<flavor>`。
+- [x] **4-2 建立對應 build configuration** ✅ 2026-07-21
+      9 組：原本的 `Debug/Release/Profile` 加上 driver／customer 各三組。
+      `PRODUCT_BUNDLE_IDENTIFIER` = `dev.linefleet.line_fleet_app.driver` / `.customer`
+      （與 Android `applicationId` + `applicationIdSuffix` 完全對齊）。
+      **每個 flavor 配一個 `ios/Flutter/<Config>.xcconfig`**，各自 `#include?` 對應的
+      `Pods-Runner.<config>.xcconfig` 再 `#include "Generated.xcconfig"`；
+      `ios/Podfile` 的 `project 'Runner'` 對應表補上 6 個新 configuration，
+      否則 `pod install` 不會產這些 xcconfig。
+      **踩到的坑（兩個，都已修）**：
+      1. 用 `xcodeproj` gem 新增的 base configuration 參照要寫成 `Flutter/Debug-driver.xcconfig`
+         ——Flutter 群組本身沒有 `path`，只寫檔名會解析成 `ios/Debug-driver.xcconfig`（不存在），
+         `pod install` 會警告「did not set the base configuration」。**用 `File.exist?(ref.real_path)` 驗**。
+      2. **pbxproj 不要放非 ASCII**：中文顯示名寫進 build settings 後，`xcodeproj` 在
+         沒有 UTF-8 locale 的 shell 讀檔會丟 `invalid byte sequence in US-ASCII`，
+         而 `pod install` 每次都要讀它（`flutter` 呼叫 pod 時會自帶 `LANG`，手動跑就會炸）。
+         改成把顯示名放 xcconfig，pbxproj 維持純 ASCII。
+- [x] **4-3 顯示名稱分流** ✅ 2026-07-21：`Info.plist` 的 `CFBundleDisplayName` 改成
+      `$(APP_DISPLAY_NAME)`，值在各 xcconfig 定義（司機端／乘客端／Line Fleet App）。
+- [x] **4-4 驗收 ✅ 2026-07-21（iPhone 17 Pro 模擬器實跑）**
+      `flutter run --flavor driver -t lib/main_driver.dart` 與
+      `flutter run --flavor customer -t lib/main_customer.dart` 兩包都裝得起來且**互不覆蓋**：
+      安裝後的 Info.plist 實測 —— driver 包 `CFBundleIdentifier=dev.linefleet.line_fleet_app.driver`／
+      `CFBundleDisplayName=司機端`，customer 包對應 `.customer`／`乘客端`；
+      **模擬器主畫面「司機端」「乘客端」兩個 icon 並存**（順手移除了無 flavor 的舊安裝）。
       ⚠️ 已知坑（見記憶卡 `pitfall-flutter-flavor-needs-target`）：`--flavor` 一定要配對 `-t`，
       漏了會裝出錯的那一端。
 
