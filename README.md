@@ -171,7 +171,28 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   已核准→首頁；能不能接單以後端 `can_accept` 為準（App 不自行推導）。
   admin 端在司機管理頁核准／退回（退回須附原因）。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **179 passed**。
+- **司機聯絡電話（2026-07-21）**：司機端車輛資訊頁加**獨立的電話區塊＋獨立送出鈕**，
+  串後端 `PUT /api/driver/profile`。**不可與 `PUT /driver/vehicle` 共用**——那支會把
+  車輛審核重置為待審核（O5），司機改一次電話就會被踢出接單池。留空＝清除號碼。
+  在此之前 `drivers.phone` 沒有任何寫入路徑，乘客端的撥號按鈕從未真正出現過。
+
+**目前**：`flutter analyze` 無 issue、`flutter test` **182 passed**。
+
+### 測試怎麼跑
+
+```bash
+flutter analyze
+flutter test                      # 單元／widget（不含 integration_test/）
+
+# 在真模擬器上跑真 App、打真後端（需先起後端 docker）
+flutter test integration_test/driver_phone_test.dart \
+  -d <simulator-id> --flavor driver \
+  --dart-define=API_BASE=http://127.0.0.1:8080
+```
+
+> **iOS 的 UI 驗收優先走 `integration_test`**：它的點擊由 Flutter 自己派送，
+> 不經過系統合成事件——`cliclick` 那類工具在無輔助使用授權的環境會**靜默失效**
+> （游標會動、點擊卻到不了模擬器），別再跟座標纏鬥。
 
 ## 規劃中（尚未實作）
 

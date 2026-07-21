@@ -253,6 +253,30 @@
 
 ## 下次任務
 
+> **⬅️ 從這裡開始（2026-07-21 收工時的狀態）**
+>
+> **0. 先合兩個待審 PR**（電話功能，三層都有實證，合併順序有相依）：
+>    1. [fleet-dispatch#42](https://github.com/thothawei/fleet-dispatch/pull/42)（`PUT /api/driver/profile`）**要先合**
+>    2. [fleet-app#40](https://github.com/thothawei/fleet-app/pull/40)（司機端填寫入口）——後端未合前會 404
+>
+> **1. A5 階段 5：iOS 實機部署 → 產出 A1「鎖屏長跑背景定位」實機驗收**（最高優先）
+>    這是掛最久且唯一沒有實機證據的核心功能；背景定位失效＝司機靜默收不到派單，測試補不上。
+>    阻塞**不是技術問題**，是三件需要人操作的事：接上 iPhone／Xcode 登入 Apple ID
+>    （`security find-identity` 目前 **0 valid identities**）／Runner target 選 Personal Team。
+>    做完就跑：`flutter run -d ios -t lib/main_driver.dart --flavor driver --dart-define=API_BASE=http://<區網IP>:8080`
+>    ——**不用查 device-id，`-d ios` 會自動選唯一的 iOS 實機**。
+>    驗收腳本已寫好：每 5 秒讀 Redis `driver:<id>:loc` 的 `updated_at`，輸出更新次數／
+>    最大空窗／PASS-FAIL（後端沒掛 `gin.Logger()`，請求層不印 log，所以不看 log 看 Redis）。
+>    腳本已收進 repo：`tool/watch_driver_location.sh <driver_id> [監看秒數]`。
+>    已預先驗過：driver flavor 的 `flutter build ios --no-codesign` 可過（20.6MB）。
+>
+> **2. 若當下不方便接實機**，可獨立完成的候選：
+>    - **B5 評分／付款**：卡後端 Phase C（未開工），需要先談後端
+>    - **A2 FCM 推播**：需建 Firebase 專案 + `google-services.json` + 後端 FCM 實作（Android 可做，iOS 端卡付費帳號）
+>    - **WS 重連 jitter**：退避已上線但無抖動，後端重啟時所有司機會同時重連（量體大才有感）
+>
+> **3. 等你拍板才能動**：多停靠點的建單前車資預估（需後端新開報價 API，見「懸而未決」）
+
 > **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
 > 以 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸，driver/customer 兩 flavor 共用。
 
