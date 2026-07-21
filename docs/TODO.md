@@ -48,8 +48,14 @@
       階段 3 不需 Xcode 的缺口先補完——`AppConfig.apiBase` 依平台分流（iOS→`127.0.0.1`）、
       Info.plist 加 ATS `NSAllowsLocalNetworking` 與 `NSLocalNetworkUsageDescription`、
       3-6 查證後確認不需改（現況已走 https 退路）。`flutter analyze` 無 issue、`flutter test` 169 passed。
-      **⛔ 仍卡住**：`xcode-select -s`／`xcodebuild -license accept` 需 sudo 密碼，Claude 代打不了，
-      模擬器 runtime（1-3）連帶被擋 → **請使用者跑 IOS_PLAN 階段 1 的 1-1～1-3**，之後才能進階段 2 首次 build。
+      **✅ 階段 1–3 全部完成（2026-07-21，使用者跑完 sudo 三行後）**：
+      Xcode 26.6 ＋ iOS 26.5 模擬器 ＋ `flutter doctor` 全綠；
+      `flutter build ios --no-codesign` **一次過**（20.4MB `.app`，預期的 deployment target 坑沒發生——
+      firebase/geolocator/permission_handler 都走 SPM，只有 `flutter_secure_storage` 走 pod）。
+      **iPhone 17 Pro 模擬器實跑**：乘客端登入＋OSM 圖磚；司機端登入→車輛 gate 強制跳轉→
+      上線（iOS 定位權限對話框）→ **WS 派單接單卡 ride #12** → 接單後內嵌 OSM 概覽地圖。
+      `http://` 與 `ws://` 皆通過 ATS，後端 log 交叉驗證。
+      **➡️ 下一步：階段 4 雙 flavor（driver／customer 目前共用同一 bundle id，會互相覆蓋）。**
       **實機已有、Apple 帳號為免費 Personal Team**：階段 1–5（含實機部署與 A1 背景定位實機驗收）
       皆可執行；只有階段 6（FCM 推播）因 APNs 需付費 Developer Program 而卡住。
 

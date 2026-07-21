@@ -3,16 +3,43 @@
 > 建立：2026-07-20。對應 [`docs/TODO.md`](TODO.md) 的 **A5. iOS build**。
 > 依「階段」順序執行，每階段跑完驗收才往下。
 
+## 🧪 iOS 模擬器實跑驗收（2026-07-21，iPhone 17 Pro／iOS 26.5 ＋ 後端 docker）
+
+> **階段 1–3 全數完成並實跑驗過**（階段 1 的 sudo 三行由使用者執行）。
+> 以下每一項都有截圖與後端 log／API 交叉驗證，不是「應該可以」。
+
+- **乘客端**：登入（`sim-customer-001`）→ 叫車主畫面，**OSM 圖磚正常渲染**；
+  後端 log 同時出現 `WebSocket 已連線 id=8 role=customer`。
+- **司機端**：登入（`sim-driver-001`）→ **O2/O3 強制跳轉車輛資訊頁**（新司機沒填車輛，
+  iOS 上同樣生效）→ 以 API 填車輛（sedan／IOS-0721）＋ admin 核准 → 重啟 App 進首頁。
+- **定位權限**：按「上線」→ iOS 權限對話框（文案來自我們的 Info.plist）→ 允許 →
+  hero 轉綠「上線中」、狀態列藍色定位指示、位置每 8 秒回報（後端 log 可見）。
+- **WS 派單全鏈路**：乘客建單 ride #12 → **司機端全螢幕接單卡即時跳出**
+  （距離 54 公尺／ETA 1 分鐘，距離是用模擬器 `simctl location` 設的座標算的）→
+  按「接單」→ 行程卡 #12 **內嵌 OSM 概覽地圖在 iOS 正常渲染**（紅色上車點釘＋綠色計程車 marker），
+  聯絡乘客／導航／乘客已上車／放棄此單按鈕齊全。
+- **結論**：`http://` REST 與 `ws://` WebSocket 在 iOS 上都通，ATS 設定正確；
+  Android 上既有的行為（強制車輛 gate、WS 派單、內嵌地圖、Keychain session 還原）在 iOS 上一致。
+
+**驗收方法備忘（下次省事）**：模擬器沒有 `adb input tap` 這種東西，本次用
+`osascript` 取得 Simulator 視窗座標 ＋ `cliclick`（`brew install cliclick`）點擊、
+`screencapture -R<視窗矩形>` 截圖、`xcrun simctl location booted set <lat>,<lng>` 餵座標。
+`System Events` 的 `click at` 會回 `-25204` 失敗，別再試。
+
 ## 執行進度（2026-07-21）
 
 - ✅ **1-4 CocoaPods 已安裝**：`brew install cocoapods` → `pod --version` = **1.17.0**（`/opt/homebrew/bin/pod`）。
 - ✅ **階段 3 的純程式碼／plist 缺口先行補完**（不需 Xcode 即可做）：3-1、3-2、3-3 已改，
   3-6 查證後確認**本來就不需要改**。靜態驗收：`plutil -lint` OK、`flutter analyze` 無 issue、
   `flutter test` **169 passed**。**這三項的 runtime 驗收都要等階段 2 模擬器跑起來才算數。**
-- ⛔ **1-1／1-2 卡在 sudo 密碼**（Claude 無法代打），1-3／1-5 連帶被擋。
-  2026-07-21 重測環境與 07-20 完全一致：`xcode-select -p` 仍是 CommandLineTools、
-  `xcodebuild -version` 仍報錯、`xcrun simctl` 仍找不到裝置。
-  **下一步請使用者自己跑階段 1 的 1-1～1-3 三行指令**，跑完 Claude 就能接手階段 2。
+- ✅ **1-1／1-2／1-3 由使用者執行完成**（需 sudo，Claude 代打不了）。
+  驗證：`xcode-select -p` = `/Applications/Xcode.app/Contents/Developer`、
+  `xcodebuild -version` = **Xcode 26.6 (17F113)**、`xcrun simctl` 有 **iOS 26.5 runtime**
+  ＋ iPhone 17 Pro／17 Pro Max。
+- ✅ **1-5 `flutter doctor -v`**：Xcode ✓（CocoaPods 1.17.0）、**No issues found!**
+- ✅ **階段 2、階段 3 全部完成並實跑驗過**（見上方實跑驗收段）。
+- ➡️ **下一步：階段 4（雙 flavor）** —— iOS 目前只有一個 Runner scheme、bundle id
+  `dev.linefleet.lineFleetApp`，driver／customer 會互相覆蓋。
 
 ## 0. 環境現況（2026-07-20 實測）
 
@@ -54,16 +81,22 @@
 
 ## 階段 2 — 首次 build 起來（先不管 flavor / 推播）
 
-- [ ] **2-1 `flutter build ios --no-codesign -t lib/main_customer.dart`**
-      這步會自動生成 `ios/Podfile` 並跑 `pod install`。
-      預期踩坑：`firebase_*` 要求 iOS deployment target ≥ 15.0，Flutter 模板預設可能較低
-      → 要同時改 `ios/Podfile` 的 `platform :ios, '15.0'` 與 Xcode target 的
-      `IPHONEOS_DEPLOYMENT_TARGET`。
-      驗收：build 成功產出 `.app`。
-- [ ] **2-2 模擬器實跑乘客端**
-      `open -a Simulator` → `flutter run -t lib/main_customer.dart --dart-define=API_BASE=http://127.0.0.1:8080`
-      驗收：登入畫面出得來、地圖圖磚載得到。
-- [ ] **2-3 `ios/Podfile` + `ios/Podfile.lock` 進版控**，`.gitignore` 確認沒把它們排除。
+- [x] **2-1 `flutter build ios --no-codesign -t lib/main_customer.dart`** ✅ 2026-07-21
+      **一次就過**：`✓ Built build/ios/iphoneos/Runner.app (20.4MB)`（Xcode build 221s）。
+      **預期的 deployment target 坑沒發生**——Flutter 3.44 下 firebase／geolocator／permission_handler
+      全走 **Swift Package Manager**，`IPHONEOS_DEPLOYMENT_TARGET` 維持 13.0 即可編譯；
+      `pod install` 只處理唯一不支援 SPM 的 `flutter_secure_storage`（3.8s）。
+- [x] **2-2 模擬器實跑乘客端** ✅ 2026-07-21（iPhone 17 Pro／iOS 26.5）
+      **刻意不帶 `--dart-define`**，才能同時驗 3-1 的平台預設值。
+      登入畫面顯示「後端：http://127.0.0.1:8080」→ 登入成功 → 叫車主畫面
+      **OSM 圖磚真的從網路渲染**（台北信義區街道圖、中文地名齊全）。
+      後端 log 交叉驗證：`customers WHERE line_user_id='sim-customer-001'`、
+      **`WebSocket 已連線 id=8 role=customer`**、rides/active 與 lost_items 查詢全數進來。
+- [x] **2-3 `ios/Podfile` + `ios/Podfile.lock` 進版控** ✅ 2026-07-21
+      `ios/.gitignore` 只排除 `Pods/`，沒排除 Podfile 兩檔。連帶進版控的還有
+      pod install 改動的 `ios/Flutter/*.xcconfig`（`#include?` Pods 設定）、
+      `project.pbxproj` 的 Pods 整合、`Runner.xcworkspace/contents.xcworkspacedata`，
+      以及 SPM 的 `Package.resolved`（鎖住 firebase-ios-sdk 等版本）。
 
 ---
 
@@ -95,20 +128,23 @@
       `remote-notification` 留到階段 6（買付費帳號）再補——現在加了也沒有 APNs 可用。
       程式面 [`driver_location_settings.dart`](../lib/core/location/driver_location_settings.dart)
       的 `AppleSettings` 已寫好（`automotiveNavigation` + 不自動暫停），這塊不用改。
-- [ ] **3-5 `permission_handler` 的 Podfile 巨集**
-      這個套件在 iOS 要在 `Podfile` 的 `post_install` 明確開啟用到的權限巨集
-      （`PERMISSION_NOTIFICATIONS` / `PERMISSION_LOCATION`），沒開的話 request 直接回 denied。
-      對照現有用法：[`driver_location_permissions.dart`](../lib/core/location/driver_location_permissions.dart)
-      用了 `Permission.notification` 與 `Permission.locationAlways`。
-      驗收：司機端上線時 iOS 跳出通知與定位權限詢問。
+- [x] **3-5 `permission_handler` 的權限巨集** ✅ 2026-07-21 查證＋實跑，**不需要改 Podfile**
+      規劃寫的「Podfile `post_install` 開巨集」是舊 CocoaPods 路徑。本專案的
+      `permission_handler_apple 9.4.10` **走 SPM**（`Podfile.lock` 裡只有 `flutter_secure_storage`），
+      巨集改由套件的 `Package.swift` 決定：`PERMISSION_LOCATION` 在 **Info.plist 有
+      `NSLocationWhenInUseUsageDescription`／`NSLocationAlwaysAndWhenInUseUsageDescription`
+      任一鍵時 = 1**（我們兩個都有），`PERMISSION_NOTIFICATIONS` 預設就是 1。
+      **實跑驗收**：司機端按「上線」→ iOS 跳出定位權限對話框，且說明文字正是我們 Info.plist 的
+      「上線時需要定位以回報司機位置供派單使用。」→ 選「使用 App 期間允許」→ hero 轉綠「上線中」、
+      狀態列出現藍色定位指示。
 - [x] **3-6 `url_launcher` 開外部地圖** ✅ 2026-07-21 查證後**不需要改任何東西**
       重讀 [`lib/core/util/maps.dart`](../lib/core/util/maps.dart)：只組
       `https://www.google.com/maps/search/?api=1&query=...` 並 `launchUrl(externalApplication)`，
       **沒有 `comgooglemaps://`、也沒有 `canLaunchUrl`** → 不需要 `LSApplicationQueriesSchemes`。
       規劃時寫的「先走 https 退路」其實就是現況。真機若想改開 Google Maps App 再另議。
-- [ ] **3-7 `flutter_secure_storage` Keychain**
-      iOS 走 Keychain，模擬器通常免設定；若出現 `-34018` 錯誤才需要加
-      Keychain Sharing entitlement。列為觀察項，不預先加。
+- [x] **3-7 `flutter_secure_storage` Keychain** ✅ 2026-07-21 觀察通過，未加任何 entitlement
+      司機端登入後用 `simctl terminate` + `launch` 重啟，**直接回到已登入首頁**
+      → token 有寫進 Keychain 也讀得回來，沒有 `-34018`。
 
 ---
 
