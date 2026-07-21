@@ -437,6 +437,14 @@ class CustomerController extends ChangeNotifier {
     final active = _activeRide;
     if (active == null || event.rideId != active.rideId) return;
     switch (event.type) {
+      case FleetEventTypes.rideStopUpdated:
+        // N8：payload 帶**整趟** stops，直接覆蓋——不在客戶端套用差異，
+        // 漏收一則事件也不會讓進度永遠對不上（下一次 refreshActive 也會校正）。
+        final stops = RideStop.listFrom(event.payload?['stops']);
+        if (stops.isEmpty) return;
+        _activeRide = active.withStops(stops);
+        _lastActiveRide = _activeRide;
+        notifyListeners();
       case FleetEventTypes.rideAccepted:
         _driverName = event.payload?['driver_name'] as String?;
         // O4／O7：車種車牌供路邊對車，電話供直接聯絡（明碼，僅該趟乘客收得到此事件）。

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/models/models.dart';
 import '../../core/util/map_tiles.dart';
+import '../../core/util/route_stops.dart';
 import '../customer_controller.dart';
 import '../widgets/ride_phase_content.dart';
 import 'ride_history_screen.dart';
@@ -42,6 +43,9 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
                 urlTemplate: osmTileUrl,
                 userAgentPackageName: osmUserAgent,
               ),
+              // 多停靠點行程畫出「司機→下一站→之後待處理站」的順序線；
+              // 單點訂單沒有 stops → 空 list → 不畫（畫面與先前一致）。
+              PolylineLayer(polylines: _routeLines(ctrl)),
               MarkerLayer(markers: _markers(ctrl)),
             ],
           ),
@@ -152,14 +156,19 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
   List<Marker> _markers(CustomerController ctrl) {
     final markers = <Marker>[];
     final ride = ctrl.activeRide;
-    final pickupLat = ride?.pickupLat ?? ctrl.lastPosition?.latitude;
-    final pickupLng = ride?.pickupLng ?? ctrl.lastPosition?.longitude;
-    if (ride != null && pickupLat != null && pickupLng != null) {
-      markers.add(_pin(
-        LatLng(pickupLat, pickupLng),
-        Icons.location_on,
-        Colors.red,
-      ));
+    // N8：多停靠點行程畫全程；單點訂單維持原本的「一支上車點紅釘」。
+    if (ride != null && ride.hasStops) {
+      markers.addAll(_stopMarkers(ride));
+    } else {
+      final pickupLat = ride?.pickupLat ?? ctrl.lastPosition?.latitude;
+      final pickupLng = ride?.pickupLng ?? ctrl.lastPosition?.longitude;
+      if (ride != null && pickupLat != null && pickupLng != null) {
+        markers.add(_pin(
+          LatLng(pickupLat, pickupLng),
+          Icons.location_on,
+          Colors.red,
+        ));
+      }
     }
     if (ctrl.liveDriverLat != null && ctrl.liveDriverLng != null) {
       markers.add(_pin(
@@ -169,6 +178,69 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
       ));
     }
     return markers;
+  }
+
+  List<Polyline> _routeLines(CustomerController ctrl) {
+    final ride = ctrl.activeRide;
+    if (ride == null || !ride.hasStops) return const [];
+    final driver = (ctrl.liveDriverLat != null && ctrl.liveDriverLng != null)
+        ? LatLng(ctrl.liveDriverLat!, ctrl.liveDriverLng!)
+        : null;
+    final points = routePolylinePoints(driver, ride.stops);
+    if (points.isEmpty) return const [];
+    return [
+      Polyline(points: points, strokeWidth: 3, color: Colors.blueAccent),
+    ];
+  }
+
+  /// 多停靠點的標記：**下一站全彩醒目、之後的站半透明、已到達灰色、已跳過不畫**
+  /// ——與司機端概覽地圖同一套規則（`route_stops.dart`），兩端看到的路線才會一致。
+  List<Marker> _stopMarkers(CustomerRide ride) {
+    final visible = visibleRouteStops(ride.stops);
+    final next = nextPendingStop(ride.stops);
+    return [
+      for (final s in visible)
+        _stopPin(
+          s,
+          isNext: next != null && next.id == s.id,
+        ),
+    ];
+  }
+
+  Marker _stopPin(RideStop s, {required bool isNext}) {
+    final arrived = s.arrived;
+    final color = arrived
+        ? Colors.grey
+        : (s.kind == StopKind.pickup ? Colors.red : Colors.blue);
+    return Marker(
+      point: LatLng(s.lat, s.lng),
+      width: 64,
+      height: 56,
+      alignment: Alignment.topCenter,
+      child: Opacity(
+        // 之後的站淡一點：一眼看出「現在要去的是哪一個」。
+        opacity: arrived || isNext ? 1 : 0.55,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              arrived ? Icons.check_circle : Icons.place,
+              color: color,
+              size: isNext ? 34 : 28,
+            ),
+            // 乘客標籤（A/B…）讓同行的人知道哪一站是自己的。
+            Text(
+              s.passengerLabel,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isNext ? FontWeight.bold : FontWeight.normal,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Marker _pin(LatLng point, IconData icon, Color color) => Marker(

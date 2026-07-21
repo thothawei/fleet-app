@@ -34,6 +34,9 @@ class FleetEventTypes {
   static const ridePickedUp = 'ride.picked_up';
   static const rideCompleted = 'ride.completed';
   static const rideCancelled = 'ride.cancelled';
+
+  /// 司機標記到達／跳過某一站（N8）。payload 帶**整趟** stops，收到直接覆蓋即可。
+  static const rideStopUpdated = 'ride.stop_updated';
   static const chatMessage = 'chat.message';
   static const lostItemCreated = 'lost_item.created';
   static const lostItemUpdated = 'lost_item.updated';

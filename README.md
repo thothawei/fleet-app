@@ -140,6 +140,11 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
 - **我的行程歷史（2026-07-19）**：乘客首頁右上「我的行程」→ 列出過去行程
   （狀態／路線／時間／車資）；**有司機的行程可事後「聯絡司機」**開對話
   （沿用 `RideChatScreen`）。後端 `GET /customer/rides`（只回本人，LEFT JOIN 司機名）。
+- **乘客端多停靠點行程進度（2026-07-21）**：多乘客訂單在地圖上依序畫出全程停靠點
+  （乘客標籤 A/B…）＋「司機→下一站→之後待處理站」折線，sheet 內「行程進度 N／M 站」
+  與全程清單。司機每標記一站，WS **`ride.stop_updated`**（payload 帶整趟 stops）即時更新，
+  乘客不必重整。**唯讀**：乘客只看進度，不做標記。單點訂單畫面不變。
+  依賴後端 dispatch N8（customer active／單筆查詢帶 stops）。
 - **司機端概覽地圖（2026-07-16）**：接單後行程卡內嵌地圖（flutter_map + OSM，免 key）——
   自己（綠色計程車）＋目標（前往上車點＝紅釘／行程中＝藍旗）＋兩點連線，相機自動框住兩點。
   **只做「看位置」，不做導航**——turn-by-turn 仍由「導航」按鈕跳外部 Google Maps／Waze。
@@ -166,7 +171,7 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   已核准→首頁；能不能接單以後端 `can_accept` 為準（App 不自行推導）。
   admin 端在司機管理頁核准／退回（退回須附原因）。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **169 passed**。
+**目前**：`flutter analyze` 無 issue、`flutter test` **179 passed**。
 
 ## 規劃中（尚未實作）
 
