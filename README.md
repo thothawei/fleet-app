@@ -25,8 +25,10 @@ lib/
 - Flutter 3.44+、**JDK 17**（JDK 26 會導致 Android build 失敗）
 - Android SDK 36
 - 後端 `line-fleet-dispatch` 跑在 `:8080`
-- **iOS 尚未可 build**（2026-07-20）：Xcode 26.6 已裝但工具鏈未打通、CocoaPods 未安裝、
-  iOS 端無 flavor 設定。開工步驟見 [`docs/IOS_PLAN.md`](docs/IOS_PLAN.md)。
+- **iOS**：Xcode 26+（`xcode-select -p` 要指向 `/Applications/Xcode.app/Contents/Developer`，
+  不是 CommandLineTools）、iOS 模擬器 runtime（`xcodebuild -downloadPlatform iOS`）、
+  **CocoaPods**（建議 `brew install cocoapods`，避開系統 Ruby 2.6）。
+  `flutter doctor` 的 Xcode 與 CocoaPods 兩列都要是 ✓。詳見 [`docs/IOS_PLAN.md`](docs/IOS_PLAN.md)。
 
 ## 執行
 
@@ -41,6 +43,34 @@ flutter run -t lib/main_customer.dart --flavor customer
 flutter run -t lib/main_driver.dart --flavor driver \
   --dart-define=API_BASE=http://192.168.1.100:8080
 ```
+
+**`API_BASE` 的平台預設值**（沒帶 `--dart-define` 時，見
+[`lib/core/config/app_config.dart`](lib/core/config/app_config.dart)）：
+
+| 平台 | 預設 | 原因 |
+| --- | --- | --- |
+| Android 模擬器 | `http://10.0.2.2:8080` | 模擬器對映到主機 loopback 的專用位址 |
+| iOS／macOS 模擬器 | `http://127.0.0.1:8080` | iOS 模擬器與主機共用網路，`10.0.2.2` 連不到 |
+| 任何真機 | 無預設可用 | 一律要帶 `--dart-define=API_BASE=http://<電腦區網 IP>:8080` |
+
+## iOS
+
+兩個 flavor 與 Android 對齊（`.driver` / `.customer`），scheme 與 build configuration 都已建好：
+
+```bash
+flutter run -t lib/main_driver.dart --flavor driver      # 顯示名「司機端」
+flutter run -t lib/main_customer.dart --flavor customer  # 顯示名「乘客端」
+```
+
+- **bundle id**：`dev.linefleet.line_fleet_app.driver` / `.customer`（與 Android `applicationId` 一致）。
+- **顯示名**：`Info.plist` 的 `CFBundleDisplayName` 吃 `$(APP_DISPLAY_NAME)`，值在
+  `ios/Flutter/<Configuration>.xcconfig`。
+- **開發環境是 `http://` + `ws://`**：`Info.plist` 已設 ATS `NSAllowsLocalNetworking`
+  （只放行本機／區網，沒有用 `NSAllowsArbitraryLoads`）＋ `NSLocalNetworkUsageDescription`。
+- **`--flavor` 一定要配對 `-t`**，漏了會裝出另一端的 UI。
+- **`GoogleService-Info.plist`（iOS 推播）尚未導入**：APNs 需要付費 Apple Developer Program，
+  免費 Personal Team 拿不到 `aps-environment` entitlement。進度與計畫見
+  [`docs/IOS_PLAN.md`](docs/IOS_PLAN.md) 階段 6。
 
 ## 地圖（乘客端 B2/B3）— 免 API key
 

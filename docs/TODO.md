@@ -58,8 +58,11 @@
       **✅ 階段 4 雙 flavor 也完成（2026-07-21）**：9 組 build configuration＋`driver`／`customer`
       兩個 shared scheme，bundle id 對齊 Android（`dev.linefleet.line_fleet_app.driver`／`.customer`），
       顯示名走 xcconfig 變數；模擬器主畫面「司機端」「乘客端」**兩個 icon 並存不互相覆蓋**。
-      **➡️ 下一步：階段 5 實機部署**（需使用者接上 iPhone＋Xcode 選 Personal Team＋手機信任憑證），
-      產出是 A1「鎖屏長跑背景定位」的 iOS 實機驗收。
+      **✅ 階段 7 收尾**：README 補 iOS 段與 `API_BASE` 平台預設對照表；
+      CI 的 `build-ios` job（macos-latest，customer flavor 不簽名 build）**已寫好但推不上去**——
+      token 缺 `workflow` scope，改動留在本機工作區，需 `gh auth refresh -h github.com -s workflow`。
+      **➡️ 只剩階段 5 實機部署**（需使用者接上 iPhone＋Xcode 選 Personal Team＋手機信任憑證，
+      產出是 A1「鎖屏長跑背景定位」的 iOS 實機驗收）**與階段 6 推播**（卡在付費 Apple 帳號）。
       **實機已有、Apple 帳號為免費 Personal Team**：階段 1–5（含實機部署與 A1 背景定位實機驗收）
       皆可執行；只有階段 6（FCM 推播）因 APNs 需付費 Developer Program 而卡住。
 
