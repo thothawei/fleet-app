@@ -162,4 +162,34 @@ void main() {
       reason: '伺服器恢復後應自動重連；重連鏈若被未捕捉的例外打斷，司機將永遠收不到派單',
     );
   });
+
+  test('重連間隔採指數退避：3→6→12→24→30 秒封頂', () {
+    // 固定 3 秒重試在長時間離線（隧道、後端維護）會一直打空包，白耗電與流量。
+    expect(FleetWsClient.reconnectDelayFor(0), const Duration(seconds: 3),
+        reason: '第一次仍要 3 秒——短暫閃斷的恢復速度不可變慢');
+    expect(FleetWsClient.reconnectDelayFor(1), const Duration(seconds: 6));
+    expect(FleetWsClient.reconnectDelayFor(2), const Duration(seconds: 12));
+    expect(FleetWsClient.reconnectDelayFor(3), const Duration(seconds: 24));
+    expect(FleetWsClient.reconnectDelayFor(4), const Duration(seconds: 30),
+        reason: '封頂 30 秒：離線再久也不該讓恢復連線等超過半分鐘');
+    expect(FleetWsClient.reconnectDelayFor(60), const Duration(seconds: 30),
+        reason: '次數大到左移溢位（變負數）時也要夾到上限，不能變成 0 秒狂重連');
+  });
+
+  test('握手成功後退避歸零，下次閃斷仍在 3 秒內重連', () async {
+    final states = StreamController<bool>.broadcast();
+    final client = FleetWsClient(
+      onEvent: (_) {},
+      onConnectionChanged: states.add,
+      connector: (_) => WebSocketChannel.connect(wsUri),
+    );
+    addTearDown(states.close);
+    addTearDown(client.disconnect);
+
+    final connected = nextConnectionState(states.stream);
+    await client.connect('token-1');
+    expect(await connected, isTrue);
+    expect(client.reconnectAttempts, 0,
+        reason: '連上就要歸零，否則「連上又斷」會沿用上一輪的長間隔');
+  });
 }

@@ -151,6 +151,34 @@ class _ActiveRideCard extends StatelessWidget {
     ];
   }
 
+  /// 外部導航按鈕（開 Google Maps）。
+  ///
+  /// **多停靠點行程要導去「下一站」，不是最終目的地**——司機依序停靠，
+  /// 導去終點會把中間的乘客載過頭。全部站處理完（`nextStop == null`）後
+  /// 才退回最終目的地。
+  ///
+  /// 目標一律優先給座標：地址字串在 Google Maps 可能解析到同名的錯誤地點
+  /// （與 `mapsNavigationUri` 的既有語意一致）。
+  List<Widget> _buildNavigationButton(ActiveRide ride, ButtonStyle style) {
+    final next = ride.hasStops ? ride.nextStop : null;
+    final (label, address, lat, lng) = next != null
+        ? ('導航去下一站（${next.title}）', next.address ?? '', next.lat, next.lng)
+        : ride.phase == DriverRidePhase.enRouteToPickup
+            ? ('導航去上車點', ride.address, ride.pickupLat, ride.pickupLng)
+            : ('導航去目的地', ride.dropoffAddress ?? '', ride.dropoffLat, ride.dropoffLng);
+    // 地址與座標都沒有就不給按鈕（按了只會開出無意義的搜尋）。
+    if (address.isEmpty && (lat == null || lng == null)) return const [];
+    return [
+      OutlinedButton.icon(
+        onPressed: () => openMapsNavigation(address, lat: lat, lng: lng),
+        style: style,
+        icon: const Icon(Icons.navigation),
+        label: Text(label),
+      ),
+      const SizedBox(height: 8),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final ride = ctrl.activeRide!;
@@ -223,13 +251,7 @@ class _ActiveRideCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             if (ride.phase == DriverRidePhase.enRouteToPickup) ...[
-              OutlinedButton.icon(
-                onPressed: () => openMapsNavigation(ride.address),
-                style: secondaryStyle,
-                icon: const Icon(Icons.navigation),
-                label: const Text('Google Maps 導航'),
-              ),
-              const SizedBox(height: 8),
+              ..._buildNavigationButton(ride, secondaryStyle),
               FilledButton(
                 onPressed: ctrl.loading ? null : ctrl.pickUpPassenger,
                 style: primaryStyle,
@@ -237,21 +259,11 @@ class _ActiveRideCard extends StatelessWidget {
               ),
             ],
             if (ride.phase == DriverRidePhase.onTrip) ...[
-              if (ride.hasDropoff) ...[
+              if (ride.hasDropoff && !ride.hasStops) ...[
                 Text('目的地：${ride.dropoffAddress ?? '（地圖選點）'}'),
                 const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: () => openMapsNavigation(
-                    ride.dropoffAddress ?? '',
-                    lat: ride.dropoffLat,
-                    lng: ride.dropoffLng,
-                  ),
-                  style: secondaryStyle,
-                  icon: const Icon(Icons.navigation),
-                  label: const Text('導航去目的地'),
-                ),
-                const SizedBox(height: 8),
               ],
+              ..._buildNavigationButton(ride, secondaryStyle),
               FilledButton(
                 onPressed: ctrl.loading ? null : ctrl.completeTrip,
                 style: primaryStyle,

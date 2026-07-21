@@ -9,6 +9,7 @@ import 'package:line_fleet_app/core/models/models.dart';
 import 'package:line_fleet_app/core/push/driver_push_service.dart';
 import 'package:line_fleet_app/core/storage/token_storage.dart';
 import 'package:line_fleet_app/core/theme/app_theme.dart';
+import 'package:line_fleet_app/core/util/maps.dart';
 import 'package:line_fleet_app/core/ws/fleet_ws_client.dart';
 import 'package:line_fleet_app/driver/driver_controller.dart';
 import 'package:line_fleet_app/driver/screens/driver_home_screen.dart';
@@ -126,6 +127,64 @@ void main() {
     await tester.tap(find.text('返回'));
     await tester.pumpAndSettle();
     expect(find.text('確定放棄這筆訂單？'), findsNothing);
+  });
+
+  testWidgets('多停靠點行程：導航按鈕指向下一站，不是最終目的地', (tester) async {
+    // 司機依序停靠，導去終點會把中間的乘客載過頭。
+    await storage.save(const AuthSession(driverId: 7, token: 'saved', name: '阿明'));
+    api.restoreRide = const ActiveRide(
+      rideId: 43,
+      address: '台北101',
+      phase: DriverRidePhase.onTrip,
+      dropoffAddress: '松山機場',
+      dropoffLat: 25.0636,
+      dropoffLng: 121.5525,
+      stops: [
+        RideStop(
+          id: 1,
+          seq: 1,
+          kind: StopKind.pickup,
+          lat: 25.033,
+          lng: 121.5654,
+          passengerLabel: 'A',
+          arrivedAt: null,
+        ),
+        RideStop(
+          id: 2,
+          seq: 2,
+          kind: StopKind.dropoff,
+          lat: 25.0478,
+          lng: 121.517,
+          passengerLabel: 'A',
+        ),
+      ],
+    );
+    await ctrl.init();
+    await pumpHome(tester);
+
+    expect(find.text('導航去下一站（乘客 A上車）'), findsOneWidget);
+    expect(find.text('導航去目的地'), findsNothing);
+  });
+
+  testWidgets('單點訂單：前往上車點的導航要帶上車點座標，不是只有地址', (tester) async {
+    // 地址字串在 Google Maps 可能解析到同名的錯誤地點——座標才是後端的原始資料。
+    await storage.save(const AuthSession(driverId: 7, token: 'saved', name: '阿明'));
+    api.restoreRide = const ActiveRide(
+      rideId: 44,
+      address: '台北車站',
+      phase: DriverRidePhase.enRouteToPickup,
+      pickupLat: 25.0478,
+      pickupLng: 121.517,
+    );
+    await ctrl.init();
+    await pumpHome(tester);
+
+    expect(find.text('導航去上車點'), findsOneWidget);
+    final ride = ctrl.activeRide!;
+    expect(
+      mapsNavigationUri(ride.address, lat: ride.pickupLat, lng: ride.pickupLng).toString(),
+      contains('query=25.0478%2C121.517'),
+    );
   });
 }
 
