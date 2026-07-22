@@ -84,11 +84,12 @@ class CustomerController extends ChangeNotifier {
   Position? get lastPosition => _lastPosition;
   CustomerRide? get activeRide => _activeRide;
 
-  /// 司機姓名，來自 ride.accepted WS 事件（GET active 不含司機名，故為即時來源）。
+  /// 司機姓名。優先來自 ride.accepted WS 事件，錯過事件時由 GET active 還原
+  ///（後端兩條路徑都帶司機資訊，鍵名相同）。
   String? get driverName => _driverName;
 
-  /// 司機車輛與聯絡方式（O4／O7），來自 ride.accepted。未接單時為 null。
-  /// 車種／車牌供路邊對車；電話為明碼，**僅該趟乘客可見**。
+  /// 司機車輛與聯絡方式（O4／O7），來自 ride.accepted 或 GET active 還原。
+  /// 未接單時為 null。車種／車牌供路邊對車；電話為明碼，**僅該趟乘客可見**。
   RideDriverInfo? get driverInfo => _driverInfo;
 
   /// 上一趟的取消原因（P4）。**只有逾時取消會帶**，乘客主動取消／司機放棄為 null。
@@ -345,6 +346,14 @@ class CustomerController extends ChangeNotifier {
     _chatVisible = false;
     _lostItems = [];
     _api.setToken(null);
+    notifyListeners();
+  }
+
+  /// 錯誤已呈現給使用者後清掉，讓**下一次同樣的失敗仍會再提示一次**
+  /// （畫面層以「和上次一樣就不重複顯示」去重，不清就會把第二次吃掉）。
+  void clearError() {
+    if (_error == null) return;
+    _error = null;
     notifyListeners();
   }
 
@@ -668,6 +677,7 @@ class CustomerController extends ChangeNotifier {
     if (ride == null || RideStatus.isTerminal(ride.status)) {
       _activeRide = null;
       _driverName = null;
+      _driverInfo = null;
       _liveEtaSec = null;
       _liveDistM = null;
       _liveDriverLat = null;
@@ -680,7 +690,15 @@ class CustomerController extends ChangeNotifier {
     _lastActiveRide = ride;
     if (ride.status < RideStatus.accepted) {
       _driverName = null;
+      _driverInfo = null;
       _driverArrived = false;
+    } else if (ride.driver != null) {
+      // O7：ride.accepted 是即時來源，但**只送一次**——app 在背景被接單、
+      // WS 重連或重開 app 都收不到它。後端 GET active 一直都帶司機姓名／
+      // 車牌／電話，這裡補上還原，否則撥號按鈕永遠不出現。
+      // 已有 WS 值時不覆蓋（那是最即時的）。
+      _driverName ??= ride.driver!.name;
+      _driverInfo ??= ride.driver;
     }
     if (ride.status != RideStatus.accepted) {
       _liveEtaSec = null;

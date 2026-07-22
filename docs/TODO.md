@@ -248,8 +248,54 @@
 - [x] **司機端設定頁加「聯絡電話」**（詳見下方「司機車輛資訊 → 司機端」條目）。
       後端同批新增 `PUT /api/driver/profile`（dispatch Q3），與車輛端點分開以免改電話重置 O5 審核；
       `GET /driver/vehicle` 順帶回 `phone` 供設定頁預填。
-- **尚未驗證**：模擬器實跑「司機填電話 → 乘客端撥號按鈕出現並帶正確號碼」。
-  單元／widget 測試（183 passed）只覆蓋到 controller 與表單層。
+- [x] **模擬器實跑全鏈路 ✅（2026-07-22，`m6_pixel` 雙 flavor ＋ docker compose 三服務）**：
+      司機端 App 註冊 → 車輛資訊頁填「轎車／SIM-7788／0912-345-678」→ 儲存（後端 `drivers.phone`
+      實際寫入 `0912345678`，正規化生效）→ admin 核准 → 上線 → 乘客端叫車 → 司機接單 →
+      **乘客端出現「撥打 0912345678」＋車牌 SIM-7788**，點下去 Android 撥號盤開啟並預填該號碼
+      （`topResumedActivity=com.google.android.dialer`）。O7 的撥號功能**第一次真的運作**。
+      重開司機端設定頁也確認電話預填 `0912345678`（`GET /driver/vehicle` 的 phone 回填）。
+- [x] **後端 live E2E 22/22 綠**（同一批 docker compose，`scripts/` 之外的一次性腳本）：
+      起始 phone 為空 → 無效號碼 400 → 填號碼正規化 → 設定頁回填 → **改電話不重置 O5 審核**
+      （仍 approved／can_accept）→ WS `ride.accepted` 帶 `driver_phone` → REST 訂單詳情也帶 →
+      他人查該單 403 → **負向對照：沒填電話的司機，WS 與 REST 都不帶 `driver_phone`**。
+- [x] **實跑抓到並修掉的洞：乘客端只靠 WS 事件拿司機電話** 🐛（同日修，本 PR）。
+      `ride.accepted` **只送一次**——app 在背景被接單、WS 重連、或重開 app 都收不到它。
+      修正前 `CustomerRide` 沒有任何 driver 欄位、`_applyActiveRide` 也從不回填 `_driverInfo`，
+      所以錯過事件＝撥號按鈕與車牌永遠不出現，**即使後端 `GET /customer/rides/active`
+      一直都帶著 `driver_name`／`driver_phone`／車牌**（App 端註解「GET active 不含司機名」是過時的，已改）。
+      這是模擬器實跑才會踩到的：切去司機端接單、再切回乘客端，畫面就只剩「司機前往中」。
+      **修法**：`CustomerRide.driver`（鍵名與 WS payload 相同，共用 `RideDriverInfo` 解析）＋
+      `_applyActiveRide` 在 status ≥ accepted 時 `??=` 回填（WS 值優先，不被輪詢覆蓋）。
+      **驗證**：同一台裝置、同一張 ride #18、同樣冷啟動，修前只有「司機前往中」、
+      修後顯示司機／車牌／「撥打 0912345678」；新增 5 個回歸測試，`flutter test` 188 passed。
+- [x] **查清並修掉「按叫車沒有任何回饋」** 🐛（2026-07-22 追查，本 PR）。
+      起因是實跑第一次叫車完全沒反應。**機制**：production 首頁是地圖版 `CustomerMapHomeScreen`，
+      而它**從不讀取 `ctrl.error`**——舊的卡片版 `CustomerHomeScreen` 本來有 `_maybeShowErrorSnackBar`，
+      換成地圖版時這個顯示掉了。於是 `placeOrder` 的**每一種**失敗都是靜默的：
+      定位權限被拒、定位取不到、建單 API 失敗（token 失效／後端離線都算）。
+      **兩條路徑都實跑重現**：①拒絕定位權限 → 畫面回原樣、後端零請求；
+      ②停掉後端容器 → busy 轉幾秒後回原樣，什麼都沒說。
+      **修法**：`CustomerMapHomeScreen` 加 `_maybeShowError`（postFrame 顯示 SnackBar），
+      controller 加 `clearError()`——**顯示後要清掉**，否則畫面層的「和上次一樣就不重複顯示」
+      去重邏輯會把第二次同樣的失敗吃掉，使用者再按一次又變成沒有回饋。
+      **驗證**：修後同樣兩條路徑分別顯示「需要定位權限才能叫車」與「無法連線到伺服器，請檢查網路」；
+      新增 2 個 widget 測試（含「同一錯誤第二次仍會提示」），`flutter test` 190 passed。
+      **追查過程的教訓**：第一次驗收截圖沒看到 SnackBar，差點誤判修復無效——
+      其實只是 SnackBar 出現在按下後約 4.5 秒、只顯示 4 秒，截圖時機錯過。
+      靠暫時的 `debugPrint` 對照 logcat 才確認 error 有被設、顯示分支有走到（診斷碼已移除）。
+
+## 🚧 刻意沒做（2026-07-22 盤點後決定不動）
+
+> 不是忘了，是**現在做的價值低於代價**；每項都寫明「什麼條件成立才該做」。
+
+- **訂單列表的多乘客標記**：admin／司機清單看不出哪些是多乘客行程。
+  後端資料有（`stops`），純粹是清單沒標。**等實際有人抱怨看不出來再做**——
+  現階段多乘客訂單量少，加欄位反而讓清單更擠。
+- **車種供給為零時的選項處理**（下方 P 風險 2 也有記）：需要後端先提供「目前可用車種」查詢，
+  **且要先想清楚產品要的是停用、隱藏、還是照選但提示可能配不到**。等產品定方向。
+- **admin 代司機改車牌**（可選）：目前車牌只能司機自己改（改完回 pending 等審核）。
+  代改要處理「代改要不要重審」「誰負責填錯的責任」，**在有客服實際卡住的案例前不做**。
+- **車資預估報價 API**：見下方「懸而未決」第 1 項——後端根本沒有這支 API，需先拍板。
 
 ## 🔮 懸而未決（需產品拍板）
 

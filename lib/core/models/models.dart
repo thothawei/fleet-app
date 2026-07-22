@@ -205,6 +205,17 @@ class RideDriverInfo {
       phone: payload['driver_phone'] as String?,
     );
   }
+
+  /// 同 [fromPayload]，但一個欄位都沒有時回 null——供 REST 還原用：
+  /// 未接單的訂單不該產生一個全空的司機資訊物件去覆蓋既有狀態。
+  static RideDriverInfo? fromPayloadOrNull(Map<String, dynamic> payload) {
+    final info = RideDriverInfo.fromPayload(payload);
+    final empty = (info.name?.isEmpty ?? true) &&
+        (info.vehicleType?.isEmpty ?? true) &&
+        (info.plateNumber?.isEmpty ?? true) &&
+        (info.phone?.isEmpty ?? true);
+    return empty ? null : info;
+  }
 }
 
 /// 司機當月收入（對齊後端 GET /api/driver/earnings，F7）。金額欄位皆為「分」。
@@ -301,11 +312,19 @@ class CustomerRide {
     this.pickupLat,
     this.pickupLng,
     this.stops = const [],
+    this.driver,
   });
 
   final int rideId;
   final int status;
   final String? dropoffAddress;
+
+  /// 司機姓名／車輛／電話（O4／O7）。後端 `GET /customer/rides/active`
+  /// 與單筆查詢**都會帶**，鍵名與 WS `ride.accepted` payload 完全相同。
+  /// 未接單或後端沒帶時為 null——這是 WS 事件之外的**還原來源**：
+  /// app 在背景被接單／WS 重連／重開 app 時收不到那一則事件，
+  /// 只靠事件會讓撥號按鈕永遠不出現（2026-07-22 模擬器實跑抓到）。
+  final RideDriverInfo? driver;
 
   /// 多乘客／多停靠點行程的全程（N8）；**空 ＝ 傳統單點訂單**。
   /// 與司機端 `ActiveRide.stops` 同一份後端形狀，共用 `RideStop` 解析。
@@ -333,6 +352,7 @@ class CustomerRide {
         pickupLat: pickupLat,
         pickupLng: pickupLng,
         stops: next,
+        driver: driver,
       );
 
   /// 接單時後端估算的到達上車點秒數（model.Ride.EtaPickupSec）。
@@ -383,6 +403,9 @@ class CustomerRide {
       pickupLng: pickupLng,
       // N8：後端 customer active／單筆查詢帶的全程；單點訂單缺這個鍵 → 空 list。
       stops: RideStop.listFrom(json['stops']),
+      // O7：司機聯絡資訊的鍵名與 WS payload 相同，直接共用同一套解析；
+      // 未接單時後端不帶這些鍵 → 全 null → 不建物件（不留空卡片）。
+      driver: RideDriverInfo.fromPayloadOrNull(json),
     );
   }
 }

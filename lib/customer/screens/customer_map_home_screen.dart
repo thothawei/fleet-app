@@ -28,6 +28,7 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
   Widget build(BuildContext context) {
     final ctrl = context.watch<CustomerController>();
     _maybeFollowDriver(ctrl);
+    _maybeShowError(ctrl);
 
     return Scaffold(
       body: Stack(
@@ -127,6 +128,25 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
       } catch (_) {
         // 地圖尚未完成第一次 layout，忽略這次跟隨，下一筆座標再補。
       }
+    });
+  }
+
+  /// 把 controller 的錯誤呈現出來。**沒有這段，叫車的每一種失敗都是靜默的**——
+  /// 權限被拒、定位取不到、建單 API 失敗（含 token 失效、後端離線），
+  /// 使用者按下「叫車」後畫面只會轉一下又回到原樣，完全不知道發生什麼事
+  /// （2026-07-22 模擬器實跑重現：拒絕定位權限與停掉後端兩條路徑都零回饋）。
+  ///
+  /// 顯示後**清掉 error**：留著會讓「同一個錯誤第二次發生」被去重邏輯吃掉，
+  /// 使用者再按一次又變回沒有回饋。
+  void _maybeShowError(CustomerController ctrl) {
+    final error = ctrl.error;
+    if (error == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error)),
+      );
+      ctrl.clearError();
     });
   }
 
