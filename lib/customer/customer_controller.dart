@@ -349,6 +349,14 @@ class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 錯誤已呈現給使用者後清掉，讓**下一次同樣的失敗仍會再提示一次**
+  /// （畫面層以「和上次一樣就不重複顯示」去重，不清就會把第二次吃掉）。
+  void clearError() {
+    if (_error == null) return;
+    _error = null;
+    notifyListeners();
+  }
+
   /// 關閉完成卡，回到叫車表單（評分／付款 API 就緒前的佔位流程）。
   void dismissCompleted() {
     _completedSummary = null;
