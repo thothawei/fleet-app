@@ -218,7 +218,7 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('請先填寫車種與車牌，填完才能開始接單。'), findsOneWidget);
+      expect(find.text('請先填寫車種、車牌與聯絡電話，填完才能開始接單。'), findsOneWidget);
       // 沒填車輛回首頁也無法接單（後端 O3 會 409），所以不給返回。
       expect(find.byType(BackButton), findsNothing);
     });
@@ -250,7 +250,140 @@ void main() {
 
       expect(find.text('請選擇車種'), findsOneWidget);
       expect(find.text('請輸入車牌'), findsOneWidget);
+      expect(find.text('請輸入聯絡電話'), findsOneWidget);
       expect(api.savedVehicles, isEmpty);
+      expect(api.savedPhones, isEmpty);
+    });
+
+    testWidgets('電話先於車輛寫入（車輛存完畫面就被換掉了）', (tester) async {
+      // 強制情境下 saveVehicle 成功會讓 hasVehicle 變 true，_DriverRoot 當場
+      // 把本頁換成首頁；若電話排在後面寫，失敗時已經沒有畫面可以回報。
+      final api = _VehicleFakeApi()
+        ..vehicle = const DriverVehicle(
+          vehicleType: '',
+          plateNumber: '',
+          hasVehicle: false,
+        );
+      final ctrl = DriverController(
+        storage: MemoryDriverAuthStore(),
+        api: api,
+        wsFactory: FleetWsClient.silent,
+      );
+      addTearDown(ctrl.dispose);
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U', password: 'pw');
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<DriverController>.value(
+          value: ctrl,
+          child: const MaterialApp(home: DriverVehicleScreen(mandatory: true)),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(find.widgetWithText(TextFormField, '車牌'), 'ABC-1234');
+      await tester.enterText(find.widgetWithText(TextFormField, '聯絡電話'), '0912-345-678');
+      await tester.tap(find.byType(DropdownButtonFormField<VehicleType>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('轎車').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('儲存'));
+      await tester.pumpAndSettle();
+
+      expect(api.writeOrder, ['phone', 'vehicle']);
+      expect(api.savedPhones, ['0912-345-678']);
+      expect(api.savedVehicles, ['sedan/ABC-1234']);
+      // 以後端回傳值為準：分隔符已去掉，乘客端才撥得出去
+      expect(ctrl.driverPhone, '0912345678');
+    });
+
+    testWidgets('電話存失敗時不繼續寫車輛（否則畫面被換掉、錯誤沒人看得到）', (tester) async {
+      final api = _VehicleFakeApi()
+        ..vehicle = const DriverVehicle(
+          vehicleType: '',
+          plateNumber: '',
+          hasVehicle: false,
+        )
+        ..phoneError = ApiException('電話格式錯誤');
+      final ctrl = DriverController(
+        storage: MemoryDriverAuthStore(),
+        api: api,
+        wsFactory: FleetWsClient.silent,
+      );
+      addTearDown(ctrl.dispose);
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U', password: 'pw');
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<DriverController>.value(
+          value: ctrl,
+          child: const MaterialApp(home: DriverVehicleScreen(mandatory: true)),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(find.widgetWithText(TextFormField, '車牌'), 'ABC-1234');
+      await tester.enterText(find.widgetWithText(TextFormField, '聯絡電話'), '0912345678');
+      await tester.tap(find.byType(DropdownButtonFormField<VehicleType>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('轎車').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('儲存'));
+      await tester.pumpAndSettle();
+
+      expect(api.savedVehicles, isEmpty);
+      expect(find.text('電話格式錯誤'), findsOneWidget);
+    });
+  });
+
+  group('DriverController 聯絡電話（O7）', () {
+    test('savePhone 以後端正規化後的值為準，且不動車輛審核狀態', () async {
+      final api = _VehicleFakeApi()
+        ..vehicle = const DriverVehicle(
+          vehicleType: 'sedan',
+          plateNumber: 'ABC-1234',
+          hasVehicle: true,
+          reviewStatus: VehicleReviewStatus.approved,
+          canAccept: true,
+        );
+      final ctrl = DriverController(
+        storage: MemoryDriverAuthStore(),
+        api: api,
+        wsFactory: FleetWsClient.silent,
+      );
+      addTearDown(ctrl.dispose);
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U', password: 'pw');
+
+      final ok = await ctrl.savePhone('(02) 2345 6789');
+      expect(ok, isTrue);
+      expect(ctrl.driverPhone, '0223456789');
+      // 改電話不是改車輛：審核狀態與接單資格都不該被動到
+      expect(ctrl.vehicleReviewStatus, VehicleReviewStatus.approved);
+      expect(ctrl.canAcceptRides, isTrue);
+      expect(ctrl.vehicle?.plateNumber, 'ABC-1234');
+    });
+
+    test('電話由 GET /driver/vehicle 一起帶回來（設定頁不必多打一支）', () async {
+      final api = _VehicleFakeApi()
+        ..vehicle = const DriverVehicle(
+          vehicleType: 'sedan',
+          plateNumber: 'ABC-1234',
+          hasVehicle: true,
+          phone: '0912345678',
+        );
+      final ctrl = DriverController(
+        storage: MemoryDriverAuthStore(),
+        api: api,
+        wsFactory: FleetWsClient.silent,
+      );
+      addTearDown(ctrl.dispose);
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U', password: 'pw');
+
+      expect(ctrl.driverPhone, '0912345678');
     });
   });
 }
@@ -264,7 +397,11 @@ class _VehicleFakeApi extends FleetApiClient {
     hasVehicle: true,
   );
   ApiException? vehicleError;
+  ApiException? phoneError;
   final savedVehicles = <String>[];
+  final savedPhones = <String>[];
+  /// 依呼叫順序記下寫入了什麼（'phone' / 'vehicle'）——順序本身是被測行為。
+  final writeOrder = <String>[];
 
   @override
   void setToken(String? token) {}
@@ -294,12 +431,27 @@ class _VehicleFakeApi extends FleetApiClient {
     required String plateNumber,
   }) async {
     if (vehicleError != null) throw vehicleError!;
+    writeOrder.add('vehicle');
     savedVehicles.add('$vehicleType/$plateNumber');
     vehicle = DriverVehicle(
       vehicleType: vehicleType,
       plateNumber: plateNumber.replaceAll(' ', '').toUpperCase(),
       hasVehicle: true,
+      phone: vehicle.phone,
     );
     return vehicle;
+  }
+
+  @override
+  Future<String> updateProfilePhone(String phone) async {
+    if (phoneError != null) throw phoneError!;
+    writeOrder.add('phone');
+    savedPhones.add(phone);
+    // 後端會去掉分隔符（見 constants.NormalizePhone）
+    final normalized = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    // 後端把 phone 存進 drivers 表，之後 GET/PUT /driver/vehicle 都會帶回它——
+    // fake 若不跟著更新，updateVehicle 的回應就會把剛存好的電話洗掉（與真後端不符）。
+    vehicle = vehicle.withPhone(normalized);
+    return normalized;
   }
 }

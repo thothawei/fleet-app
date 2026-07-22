@@ -182,6 +182,31 @@ class DriverController extends ChangeNotifier {
     }
   }
 
+  /// 司機聯絡電話（O7）；'' ＝未填。隨 `GET /driver/vehicle` 一起載入。
+  String get driverPhone => _vehicle?.phone ?? '';
+
+  /// 設定聯絡電話（O7）。成功回 true。
+  ///
+  /// 走 `PUT /driver/profile` 而非車輛端點——**改電話不會重置車輛審核狀態**，
+  /// 否則司機為了更新一個號碼就會被打回待審核、暫時接不了單。
+  /// 以後端回傳值更新本地狀態（號碼已去分隔符）。
+  Future<bool> savePhone(String phone) async {
+    _vehicleSaving = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final saved = await _api.updateProfilePhone(phone);
+      _vehicle = (_vehicle ?? DriverVehicle.empty).withPhone(saved);
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message;
+      return false;
+    } finally {
+      _vehicleSaving = false;
+      notifyListeners();
+    }
+  }
+
   /// 聊天室開啟/關閉；開啟時清未讀並停止累計。
   void setChatVisible(bool visible) {
     _chatVisible = visible;
