@@ -248,8 +248,30 @@
 - [x] **司機端設定頁加「聯絡電話」**（詳見下方「司機車輛資訊 → 司機端」條目）。
       後端同批新增 `PUT /api/driver/profile`（dispatch Q3），與車輛端點分開以免改電話重置 O5 審核；
       `GET /driver/vehicle` 順帶回 `phone` 供設定頁預填。
-- **尚未驗證**：模擬器實跑「司機填電話 → 乘客端撥號按鈕出現並帶正確號碼」。
-  單元／widget 測試（183 passed）只覆蓋到 controller 與表單層。
+- [x] **模擬器實跑全鏈路 ✅（2026-07-22，`m6_pixel` 雙 flavor ＋ docker compose 三服務）**：
+      司機端 App 註冊 → 車輛資訊頁填「轎車／SIM-7788／0912-345-678」→ 儲存（後端 `drivers.phone`
+      實際寫入 `0912345678`，正規化生效）→ admin 核准 → 上線 → 乘客端叫車 → 司機接單 →
+      **乘客端出現「撥打 0912345678」＋車牌 SIM-7788**，點下去 Android 撥號盤開啟並預填該號碼
+      （`topResumedActivity=com.google.android.dialer`）。O7 的撥號功能**第一次真的運作**。
+      重開司機端設定頁也確認電話預填 `0912345678`（`GET /driver/vehicle` 的 phone 回填）。
+- [x] **後端 live E2E 22/22 綠**（同一批 docker compose，`scripts/` 之外的一次性腳本）：
+      起始 phone 為空 → 無效號碼 400 → 填號碼正規化 → 設定頁回填 → **改電話不重置 O5 審核**
+      （仍 approved／can_accept）→ WS `ride.accepted` 帶 `driver_phone` → REST 訂單詳情也帶 →
+      他人查該單 403 → **負向對照：沒填電話的司機，WS 與 REST 都不帶 `driver_phone`**。
+- [x] **實跑抓到並修掉的洞：乘客端只靠 WS 事件拿司機電話** 🐛（同日修，本 PR）。
+      `ride.accepted` **只送一次**——app 在背景被接單、WS 重連、或重開 app 都收不到它。
+      修正前 `CustomerRide` 沒有任何 driver 欄位、`_applyActiveRide` 也從不回填 `_driverInfo`，
+      所以錯過事件＝撥號按鈕與車牌永遠不出現，**即使後端 `GET /customer/rides/active`
+      一直都帶著 `driver_name`／`driver_phone`／車牌**（App 端註解「GET active 不含司機名」是過時的，已改）。
+      這是模擬器實跑才會踩到的：切去司機端接單、再切回乘客端，畫面就只剩「司機前往中」。
+      **修法**：`CustomerRide.driver`（鍵名與 WS payload 相同，共用 `RideDriverInfo` 解析）＋
+      `_applyActiveRide` 在 status ≥ accepted 時 `??=` 回填（WS 值優先，不被輪詢覆蓋）。
+      **驗證**：同一台裝置、同一張 ride #18、同樣冷啟動，修前只有「司機前往中」、
+      修後顯示司機／車牌／「撥打 0912345678」；新增 5 個回歸測試，`flutter test` 188 passed。
+- **未確認的旁見**（不列為缺陷，僅記錄現象）：第一次實跑時，乘客端帶著上一批測試留下的舊 token
+  進入叫車表單，按「叫車」完全沒有任何回饋（沒有 busy、沒有錯誤）；清資料重新註冊後正常。
+  當下沒抓到 log，**機制未確認**（`placeOrder` 的早退條件與 UI 的 `isLoggedIn` 判斷看起來並不衝突），
+  下次遇到要先 `adb logcat` 再操作。
 
 ## 🔮 懸而未決（需產品拍板）
 
