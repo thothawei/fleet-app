@@ -57,6 +57,7 @@ class DriverVehicle {
     required this.vehicleType,
     required this.plateNumber,
     required this.hasVehicle,
+    this.phone = '',
     this.reviewStatus = VehicleReviewStatus.none,
     this.reviewNote = '',
     this.canAccept = false,
@@ -70,6 +71,10 @@ class DriverVehicle {
 
   /// 是否已填妥（O2）。App 用它決定是否顯示強制設定頁；不代表能接單（見 canAccept）。
   final bool hasVehicle;
+
+  /// 聯絡電話（O7）；'' ＝未填。乘客在「司機前往上車點」階段會直接撥打它，
+  /// 沒填的話乘客端整顆撥號按鈕都不會出現。**唯讀**——寫入走 PUT /driver/profile。
+  final String phone;
 
   /// 審核狀態（O5）：App 四態路由用（pending 審核中／rejected 已退回）。
   final VehicleReviewStatus reviewStatus;
@@ -87,12 +92,24 @@ class DriverVehicle {
       vehicleType: json['vehicle_type'] as String? ?? '',
       plateNumber: json['plate_number'] as String? ?? '',
       hasVehicle: json['has_vehicle'] as bool? ?? false,
+      phone: json['phone'] as String? ?? '',
       reviewStatus: VehicleReviewStatus.fromCode(json['review_status'] as String?),
       reviewNote: json['review_note'] as String? ?? '',
       // 舊後端沒有 can_accept 時退回 has_vehicle（維持 O3 語意，不誤鎖）。
       canAccept: json['can_accept'] as bool? ?? (json['has_vehicle'] as bool? ?? false),
     );
   }
+
+  /// 只換掉電話（存電話成功後同步本地狀態，其餘欄位維持後端最後一次回傳值）。
+  DriverVehicle withPhone(String newPhone) => DriverVehicle(
+        vehicleType: vehicleType,
+        plateNumber: plateNumber,
+        hasVehicle: hasVehicle,
+        phone: newPhone,
+        reviewStatus: reviewStatus,
+        reviewNote: reviewNote,
+        canAccept: canAccept,
+      );
 
   static const empty = DriverVehicle(vehicleType: '', plateNumber: '', hasVehicle: false);
 }

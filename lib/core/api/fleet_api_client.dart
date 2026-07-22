@@ -180,6 +180,24 @@ class FleetApiClient {
     }
   }
 
+  /// 設定聯絡電話（對齊 PUT /api/driver/profile，O7）。回傳後端正規化後的號碼。
+  ///
+  /// **與 updateVehicle 分開是刻意的**：電話不是車輛屬性，改電話不該讓車輛
+  /// 回到待審核（O5）而把司機鎖出派單池。
+  /// 後端會去掉分隔符（`0912-345-678` → `0912345678`）——乘客端直接拿它組 `tel:`，
+  /// 留著分隔符在部分機型撥不出去，故**以回傳值為準**。
+  Future<String> updateProfilePhone(String phone) async {
+    try {
+      final res = await _dio.put<Map<String, dynamic>>(
+        '/driver/profile',
+        data: {'phone': phone},
+      );
+      return res.data?['phone'] as String? ?? '';
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 查司機當月收入（對齊 GET /api/driver/earnings?month=YYYY-MM，F7）。
   /// month 為 null 時後端預設當月。
   Future<DriverEarnings> fetchEarnings({String? month}) async {
