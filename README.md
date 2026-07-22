@@ -177,15 +177,20 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   已核准→首頁；能不能接單以後端 `can_accept` 為準（App 不自行推導）。
   admin 端在司機管理頁核准／退回（退回須附原因）。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **179 passed**。
+- **建單前車資預估（懸而未決 #1，2026-07-23）**：叫車表單顯示**預估車資**，
+  地圖選目的地（單點）或停靠點填完（多停靠點）時自動算、車種變更時重算。
+  後端新開 `POST /api/customer/rides/estimate`（以全程規劃路線試算，與完成計費共用
+  `FeeSettings.Quote`）。**是預估不是定價**——實際依行駛路線於行程結束時結算，卡片明確標示；
+  失敗靜默不擋叫車。詳見 [`docs/TODO.md`](docs/TODO.md)「💰 建單前車資預估」。
+
+**目前**：`flutter analyze` 無 issue、`flutter test` **197 passed**。
 
 ## 規劃中（尚未實作）
 
 > 完整規格與待拍板事項見 [`docs/TODO.md`](docs/TODO.md) 與後端
 > [line-fleet-dispatch/docs/TODO.md](../line-fleet-dispatch/docs/TODO.md)。
 
-- **待產品拍板**（見 TODO「懸而未決」）：多停靠點的**建單前車資預估**
-  （需後端新開報價 API；要嘛接受「先搭後知價」，要嘛投資一支 API）。
+- 依賴外部資源／實機的項目（A2 真裝置推播、A5 iOS 實機部署與 iOS 推播）——見 TODO。
 
 ## 相關文件
 

@@ -54,6 +54,13 @@ class CustomerController extends ChangeNotifier {
   int? _petCleaningFeeBps;
   // 多乘客行程的編輯狀態（N3）；空 ＝ 單點訂單。
   final List<PassengerTrip> _passengers = [];
+  // 建單前的車資預估（懸而未決 #1）；null ＝尚無預估（未選目的地／預估失敗）。
+  FareEstimate? _estimate;
+  bool _estimating = false;
+  // 單點模式下地圖選點得到的目的地座標——存在 controller 才能在車種變更時重算預估
+  // （地址欄的座標在 widget，但價格會受車種影響，預估的權威輸入放這裡才同步得了）。
+  double? _estDropoffLat;
+  double? _estDropoffLng;
   int? _liveEtaSec;
   int? _liveDistM;
   double? _liveDriverLat;
@@ -82,6 +89,8 @@ class CustomerController extends ChangeNotifier {
   bool get busy => _busy;
   bool get wsConnected => _wsConnected;
   Position? get lastPosition => _lastPosition;
+  FareEstimate? get fareEstimate => _estimate;
+  bool get estimating => _estimating;
   CustomerRide? get activeRide => _activeRide;
 
   /// 司機姓名。優先來自 ride.accepted WS 事件，錯過事件時由 GET active 還原
@@ -145,6 +154,7 @@ class CustomerController extends ChangeNotifier {
   void disableMultiStop() {
     _passengers.clear();
     notifyListeners();
+    _refreshEstimate();
   }
 
   /// 新增一位乘客（標籤自動給 A/B/C…，與司機端看到的一致）。
@@ -167,6 +177,7 @@ class CustomerController extends ChangeNotifier {
       );
     }
     notifyListeners();
+    _refreshEstimate();
   }
 
   /// 設定某位乘客的上車／下車點。
@@ -175,6 +186,7 @@ class CustomerController extends ChangeNotifier {
     if (pickup != null) _passengers[index].pickup = pickup;
     if (dropoff != null) _passengers[index].dropoff = dropoff;
     notifyListeners();
+    _refreshEstimate();
   }
 
   static String _labelFor(int index) =>
@@ -184,8 +196,81 @@ class CustomerController extends ChangeNotifier {
   Future<void> setRequiredVehicleType(VehicleType? type) async {
     _requiredVehicleType = type;
     notifyListeners();
+    // 車種影響價格（寵物車加清潔費）→ 重算預估，讓金額與選擇同步。
+    _refreshEstimate();
     if (type == VehicleType.pet && _petCleaningFeeBps == null) {
       await refreshPetCleaningFee();
+    }
+  }
+
+  /// 記住地圖選點的目的地座標並算一次預估（懸而未決 #1，單點模式）。
+  void setEstimateDropoff(double lat, double lng) {
+    _estDropoffLat = lat;
+    _estDropoffLng = lng;
+    _refreshEstimate();
+  }
+
+  /// 清掉目的地座標與預估（手動改地址、或收合表單時）。
+  void clearEstimate() {
+    _estDropoffLat = null;
+    _estDropoffLng = null;
+    if (_estimate != null || _estimating) {
+      _estimate = null;
+      _estimating = false;
+      notifyListeners();
+    }
+  }
+
+  /// 依目前輸入（單點座標或多停靠點 stops ＋ 指定車種）重算車資預估。
+  ///
+  /// **失敗一律靜默清空**——預估只是輔助資訊，不可擋叫車、不彈錯誤（與 P5 查費率同一原則）。
+  /// 單點模式需要目的地座標與上車 GPS；多停靠點模式由 stops 推導，不需 GPS。
+  Future<void> _refreshEstimate() async {
+    if (_session == null) return;
+    final stops = buildStops(_passengers);
+    final hasStops = stops.isNotEmpty;
+    if (!hasStops && (_estDropoffLat == null || _estDropoffLng == null)) {
+      // 沒有可預估的輸入（未選地圖目的地，也非多停靠點）→ 清空。
+      if (_estimate != null || _estimating) {
+        _estimate = null;
+        _estimating = false;
+        notifyListeners();
+      }
+      return;
+    }
+    _estimating = true;
+    notifyListeners();
+    try {
+      var pickupLat = 0.0;
+      var pickupLng = 0.0;
+      if (!hasStops) {
+        // 單點模式需要上車座標；優先用已取得的定位，否則現取（8 秒逾時，見 _acquirePosition）。
+        final pos = _lastPosition ?? await _acquirePosition();
+        if (pos == null) {
+          _estimate = null;
+          _estimating = false;
+          notifyListeners();
+          return;
+        }
+        _lastPosition = pos;
+        pickupLat = pos.latitude;
+        pickupLng = pos.longitude;
+      }
+      final est = await _api.estimateFare(
+        pickupLat: pickupLat,
+        pickupLng: pickupLng,
+        dropoffLat: hasStops ? null : _estDropoffLat,
+        dropoffLng: hasStops ? null : _estDropoffLng,
+        requiredVehicleType: _requiredVehicleType?.code,
+        stops: stops,
+      );
+      _estimate = est;
+    } catch (_) {
+      // 任何失敗（網路、權限、路線）都不顯示預估，也不擋叫車。
+      _estimate = null;
+    } finally {
+      _estimating = false;
+      notifyListeners();
     }
   }
 
@@ -336,6 +421,10 @@ class CustomerController extends ChangeNotifier {
     _rideCancelled = false;
     _requiredVehicleType = null;
     _passengers.clear();
+    _estimate = null;
+    _estimating = false;
+    _estDropoffLat = null;
+    _estDropoffLng = null;
     _liveEtaSec = null;
     _liveDistM = null;
     _liveDriverLat = null;
@@ -639,6 +728,11 @@ class CustomerController extends ChangeNotifier {
       _lastActiveRide = ride;
       // 這趟已送出，編輯狀態不該留到下一趟。
       _passengers.clear();
+      // 預估屬於「建單前」的輔助資訊，送出後就該收掉，不留到下一趟。
+      _estimate = null;
+      _estimating = false;
+      _estDropoffLat = null;
+      _estDropoffLng = null;
       _driverName = null;
       _driverInfo = null;
       // 新的一趟開始 → 上一趟的取消原因不該還掛著。

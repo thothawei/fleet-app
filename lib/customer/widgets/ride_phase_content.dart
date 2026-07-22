@@ -336,6 +336,8 @@ class _OrderFormContentState extends State<OrderFormContent> {
                   _dropoffLat = null;
                   _dropoffLng = null;
                 });
+                // 沒有座標就算不出預估（地址字串無法路由）→ 收掉預估。
+                widget.ctrl.clearEstimate();
               }
             },
             decoration: const InputDecoration(
@@ -366,6 +368,11 @@ class _OrderFormContentState extends State<OrderFormContent> {
         const SizedBox(height: 12),
         // P2：指定車種。預設「不指定」＝維持現行行為（任何車種都可派）。
         VehicleTypePicker(ctrl: ctrl),
+        // 懸而未決 #1：建單前車資預估。有輸入才顯示（選了地圖目的地或多停靠點）。
+        if (ctrl.estimating || ctrl.fareEstimate != null) ...[
+          const SizedBox(height: 12),
+          _FareEstimateCard(ctrl: ctrl),
+        ],
         const SizedBox(height: 16),
         FilledButton.icon(
           onPressed: ctrl.busy ? null : () => _submit(context),
@@ -392,6 +399,8 @@ class _OrderFormContentState extends State<OrderFormContent> {
         _dropoffLat = picked.lat;
         _dropoffLng = picked.lng;
       });
+      // 有了目的地座標即可預估車資（懸而未決 #1）——不擋叫車，失敗靜默。
+      widget.ctrl.setEstimateDropoff(picked.lat, picked.lng);
     }
   }
 
@@ -468,6 +477,82 @@ class _CancelNoticeCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 建單前的車資預估卡（懸而未決 #1）。
+///
+/// **明確標示是預估、不是定價**：後端於行程完成時才依實際行駛路線定格計費，
+/// 繞路／跳過站／路況都會讓實收與此預估不同。有清潔費時比照完成卡拆分項
+/// （車資 ＋ 寵物車清潔費 ＝ 合計），沒有時只顯示單一預估金額。
+class _FareEstimateCard extends StatelessWidget {
+  const _FareEstimateCard({required this.ctrl});
+
+  final CustomerController ctrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final est = ctrl.fareEstimate;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: scheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.receipt_long, size: 20, color: scheme.onSecondaryContainer),
+                const SizedBox(width: 8),
+                Text('預估車資',
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(color: scheme.onSecondaryContainer)),
+                const Spacer(),
+                if (ctrl.estimating)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+            if (est != null) ...[
+              const SizedBox(height: 8),
+              if (est.hasCleaningFee) ...[
+                _FareRow(label: '車資', cents: est.fareCents),
+                const SizedBox(height: 4),
+                _FareRow(label: '寵物車清潔費', cents: est.cleaningFeeCents),
+                const Divider(height: 16),
+                _FareRow(label: '預估合計', cents: est.totalCents, emphasize: true),
+              ] else
+                _FareRow(label: '預估合計', cents: est.totalCents, emphasize: true),
+              const SizedBox(height: 6),
+              Text(
+                '約 ${_km(est.distanceM)} 公里・${_min(est.durationSec)} 分鐘',
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSecondaryContainer),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '實際車資依行駛路線可能不同，於行程結束時結算。',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSecondaryContainer.withValues(alpha: 0.75),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 公尺 → 一位小數的公里字串（4823 → "4.8"）。
+  String _km(int meters) => (meters / 1000).toStringAsFixed(1);
+
+  // 秒 → 分鐘（無條件進位，至少 1 分鐘，避免顯示 0 分鐘）。
+  int _min(int seconds) => seconds <= 0 ? 1 : ((seconds + 59) ~/ 60);
 }
 
 /// 完成卡的費用列（O6 分項用）。

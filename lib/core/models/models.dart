@@ -168,6 +168,42 @@ class CompletedRideSummary {
       fareAmountCents == null ? null : fareAmountCents! + (cleaningFeeCents ?? 0);
 }
 
+/// 建單**前**的車資預估（懸而未決 #1）。金額皆為「分」（整數元）。
+///
+/// 來自後端 `POST /api/customer/rides/estimate`：以全程規劃路線試算，讓乘客在多停靠點
+/// 排一堆繞路之前就先看到大概金額。**是預估不是定價**——實際依行駛路線（繞路、跳過站、
+/// 路況）於行程完成時才定格，兩者可能不同，UI 必須標明。
+/// 只含乘客該知道的欄位：車資、清潔費、合計、距離、時間——不含手續費／實得等內部費率。
+class FareEstimate {
+  const FareEstimate({
+    required this.fareCents,
+    required this.cleaningFeeCents,
+    required this.totalCents,
+    required this.distanceM,
+    required this.durationSec,
+  });
+
+  final int fareCents;
+
+  /// 寵物車清潔費（分）；只有指定寵物車時 > 0。
+  final int cleaningFeeCents;
+
+  /// 乘客實付總額（分）＝車資 ＋ 清潔費。
+  final int totalCents;
+  final int distanceM;
+  final int durationSec;
+
+  bool get hasCleaningFee => cleaningFeeCents > 0;
+
+  factory FareEstimate.fromJson(Map<String, dynamic> json) => FareEstimate(
+        fareCents: (json['fare_cents'] as num?)?.toInt() ?? 0,
+        cleaningFeeCents: (json['cleaning_fee_cents'] as num?)?.toInt() ?? 0,
+        totalCents: (json['total_cents'] as num?)?.toInt() ?? 0,
+        distanceM: (json['distance_m'] as num?)?.toInt() ?? 0,
+        durationSec: (json['duration_sec'] as num?)?.toInt() ?? 0,
+      );
+}
+
 /// 司機資訊（ride.accepted payload，O4／O7）。
 ///
 /// 車種／車牌來自 ride 快照（司機換車後歷史不變），電話為 drivers 即時值
