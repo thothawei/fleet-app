@@ -181,7 +181,8 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   地圖選目的地（單點）或停靠點填完（多停靠點）時自動算、車種變更時重算。
   後端新開 `POST /api/customer/rides/estimate`（以全程規劃路線試算，與完成計費共用
   `FeeSettings.Quote`）。**是預估不是定價**——實際依行駛路線於行程結束時結算，卡片明確標示；
-  失敗靜默不擋叫車。詳見 [`docs/TODO.md`](docs/TODO.md)「💰 建單前車資預估」。
+  失敗靜默不擋叫車。**已模擬器實跑對帳**：App 建單→完成，完成卡車資與預估完全一致
+  （不繞路時實收＝預估）。詳見 [`docs/TODO.md`](docs/TODO.md)「💰 建單前車資預估」。
 
 **目前**：`flutter analyze` 無 issue、`flutter test` **197 passed**。
 

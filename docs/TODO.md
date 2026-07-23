@@ -338,8 +338,19 @@
   失敗靜默／clearEstimate／移除乘客清空／模型解析）；`flutter analyze` 無 issue、`flutter test` 197 passed。
 
 **驗收**：三端（此處為兩端）各自 build/lint/test 綠——dispatch service+handler 單元測試綠、
-app `flutter test` 197 passed。**尚未做**：模擬器實跑 E2E（選目的地→看到預估→叫車→完成對帳
-「預估 vs 實收」的差異合理）；需後端 docker 起服務，留待下次。
+app `flutter test` 197 passed。
+
+**✅ 模擬器實跑 E2E 對帳（2026-07-23，`m6_pixel` ＋ 後端 quote-api worktree 本機起服務）**：
+- **App UI 實跑**：地圖選目的地 → 叫車表單出現「預估車資」卡（**預估合計 NT$221・約 6.8 公里・
+  10 分鐘**＋「實際車資依行駛路線可能不同，於行程結束時結算」免責文案）；GPS 上車點以模擬器
+  `geo fix` 帶入，目的地由地圖選點（`geocoding` 反查）→ `setEstimateDropoff` 觸發預估。
+- **完整鏈路對帳**：App 叫車建 ride #24（429m）→ 司機 API 接單→上車→完成（不補軌跡）→
+  **App 完成卡顯示「車資 NT$94」**，與同座標 estimate 回的預估 **NT$94（9400 分）完全一致**。
+- **API 層對帳（決定性，同一後端）**：預估與完成共用 `FeeSettings.Quote`＋同一 OSRM 路線 →
+  單點（6811m）預估 fare 22100 ＝ 完成實收 22100；**寵物車**（清潔費率設 20%）預估
+  fare 22100＋清潔費 4400 ＝ 完成實收 22100＋4400（**車資與清潔費皆一致**）。
+- 結論：不繞路時**實收＝預估**（同路線同費率）；繞路時走 N5 既有 `max(軌跡, 路線)` 邏輯，
+  故免責文案「實際依行駛路線可能不同」成立。
 
 ---
 
