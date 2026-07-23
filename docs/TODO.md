@@ -387,6 +387,18 @@ app `flutter test` 197 passed。
   綠色「登入」鈕、「新司機？註冊」切換、底部 debug-only 後端 URL、置中限寬版面成立。
   FCM 如預期降級（macOS 無 Firebase 設定 →「可略過，仍可用 WS」NoOp 路徑生效）。
   （選 macOS 目標因登入頁在任何網路呼叫前即 render，不需起後端 docker 即可驗視覺。）
+- **Android 模擬器登入／註冊真鏈路 ✅（2026-07-23，`m6_pixel` ＋ dispatch docker compose，雙 flavor 截圖）**：
+  - **司機註冊**：切註冊模式（姓名欄出現）→ 填全新 `simdrvverify01` → 送出 → 越過登入進 O5 車輛 gate；
+    **後端 DB 交叉驗證**：`drivers` 新增 id=23、`line_user_id=simdrvverify01`、name=測試司機（尚無車輛，對應 gate）。
+  - **司機登入**（`pm clear` 清 session 後的全新 login POST，非還原）：`simdrvverify01`/`password123`
+    → 登入成功落在車輛 gate。清 session 後正確回登入頁（非自動登入）。
+  - **錯誤密碼負向**：不存在帳號送出 → **真 401 觸發樣式化錯誤橫幅**（粉紅 `errorContainer`＋
+    `error_outline`＋中文「帳號或密碼錯誤」，`api_error` 分類端到端生效）。
+  - **乘客端**：build+install customer flavor（原裝置是舊版 APK，先前顯示舊登入頁——**證明兩 flavor
+    須各自 build`-t lib/main_customer.dart`**）→ 新 AuthScaffold render 正確 → `sim-customer-001` 登入成功
+    進乘客首頁（還原進行中行程）。證明 `CustomerController` wiring 正常。
+  - Light／Dark 兩主題皆驗（Android 亮色 ＋ macOS 深色）；debug 預填與後端 URL 僅在 debug build 顯示成立。
+  - 收尾：模擬器、docker compose、flutter run 全數關閉。
 
 ---
 
