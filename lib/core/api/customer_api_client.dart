@@ -98,6 +98,40 @@ class CustomerApiClient {
     }
   }
 
+  /// 建單**前**預估車資（懸而未決 #1，對齊 POST /api/customer/rides/estimate）。
+  ///
+  /// 單點行程：pickup（GPS）＋ dropoff 座標必填（沒終點無法算路線）。
+  /// 多停靠點行程：帶 stops，後端由它推導起訖，pickup/dropoff 會被忽略（照樣送 pickup 佔位）。
+  /// 指定寵物車時預估會含清潔費。
+  Future<FareEstimate> estimateFare({
+    required double pickupLat,
+    required double pickupLng,
+    double? dropoffLat,
+    double? dropoffLng,
+    String? requiredVehicleType,
+    List<StopInput> stops = const [],
+  }) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/customer/rides/estimate',
+        data: {
+          'pickup_lat': pickupLat,
+          'pickup_lng': pickupLng,
+          if (dropoffLat != null && dropoffLng != null) ...{
+            'dropoff_lat': dropoffLat,
+            'dropoff_lng': dropoffLng,
+          },
+          if (requiredVehicleType != null && requiredVehicleType.isNotEmpty)
+            'required_vehicle_type': requiredVehicleType,
+          if (stops.isNotEmpty) 'stops': [for (final s in stops) s.toJson()],
+        },
+      );
+      return FareEstimate.fromJson(res.data!);
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 查乘客可讀的費率（對齊 GET /api/customer/fees，P5）。
   ///
   /// 後端是**白名單輸出**，目前只回 pet_cleaning_fee_bps——不會有手續費／月會費。
