@@ -10,6 +10,7 @@
 - 司機端（M6）主鏈路完成：登入→hero 上線→**前景服務 GPS**→全螢幕接單→導航→上車→完成／放棄（二次確認）。
 - 乘客端（M7）：登入→叫車（目的地優先）→階段共用元件／地圖 Bottom Sheet→WS ETA→取消／完成卡。
 - **UI/UX 翻新（2026-07-10）**：LINE 綠亮暗雙主題；司機駕駛情境 UI；乘客地圖為底＋卡片降級。靜態驗收 49 tests 通過；模擬器主鏈路待後端 docker 可起後補跑。
+  **登入／註冊頁 2026-07-23 補齊翻新**（先前是唯一漏網畫面），詳見下方「🔐 登入頁 UI/UX 翻新＋驗證」。
 - **座標導航（2026-07-10）**：司機端目的地導航改吃後端 `dropoff_point` 座標，地址僅供顯示與退路。
 - 單元測試：`widget_test` + `driver_controller_test` + theme／home widget 測試（54 項）。
 - 遠端：`github.com/thothawei/fleet-app`。
@@ -351,6 +352,41 @@ app `flutter test` 197 passed。
   fare 22100＋清潔費 4400 ＝ 完成實收 22100＋4400（**車資與清潔費皆一致**）。
 - 結論：不繞路時**實收＝預估**（同路線同費率）；繞路時走 N5 既有 `max(軌跡, 路線)` 邏輯，
   故免責文案「實際依行駛路線可能不同」成立。
+
+---
+
+## 🔐 登入頁 UI/UX 翻新＋驗證（2026-07-23）
+
+> 盤點發現：登入／註冊頁是**全 App 唯一沒吃到 2026-07-10 UI/UX 翻新的畫面**，
+> 還留著開發期痕跡。先釐清事實：這是**真實帳密登入**（`POST /driver/login`／`/customer/login`
+> 帶 `line_user_id`＋`password`），不是 LINE OAuth stub，所以是會出貨的正式畫面。
+> 司機端與乘客端兩頁先前是 95% 重複的手抄，且**完全沒有任何測試**。
+
+**修掉的問題**：
+- **硬編測試帳密**（`sim-driver-001`／`password123`）預填在會出貨的畫面；
+- **後端 URL** (`後端：http://…`) 直接印在登入頁；
+- 沒有密碼顯示切換；錯誤只是一行紅字；無空欄位驗證。
+
+**改了什麼**：
+- 抽出共用 `lib/shared/widgets/auth_scaffold.dart`（controller-agnostic，登入邏輯由
+  `onLogin`／`onRegister` callback 注入）；`driver_login_screen`／`customer_login_screen`
+  收斂成薄包裝（各約 25 行，只差圖示／標題／文案）。
+- **開發便利收進 `kDebugMode`**：預填測試帳密與後端 URL 顯示**只在 debug build 出現**，
+  release build 一律留空、不顯示後端——**模擬器 E2E 仍保有預填**（本專案高頻使用，不可拿掉）。
+- 新增：密碼顯示切換（eye toggle）、`Form` 空欄位驗證（LINE ID／姓名／密碼各自擋空並提示）、
+  品牌圓形圖示 header（`primaryContainer`）、樣式化錯誤橫幅（`errorContainer`＋icon，取代紅字）、
+  送出中 spinner、大螢幕置中限寬（440）、欄位 prefix icon（badge／person／lock）。
+- 補上登入頁**第一份測試** `test/auth_scaffold_test.dart`（7 案：空欄擋下不呼叫 onLogin／
+  trim 後帶值登入／註冊模式出現姓名欄／密碼切換 obscureText／錯誤橫幅／loading disabled＋spinner／
+  debug 預填），全用真實 `appLightTheme` render。
+
+**驗收**：
+- 靜態：`flutter analyze` 無 issue、`flutter test` **204 passed**（原 197＋新 7）。
+- **視覺實跑 ✅（2026-07-23，macOS driver flavor，`flutter run -d macos`，系統深色模式，截圖）**：
+  登入頁 render 正確——品牌綠圓形計程車圖示、`badge`／`lock` 前綴圖示、密碼遮罩＋右側顯示切換、
+  綠色「登入」鈕、「新司機？註冊」切換、底部 debug-only 後端 URL、置中限寬版面成立。
+  FCM 如預期降級（macOS 無 Firebase 設定 →「可略過，仍可用 WS」NoOp 路徑生效）。
+  （選 macOS 目標因登入頁在任何網路呼叫前即 render，不需起後端 docker 即可驗視覺。）
 
 ---
 
