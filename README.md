@@ -190,7 +190,9 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   **服務評價（平均分／則數）**。後端新開 `POST /api/customer/rides/:id/rating`，
   讀回走 `CustomerRideView.rating`／歷史列 `rating_score`／`GET /driver/me` 的 `rating_avg`。
   **付款仍屬 Phase C**（需真金流），完成卡在無車資時保留費用佔位。
-  詳見 [`docs/TODO.md`](docs/TODO.md)「⭐ 乘客評分司機」。
+  **已模擬器實跑 E2E**（雙 flavor）：完成卡評分 → DB 交叉驗證 → 歷史補評 → 司機端
+  「服務評價 4.5 ／ 5.0（2 則）」三處一致；實跑抓到並修掉一個後端文案 bug
+  （評分被拒時講的是遺失物協尋）。詳見 [`docs/TODO.md`](docs/TODO.md)「⭐ 乘客評分司機」。
 
 **目前**：`flutter analyze` 無 issue、`flutter test` **216 passed**。
 
@@ -199,7 +201,6 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
 > 完整規格與待拍板事項見 [`docs/TODO.md`](docs/TODO.md) 與後端
 > [line-fleet-dispatch/docs/TODO.md](../line-fleet-dispatch/docs/TODO.md)。
 
-- **B5 評分的模擬器實跑 E2E**（2026-07-27 留下的唯一缺口；功能已上線但只驗到靜態測試）。
 - 完成後付款（B5 的另一半，需真金流）。
 - 依賴外部資源／實機的項目（A2 真裝置推播、A5 iOS 實機部署與 iOS 推播）——見 TODO。
 
