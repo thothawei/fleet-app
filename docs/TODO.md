@@ -424,6 +424,13 @@ app `flutter test` 197 passed。
     已改用專屬的 `ErrRideNotRatable`，並補上「訊息不得提到遺失物」的斷言。
   - 收尾：模擬器、docker compose、位置心跳全數關閉。
 
+**✅ 下游補完：admin 評分可見性（2026-07-27）**——評分原本**只有司機自己看得到**，
+admin 端 `grep -i rating` 零命中，營運方對爛司機完全無感。
+後端 dispatch PR #47（`GET /admin/drivers` 的 `rating_avg`／`rating_count`、
+`GET /admin/rides/:id` 的 `rating`）＋ admin PR #22（司機管理頁「評價」欄可排序、
+訂單詳情「乘客評分」卡）。至此 B5 三端齊備：**乘客評 → 司機看得到自己的平均分 →
+營運看得出誰評價低**。
+
 ---
 
 ## 🔐 登入頁 UI/UX 翻新＋驗證（2026-07-23）
@@ -490,6 +497,18 @@ app `flutter test` 197 passed。
 >    （階段 6 iOS 推播仍卡付費 Apple Developer Program。）
 > 3. **B5 的另一半：完成後付款**——需要真金流方案（後端 P4 #19），屬產品決策。
 > 4. **車種供給為零時的選項處理**——等產品拍板要停用、隱藏、還是照選但提示。
+>
+> **不需前置條件、隨時可做的維護項**（2026-07-27 盤點新增）：
+> 5. **清開發殘留**：三個 repo 累積了十幾個**已合併卻沒刪的 worktree 與舊分支**
+>    （`git worktree list` 看得到）。它們會讓 `git branch -a` 難讀，
+>    也讓下次開 worktree 時撞名。**條件**：純維護，不動產品程式碼。
+> 6. **清 dev DB 測試殘留**：本機 docker compose 的 DB 堆了大量前幾次 session 的
+>    測試司機與訂單——2026-07-27 的 B5 實跑就因為十幾個殘留的「線上」司機擋在派單佇列前，
+>    白跑了一輪派單逾時才輪到目標司機。**條件**：會寫 DB，動手前要先問過。
+> 7. **評分的營運動作**（B5 下游）：三端現在都只「看得到」評分，
+>    **沒有低分司機的處理流程**（通知／停權／申訴）。
+>    **條件**：等實際累積評分、營運說得出要對低分司機做什麼再開——
+>    做在前面只會做出沒人用的流程。
 
 > **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
 > 以 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸，driver/customer 兩 flavor 共用。
