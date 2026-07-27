@@ -186,6 +186,30 @@ class CustomerApiClient {
     }
   }
 
+  /// 對已完成行程給司機評分（B5）。**一趟一評、不可重評**——
+  /// 已評過的行程後端回 409，UI 不該再給入口（清單以 `ratingScore` 判斷）。
+  Future<RideRating> rateRide(
+    int rideId, {
+    required int score,
+    String comment = '',
+  }) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/customer/rides/$rideId/rating',
+        data: {'score': score, 'comment': comment},
+      );
+      final raw = res.data?['rating'];
+      if (raw is! Map) {
+        // 後端回 200 但形狀不符時，仍以送出的分數為準——評分已經寫進去了，
+        // 讓 UI 因為解析失敗而顯示「評分失敗」會誤導乘客再評一次（然後撞 409）。
+        return RideRating(rideId: rideId, score: score, comment: comment);
+      }
+      return RideRating.fromJson(Map<String, dynamic>.from(raw));
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 行程內對話歷史（afterId > 0 時做增量補讀，WS 斷線重連後補漏）。
   Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) async {
     try {

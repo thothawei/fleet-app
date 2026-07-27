@@ -303,7 +303,7 @@ void main() {
     expect(find.text('目的地地址'), findsOneWidget);
   });
 
-  testWidgets('B5 完成態顯示評分／付款佔位與再叫一輛', (tester) async {
+  testWidgets('B5 完成態顯示評分入口、費用佔位與再叫一輛', (tester) async {
     final ctrl = CustomerController();
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
@@ -322,7 +322,10 @@ void main() {
     expect(find.text('行程 #42'), findsOneWidget);
     expect(find.text('司機：阿明'), findsOneWidget);
     expect(find.text('目的地：松山機場'), findsOneWidget);
-    expect(find.text('留下評分（即將開放）'), findsOneWidget);
+    // 評分已上線（B5）：入口是可按的「留下評分」，不再是佔位文案。
+    expect(find.text('留下評分'), findsOneWidget);
+    expect(find.text('留下評分（即將開放）'), findsNothing);
+    // 付款仍是 Phase C，無車資時保留費用佔位。
     expect(find.text('查看費用（即將開放）'), findsOneWidget);
 
     await tester.tap(find.text('再叫一輛'));

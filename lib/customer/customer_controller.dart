@@ -69,6 +69,14 @@ class CustomerController extends ChangeNotifier {
   CompletedRideSummary? _completedSummary;
   Timer? _pollTimer;
 
+  // 評分（B5）：剛送出的星等連同它屬於哪一趟一起記。
+  // **綁 rideId 而不是只存分數**——`_completedSummary` 有六處會被重設（登出、再叫一輛、
+  // 新訂單、下一次 ride.completed…），只存分數就得在每一處記得清掉它，
+  // 漏一處就會讓下一趟的完成卡一出現就顯示上一趟的星星。
+  int? _completedRatingScore;
+  int? _completedRatingRideId;
+  bool _ratingSubmitting = false;
+
   // 聊天：WS chat.message 即時串流 + 未讀計數（聊天室開啟時不累計）。
   final _chatStream = StreamController<RideMessage>.broadcast();
   int _unreadChat = 0;
@@ -296,8 +304,19 @@ class CustomerController extends ChangeNotifier {
   /// 司機是否已進上車圍籬（WS `driver.arrived`；後端 status 仍為 Accepted）。
   bool get driverArrived => _driverArrived;
 
-  /// 剛完成的行程摘要（B5 評分／付款佔位）；點「再叫一輛」後清除。
+  /// 剛完成的行程摘要（完成卡：車資分項＋評分入口）；點「再叫一輛」後清除。
   CompletedRideSummary? get completedSummary => _completedSummary;
+
+  /// 完成卡上剛送出的評分星等（B5）；null ＝這趟還沒評。
+  /// 只在星等確實屬於**目前這張完成卡**時才回傳，換一趟就自動失效。
+  int? get completedRatingScore =>
+      _completedRatingRideId != null &&
+              _completedRatingRideId == _completedSummary?.rideId
+          ? _completedRatingScore
+          : null;
+
+  /// 評分送出中（按鈕轉圈、防連點）。
+  bool get ratingSubmitting => _ratingSubmitting;
 
   /// 即時聊天訊息串流（WS chat.message，含自己其他裝置的回聲；聊天室以 id 去重）。
   Stream<RideMessage> get chatStream => _chatStream.stream;
@@ -325,6 +344,39 @@ class CustomerController extends ChangeNotifier {
       _historyError = e.message;
     } finally {
       _historyLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// 對已完成行程評分司機（B5）。成功回 null，失敗回可直接顯示的中文訊息。
+  ///
+  /// **不寫進 `_error`**：評分是使用者當下在對話框裡做的動作，錯誤要留在對話框上，
+  /// 讓他知道分數沒送出去；丟到全域 error 會變成關掉對話框才看到的 SnackBar。
+  ///
+  /// 成功時就地更新歷史清單那一列（`copyWith`），評分入口立刻變成星等——
+  /// 不重打一次 `GET /customer/rides`，避免對話框關閉時整份清單閃一下。
+  Future<String?> submitRating(
+    int rideId, {
+    required int score,
+    String comment = '',
+  }) async {
+    if (_session == null) return '請先登入';
+    if (_ratingSubmitting) return null; // 防連點：同一次送出進行中就忽略
+    _ratingSubmitting = true;
+    notifyListeners();
+    try {
+      final rating = await _api.rateRide(rideId, score: score, comment: comment);
+      _completedRatingScore = rating.score;
+      _completedRatingRideId = rideId;
+      _rideHistory = [
+        for (final r in _rideHistory)
+          r.rideId == rideId ? r.copyWith(ratingScore: rating.score) : r,
+      ];
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    } finally {
+      _ratingSubmitting = false;
       notifyListeners();
     }
   }

@@ -297,6 +297,28 @@ class DriverEarnings {
   }
 }
 
+/// 司機自己的評分彙總（B5，來自 `GET /api/driver/me` 的 rating_avg／rating_count）。
+class DriverRatingSummary {
+  const DriverRatingSummary({required this.average, required this.count});
+
+  /// 平均星等（後端未四捨五入）；無評分時為 0。
+  final double average;
+
+  /// 評分則數；**0 ＝還沒有人評過**，UI 該說「尚無評分」而不是顯示 0.0 顆星。
+  final int count;
+
+  bool get hasRatings => count > 0;
+
+  /// 顯示用平均分，一位小數（4.5 / 5.0）。
+  String get averageLabel => average.toStringAsFixed(1);
+
+  factory DriverRatingSummary.fromJson(Map<String, dynamic> json) =>
+      DriverRatingSummary(
+        average: (json['rating_avg'] as num?)?.toDouble() ?? 0,
+        count: (json['rating_count'] as num?)?.toInt() ?? 0,
+      );
+}
+
 /// 訂單狀態碼，對齊 line-fleet-dispatch/internal/constants/ride.go
 abstract final class RideStatus {
   static const requested = 0;
@@ -459,6 +481,7 @@ class CustomerRideSummary {
     this.fareAmountCents,
     this.driverId,
     this.driverName,
+    this.ratingScore,
   });
 
   final int rideId;
@@ -471,8 +494,32 @@ class CustomerRideSummary {
   final int? driverId;
   final String? driverName;
 
+  /// 乘客給過的星等（B5）；**null ＝尚未評分**。
+  /// 完成卡關掉後這裡是唯一的補評路徑，所以清單要看得出評過沒。
+  final int? ratingScore;
+
   /// 有派到司機才給「聯絡司機」——取消於派單前的行程沒有對象可聯絡。
   bool get hasDriver => driverId != null;
+
+  bool get isRated => ratingScore != null;
+
+  /// 可評分的條件：已完成 ＋ 有司機 ＋ 還沒評過。
+  /// 三者缺一都沒有評分的對象或理由（後端 RateByCustomer 也是同一組條件）。
+  bool get canRate =>
+      status == RideStatus.completed && hasDriver && !isRated;
+
+  CustomerRideSummary copyWith({int? ratingScore}) => CustomerRideSummary(
+        rideId: rideId,
+        status: status,
+        pickupAddress: pickupAddress,
+        dropoffAddress: dropoffAddress,
+        requestedAt: requestedAt,
+        completedAt: completedAt,
+        fareAmountCents: fareAmountCents,
+        driverId: driverId,
+        driverName: driverName,
+        ratingScore: ratingScore ?? this.ratingScore,
+      );
 
   String get statusLabel => rideStatusLabel(status);
 
@@ -494,8 +541,32 @@ class CustomerRideSummary {
       fareAmountCents: (json['fare_amount_cents'] as num?)?.toInt(),
       driverId: (json['driver_id'] as num?)?.toInt(),
       driverName: json['driver_name'] as String?,
+      ratingScore: (json['rating_score'] as num?)?.toInt(),
     );
   }
+}
+
+/// 乘客給司機的行程評分（B5）。後端一趟一則、不可重評。
+class RideRating {
+  const RideRating({
+    required this.rideId,
+    required this.score,
+    this.comment = '',
+  });
+
+  final int rideId;
+
+  /// 1–5 星（後端 CHECK 與 service 雙重把關）。
+  final int score;
+
+  /// 評論；選填，沒留言時為空字串（後端不用 NULL，App 不必判三態）。
+  final String comment;
+
+  factory RideRating.fromJson(Map<String, dynamic> json) => RideRating(
+        rideId: (json['ride_id'] as num?)?.toInt() ?? 0,
+        score: (json['score'] as num?)?.toInt() ?? 0,
+        comment: json['comment'] as String? ?? '',
+      );
 }
 
 /// 行程內對話訊息（乘客↔司機）。來源：REST 歷史查詢或 WS `chat.message` payload，

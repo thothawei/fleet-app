@@ -26,8 +26,8 @@
 - [x] B3. 即時追蹤 ✅（2026-07-16 完成）：文字 ETA/距離 + **地圖追蹤**皆通。模擬器實跑司機 marker
       隨 WS `driver.location` 移動、相機跟隨、距離/ETA 即時更新（1427m/3分 → 676m/2分）。
 - [x] B4. 行程狀態流 + App 端取消 + 分階段畫面（尋找／前往／司機已抵達／行程中；2026-07-08）。
-- [~] B5. 完成後評分/付款：**入口佔位已落地**（2026-07-08；`ride.completed` 顯示完成卡
-      + 評分／費用按鈕 disabled +「再叫一輛」）。**真實 API 待 Phase C**。
+- [~] B5. 完成後評分/付款：**評分已上線 ✅ 2026-07-27**（見下方「⭐ 乘客評分司機」）；
+      **付款仍待 Phase C**（無車資時保留「查看費用（即將開放）」佔位，需真金流）。
 - 整體驗收：模擬器「叫車 → 看到司機 ETA → 司機完成 → 收到完成」整條通。
 
 ## A. 司機端收尾
@@ -355,6 +355,56 @@ app `flutter test` 197 passed。
 
 ---
 
+## ⭐ 乘客評分司機（B5，2026-07-27）
+
+> 盤點後的事實：TODO 上**沒有任何不需外部資源就能做的純 App 項目**了
+> （A2 卡 Firebase 專案、A5 階段 5–6 卡實機／付費 Apple 帳號、車種供給為零卡產品拍板）。
+> 唯一還印著「即將開放」的出貨畫面是完成卡的評分按鈕——B5 從 2026-07-08 佔位至今，
+> 註記「真實 API 待 Phase C」。後端當時確實沒有評分資料表與端點
+> （`grep -i rating` 全 repo 零命中），本批兩端一起補齊。**付款不在本批**（需真金流）。
+
+**後端**（dispatch，分支 `claude/b5-ride-rating`，詳見 dispatch TODO「S. 乘客評分司機」）：
+- migration 000023 `ride_ratings`；**一趟一評、不可重評**（唯一索引）。
+- `POST /api/customer/rides/:id/rating`（customer JWT）：非本人 403、不存在 404、
+  **已評過／未完成 409**（狀態衝突不是輸入錯，App 據此知道不必請乘客改參數重送）。
+- 讀回三處：`CustomerRideView.rating`、歷史列 `rating_score`、`GET /driver/me` 的
+  `rating_avg`／`rating_count`。
+
+**App**（本分支）：
+- `RideRating` 模型 ＋ `CustomerApiClient.rateRide`；`CustomerRideSummary` 加
+  `ratingScore`／`isRated`／`canRate`（**已完成 ＋ 有司機 ＋ 未評**，與後端同一組條件）。
+- 共用 `lib/customer/widgets/rating_sheet.dart`：1–5 星必選、評論選填（200 字，與後端上限對齊）。
+  **失敗時對話框不關**——分數沒送出去就把畫面收掉，乘客會以為評好了；錯誤留在原地，
+  重試不必重選星等。
+- **完成卡**：「留下評分（即將開放）」的 disabled 佔位換成可按的「留下評分」，
+  送出後只剩星等＋「已評分」（後端一趟一評，沒有改評分）。
+- **歷史清單**（`CustomerRideHistoryScreen`）：未評的完成行程給「評分」、已評顯示星等。
+  **這是完成卡關掉後唯一的補評路徑**——`dismissCompleted()` 之後摘要就沒了，
+  沒有這條路徑，錯過當下就永遠評不了。
+- **司機收入頁**加「服務評價 4.5 ／ 5.0（12 則）」：沒有這塊，評分就是寫進去沒人看得到的資料。
+  查失敗或尚無評分**整塊不顯示**，不擋收入頁（收入才是那頁的主體）。
+- **controller `submitRating` 回錯誤字串而不寫 `_error`**：評分是對話框裡的動作，
+  錯誤要留在對話框上；丟到全域 error 會變成關掉對話框才看到的 SnackBar。
+  成功時就地 `copyWith` 更新歷史那一列，不重打 API（避免對話框關閉時整份清單閃一下）。
+- **星等狀態綁 rideId**（`_completedRatingRideId`）：`_completedSummary` 有六處會被重設
+  （登出、再叫一輛、新訂單、下一次 `ride.completed`…），只存分數就得在每一處記得清掉它，
+  漏一處就會讓下一趟的完成卡一出現就顯示上一趟的星星。**反向確認**：拿掉這個綁定，
+  「換一趟完成卡不會顯示上一趟星等」該案 FAIL。
+
+**驗收**：
+- 靜態：`flutter analyze` 無 issue、`flutter test` **216 passed**（原 204＋新 12）。
+  新增 `test/customer_rating_test.dart` 9 案（模型解析／`canRate` 三條件／送出成功含清單就地更新／
+  失敗不寫全域 error／未登入不打 API／星等綁 rideId／完成卡按鈕不再 disabled／歷史清單兩態）
+  ＋ `driver_earnings_widget_test.dart` 3 案（有評分／尚無評分不顯示 0.0／查詢失敗不擋收入頁）。
+  既有 `widget_test.dart` 的 B5 佔位斷言同步改成「評分入口可按、佔位文案消失」。
+- 後端：`go build`／`go vet`／`gofmt` 乾淨；service 3 案（真 PostGIS 跑全部 migration，
+  順帶驗證 000023 可套用）＋ handler 2 案（HTTP 邊界，不需 DB）。
+- **未做：模擬器實跑 E2E**——本批只有靜態與整合測試綠。歷次經驗（2026-07-18 抓到 3 個 bug、
+  2026-07-22 抓到 O7 撥號從未生效）顯示實跑才會踩到跨畫面／時序問題，
+  **下次任務應優先補這條**（詳見「下次任務」）。
+
+---
+
 ## 🔐 登入頁 UI/UX 翻新＋驗證（2026-07-23）
 
 > 盤點發現：登入／註冊頁是**全 App 唯一沒吃到 2026-07-10 UI/UX 翻新的畫面**，
@@ -408,6 +458,17 @@ app `flutter test` 197 passed。
 ---
 
 ## 下次任務
+
+> **➡️ 下次先做這個：B5 評分的模擬器實跑 E2E**（2026-07-27 留下的唯一缺口）。
+> 本批評分功能只驗到靜態測試與後端整合測試，**沒有實跑**。
+> 要驗的鏈路：乘客叫車 → 司機接單 → 完成 → **完成卡按「留下評分」→ 選星等＋留言 → 送出**
+> → 後端 `ride_ratings` 有列（DB 交叉驗證）→ 進「我的行程」看到星等
+> → **重複評分撞 409**（App 不該再給入口，直打 API 才會遇到）
+> → 司機端「我的收入」顯示平均分與則數。
+> 起服務前記得 `docs/TODO.md` 的 migration 是 000023——**要先讓 dispatch 跑過 migration**。
+> 歷次實跑（2026-07-18 抓 3 個 bug、2026-07-22 抓到 O7 撥號從未生效）證明這步不能省。
+>
+> 之後才是下列被外部資源卡住的項目。
 
 > **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
 > 以 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸，driver/customer 兩 flavor 共用。

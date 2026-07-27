@@ -546,6 +546,9 @@ class DriverController extends ChangeNotifier {
   Future<DriverEarnings> fetchEarnings(String month) =>
       _api.fetchEarnings(month: month);
 
+  /// 查自己的服務評價彙總（B5 司機收入頁用）。
+  Future<DriverRatingSummary> fetchMyRating() => _api.fetchMyRating();
+
   /// 聊天歷史／發送（聊天室畫面用）。
   Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) =>
       _api.fetchMessages(rideId, afterId: afterId);
