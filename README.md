@@ -184,13 +184,23 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   失敗靜默不擋叫車。**已模擬器實跑對帳**：App 建單→完成，完成卡車資與預估完全一致
   （不繞路時實收＝預估）。詳見 [`docs/TODO.md`](docs/TODO.md)「💰 建單前車資預估」。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **197 passed**。
+- **乘客評分司機（B5，2026-07-27）**：完成卡「留下評分」開 1–5 星＋評論（選填）；
+  **一趟一評、不可重評**（後端唯一索引，重送回 409）。完成卡關掉後仍可從「我的行程」補評——
+  未評的完成行程給「評分」、已評顯示星等。司機在「我的收入」看得到自己的
+  **服務評價（平均分／則數）**。後端新開 `POST /api/customer/rides/:id/rating`，
+  讀回走 `CustomerRideView.rating`／歷史列 `rating_score`／`GET /driver/me` 的 `rating_avg`。
+  **付款仍屬 Phase C**（需真金流），完成卡在無車資時保留費用佔位。
+  詳見 [`docs/TODO.md`](docs/TODO.md)「⭐ 乘客評分司機」。
+
+**目前**：`flutter analyze` 無 issue、`flutter test` **216 passed**。
 
 ## 規劃中（尚未實作）
 
 > 完整規格與待拍板事項見 [`docs/TODO.md`](docs/TODO.md) 與後端
 > [line-fleet-dispatch/docs/TODO.md](../line-fleet-dispatch/docs/TODO.md)。
 
+- **B5 評分的模擬器實跑 E2E**（2026-07-27 留下的唯一缺口；功能已上線但只驗到靜態測試）。
+- 完成後付款（B5 的另一半，需真金流）。
 - 依賴外部資源／實機的項目（A2 真裝置推播、A5 iOS 實機部署與 iOS 推播）——見 TODO。
 
 ## 相關文件

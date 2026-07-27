@@ -5,6 +5,7 @@ import '../../core/models/models.dart';
 import '../../core/util/money.dart';
 import '../../shared/screens/ride_chat_screen.dart';
 import '../customer_controller.dart';
+import '../widgets/rating_sheet.dart';
 
 /// 「我的行程」歷史列表（留言板入口補遺）。
 ///
@@ -159,16 +160,44 @@ class _RideHistoryCard extends StatelessWidget {
                 style: theme.textTheme.bodyMedium,
               ),
             ],
+            // 評分（B5）：完成卡關掉後，這裡是唯一的補評路徑。
+            // 已評過只顯示星等（後端一趟一評，沒有改評分）。
+            if (ride.isRated) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  RatingStars(score: ride.ratingScore!, size: 18),
+                  const SizedBox(width: 6),
+                  Text('已評分', style: theme.textTheme.bodySmall),
+                ],
+              ),
+            ],
             // 有派到司機才給對話入口——這是本畫面存在的理由（事後聯絡）。
             if (ride.hasDriver) ...[
               const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(
-                  onPressed: () => _openChat(context),
-                  icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                  label: const Text('聯絡司機'),
-                ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _openChat(context),
+                    icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                    label: const Text('聯絡司機'),
+                  ),
+                  if (ride.canRate)
+                    FilledButton.icon(
+                      onPressed: ctrl.ratingSubmitting
+                          ? null
+                          : () => showRatingSheet(
+                                context,
+                                ctrl: ctrl,
+                                rideId: ride.rideId,
+                                driverName: ride.driverName,
+                              ),
+                      icon: const Icon(Icons.star_outline, size: 18),
+                      label: const Text('評分'),
+                    ),
+                ],
               ),
             ],
           ],

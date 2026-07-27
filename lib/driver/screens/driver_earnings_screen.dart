@@ -53,6 +53,8 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
       appBar: AppBar(title: const Text('我的收入')),
       body: Column(
         children: [
+          // 服務評價（B5）：與月份無關，放在月切換之上；查失敗整塊不顯示。
+          const _RatingSummaryCard(),
           _MonthSelector(
             label: _monthStr,
             onPrev: () => _shiftMonth(-1),
@@ -82,6 +84,57 @@ class _DriverEarningsScreenState extends State<DriverEarningsScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 司機自己的服務評價（B5）：平均星等＋則數。
+///
+/// **查失敗或尚無評分都不擋收入頁**——收入才是這頁的主體，
+/// 評價載不出來就整塊不顯示，不放錯誤訊息占版面（獨立 FutureBuilder，
+/// 與月份切換無關，換月不會重查）。
+class _RatingSummaryCard extends StatefulWidget {
+  const _RatingSummaryCard();
+
+  @override
+  State<_RatingSummaryCard> createState() => _RatingSummaryCardState();
+}
+
+class _RatingSummaryCardState extends State<_RatingSummaryCard> {
+  Future<DriverRatingSummary>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = context.read<DriverController>().fetchMyRating();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return FutureBuilder<DriverRatingSummary>(
+      future: _future,
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        if (data == null) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(
+            children: [
+              Icon(Icons.star, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text('服務評價', style: theme.textTheme.titleMedium),
+              const Spacer(),
+              Text(
+                data.hasRatings
+                    ? '${data.averageLabel} ／ 5.0（${data.count} 則）'
+                    : '尚無評分',
+                style: theme.textTheme.bodyLarge,
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

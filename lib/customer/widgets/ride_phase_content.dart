@@ -8,6 +8,7 @@ import '../../shared/screens/ride_chat_screen.dart';
 import '../customer_controller.dart';
 import '../screens/lost_item_screen.dart';
 import '../screens/map_picker_screen.dart';
+import 'rating_sheet.dart';
 import 'ride_stops_progress.dart';
 import 'stops_editor.dart';
 
@@ -201,7 +202,7 @@ class OnTripContent extends StatelessWidget {
   }
 }
 
-/// 完成卡：評分／費用 disabled 佔位＋再叫一輛。
+/// 完成卡：車資分項 ＋ 評分（B5）＋ 遺失物入口 ＋ 再叫一輛。
 class CompletedContent extends StatelessWidget {
   const CompletedContent({required this.ctrl, super.key});
 
@@ -210,6 +211,7 @@ class CompletedContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final summary = ctrl.completedSummary!;
+    final rated = ctrl.completedRatingScore;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -240,17 +242,30 @@ class CompletedContent extends StatelessWidget {
           ] else
             _FareRow(label: '車資', cents: summary.fareAmountCents!, emphasize: true),
         ],
-        const SizedBox(height: 12),
-        Text(
-          '評分功能即將開放（後端 Phase C）。',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
         const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: null,
-          icon: const Icon(Icons.star_outline),
-          label: const Text('留下評分（即將開放）'),
-        ),
+        // 評分（B5）：評過就只剩星等，沒有「改評分」——後端一趟一評。
+        if (rated != null) ...[
+          Row(
+            children: [
+              RatingStars(score: rated),
+              const SizedBox(width: 8),
+              Text('已評分', style: Theme.of(context).textTheme.bodyMedium),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ] else
+          FilledButton.icon(
+            onPressed: ctrl.ratingSubmitting
+                ? null
+                : () => showRatingSheet(
+                      context,
+                      ctrl: ctrl,
+                      rideId: summary.rideId,
+                      driverName: summary.driverName,
+                    ),
+            icon: const Icon(Icons.star_outline),
+            label: const Text('留下評分'),
+          ),
         const SizedBox(height: 8),
         // 尚未收到車資（舊後端／缺 payload）時保留佔位，避免完成卡沒有費用資訊。
         if (summary.fareAmountCents == null) ...[

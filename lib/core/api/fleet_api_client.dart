@@ -212,6 +212,17 @@ class FleetApiClient {
     }
   }
 
+  /// 司機自己的評分彙總（B5）。舊後端不帶 rating_* 鍵時解析成 (0, 0)，
+  /// 呈現端會顯示「尚無評分」——**不報錯**，這是加值資訊不是行程本體。
+  Future<DriverRatingSummary> fetchMyRating() async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('/driver/me');
+      return DriverRatingSummary.fromJson(res.data ?? const {});
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 行程內對話歷史（afterId > 0 時做增量補讀）。
   Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) async {
     try {
