@@ -1,5 +1,23 @@
 # App（司機端＋乘客端）UI/UX 翻新 Implementation Plan
 
+> # ✅ 本計畫已全數執行完畢（2026-07-10 實作，2026-07-28 回填勾選）
+> 30 個 Step 全部完成，勾選框於 2026-07-28 一次補上——實作當下沒回填，
+> 導致這份文件看起來像「完全沒動工」。**這是已完成工作的紀錄，不是待辦清單。**
+>
+> **2026-07-28 逐檔查證的產出**（全部存在）：
+> `lib/core/theme/app_theme.dart`（54 行）、`ride_status_colors.dart`（27 行）、
+> `test/app_theme_test.dart`、`lib/driver/widgets/online_hero_card.dart`、
+> `connection_details_tile.dart`、`offer_overlay.dart`、`test/driver_home_widget_test.dart`（274 行）、
+> `lib/customer/widgets/ride_phase_content.dart`（746 行）、`customer_map_home_screen.dart`；
+> 兩個 flavor 的 `app.dart` 都掛上 `appLightTheme`／`appDarkTheme`；`OrderFormContent` 已抽出共用。
+>
+> **Task 7 的模擬器實跑驗收**也做過（2026-07-10，`m6_pixel` ＋ 後端 docker，
+> `flutter test` 49 passed），紀錄在 [`docs/TODO.md`](../../TODO.md) 的「模擬器 E2E 驗收」段。
+>
+> ⚠️ 下方 **Tech Stack 寫的 `google_maps_flutter` 已過期**——乘客端地圖在 2026-07-16
+> 改用 **flutter_map + OpenStreetMap，不需要任何 API key**，「無 Maps key 自動退回卡片版」
+> 這條退路的前提也已不存在（雖然卡片版本身還在）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** line-fleet-app 兩個 flavor 套上 LINE 綠亮暗雙主題；司機端改為駕駛情境優化（hero 開關、全螢幕接單、大按鈕）；乘客端升級為地圖為底＋Bottom Sheet（無 Maps key 自動退回精修卡片版）。
@@ -31,7 +49,7 @@
 **Interfaces:**
 - Produces: `appLightTheme` / `appDarkTheme`（`ThemeData`）、`kBrandGreen`、`kPrimaryActionHeight = 56.0`、`rideStatusColor(BuildContext, RideStatus) → Color`、`driverPhaseColor(BuildContext, DriverRidePhase) → Color`。後續 task 的按鈕與狀態元件都引用這些。
 
-- [ ] **Step 1: 寫失敗測試 `test/app_theme_test.dart`**
+- [x] **Step 1: 寫失敗測試 `test/app_theme_test.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -54,12 +72,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑測試確認失敗**
+- [x] **Step 2: 跑測試確認失敗**
 
 Run: `flutter test test/app_theme_test.dart`
 Expected: FAIL（找不到 `app_theme.dart`）
 
-- [ ] **Step 3: 實作 `lib/core/theme/app_theme.dart`**
+- [x] **Step 3: 實作 `lib/core/theme/app_theme.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -120,7 +138,7 @@ final appDarkTheme = _base(Brightness.dark);
 
 （若 Flutter 版本仍要求 `CardTheme` 而非 `CardThemeData`，以 `flutter analyze` 結果為準調整型別，其餘不變。）
 
-- [ ] **Step 4: 實作 `lib/core/theme/ride_status_colors.dart`**
+- [x] **Step 4: 實作 `lib/core/theme/ride_status_colors.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -153,7 +171,7 @@ Color driverPhaseColor(BuildContext context, DriverRidePhase phase) {
 
 （`RideStatus`／`DriverRidePhase` 的實際 enum 值以 `lib/core/models/models.dart`、`lib/driver/driver_controller.dart` 現況為準；若名稱不同，對照修正 switch 分支，不新增 enum。）
 
-- [ ] **Step 5: 兩 flavor 套用**
+- [x] **Step 5: 兩 flavor 套用**
 
 `lib/driver/app.dart` 與 `lib/customer/app.dart` 的 `MaterialApp` 改為：
 
@@ -165,7 +183,7 @@ themeMode: ThemeMode.system,
 
 移除原本 inline `ThemeData(...)`（司機端 `0xFF00695C`、乘客端 `0xFF1565C0` 兩個舊 seed 淘汰），加 `import '../core/theme/app_theme.dart';`。
 
-- [ ] **Step 6: 驗證 + commit**
+- [x] **Step 6: 驗證 + commit**
 
 Run: `flutter analyze && flutter test`
 Expected: analyze 無 error；全部測試過。
@@ -189,7 +207,7 @@ git commit -m "feat(theme): LINE 綠亮暗雙主題＋語意色 tokens（App UI/
 - Consumes: `DriverController`（`online`、`wsConnected`、`fcmAvailable`、`fcmTokenPrefix`、`lastPosition`、`loading`、`toggleOnline()`——全部既有）；`kBrandGreen`（Task 1）。
 - Produces: `OnlineHeroCard(ctrl:)`、`ConnectionDetailsTile(ctrl:)` 兩個 widget，Task 3、4 改版後的 home screen 繼續使用。
 
-- [ ] **Step 1: 寫失敗 widget 測試 `test/driver_home_widget_test.dart`**
+- [x] **Step 1: 寫失敗 widget 測試 `test/driver_home_widget_test.dart`**
 
 依 `test/driver_controller_test.dart` 既有的 FakeApi／MemoryAuthStore／silent WS 注入模式建立已登入的 `DriverController`，pump `DriverHomeScreen`：
 
@@ -209,7 +227,7 @@ testWidgets('離線時 hero 顯示「離線」且診斷資訊預設收合', (tes
 
 Run: `flutter test test/driver_home_widget_test.dart` → Expected: FAIL（尚無「目前不會收到派單」／「連線狀態」）。
 
-- [ ] **Step 2: 實作 `lib/driver/widgets/online_hero_card.dart`**
+- [x] **Step 2: 實作 `lib/driver/widgets/online_hero_card.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -272,7 +290,7 @@ class OnlineHeroCard extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 3: 實作 `lib/driver/widgets/connection_details_tile.dart`**
+- [x] **Step 3: 實作 `lib/driver/widgets/connection_details_tile.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -341,7 +359,7 @@ class ConnectionDetailsTile extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: `driver_home_screen.dart` 換裝**
+- [x] **Step 4: `driver_home_screen.dart` 換裝**
 
 body 的 `ListView` children 改為：
 
@@ -361,7 +379,7 @@ children: [
 - `_OfferCard` 這一步先保留原樣（Task 3 改全螢幕）。
 - `_IdleHint` 文案改精簡：「上線後將自動回報位置並接收派單。」（GPS 細節說明移進 ConnectionDetailsTile 不需要，直接刪）。
 
-- [ ] **Step 5: 驗證 + commit**
+- [x] **Step 5: 驗證 + commit**
 
 Run: `flutter analyze && flutter test`
 Expected: 全過（新 widget 測試含在內）。
@@ -384,7 +402,7 @@ git commit -m "feat(driver): hero 上線開關＋診斷資訊收納（Task 2）"
 - Consumes: `ctrl.pendingOffer`（`rideId`、`address`、`dropoffAddress`、`distM`、`etaLabel`）、`ctrl.acceptOffer()`、`ctrl.dismissOffer()`、`kPrimaryActionHeight`。
 - Produces: `OfferOverlay(ctrl:)`——`pendingOffer != null` 時蓋滿全螢幕。
 
-- [ ] **Step 1: 追加失敗測試**
+- [x] **Step 1: 追加失敗測試**
 
 ```dart
 testWidgets('收到派單顯示全螢幕接單卡，接單鈕高度 >= 56', (tester) async {
@@ -399,7 +417,7 @@ testWidgets('收到派單顯示全螢幕接單卡，接單鈕高度 >= 56', (tes
 
 Run: `flutter test test/driver_home_widget_test.dart` → Expected: FAIL。
 
-- [ ] **Step 2: 實作 `lib/driver/widgets/offer_overlay.dart`**
+- [x] **Step 2: 實作 `lib/driver/widgets/offer_overlay.dart`**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -498,7 +516,7 @@ class _InfoBlock extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 3: home screen 以 Stack 蓋 overlay**
+- [x] **Step 3: home screen 以 Stack 蓋 overlay**
 
 `DriverHomeScreen.build` 回傳改為：
 
@@ -513,7 +531,7 @@ return Stack(
 
 並刪除 `_OfferCard` class。
 
-- [ ] **Step 4: 驗證 + commit**
+- [x] **Step 4: 驗證 + commit**
 
 Run: `flutter analyze && flutter test` → Expected: 全過。
 
@@ -533,7 +551,7 @@ git commit -m "feat(driver): 全螢幕接單卡（Task 3）"
 **Interfaces:**
 - Consumes: `ctrl.activeRide`（`phase`、`address`、`dropoffAddress`）、`ctrl.pickUpPassenger()`、`ctrl.completeTrip()`、`ctrl.abandonTrip()`、`openMapsNavigation()`、`kPrimaryActionHeight`、`driverPhaseColor`。
 
-- [ ] **Step 1: 追加失敗測試**
+- [x] **Step 1: 追加失敗測試**
 
 ```dart
 testWidgets('放棄此單需二次確認', (tester) async {
@@ -550,7 +568,7 @@ testWidgets('放棄此單需二次確認', (tester) async {
 
 Run: `flutter test test/driver_home_widget_test.dart` → Expected: FAIL。
 
-- [ ] **Step 2: `_ActiveRideCard` 改版**
+- [x] **Step 2: `_ActiveRideCard` 改版**
 
 - 標題列加階段色 chip：`Chip(label: Text(phaseLabel), backgroundColor: driverPhaseColor(context, ride.phase).withValues(alpha: 0.15))`。
 - 主行動按鈕統一 `minimumSize: const Size.fromHeight(kPrimaryActionHeight)`、`textStyle: titleMedium`：
@@ -587,7 +605,7 @@ TextButton(
 ),
 ```
 
-- [ ] **Step 3: 驗證 + commit**
+- [x] **Step 3: 驗證 + commit**
 
 Run: `flutter analyze && flutter test` → Expected: 全過。
 
@@ -614,7 +632,7 @@ git commit -m "feat(driver): 行程大按鈕＋放棄二次確認（Task 4）"
   - `CompletedContent(ctrl:)`——完成卡＋評分／費用 disabled＋「再叫一輛」。
   - 現有 `_approachText`／`_phaseHint` 邏輯搬進這些 widget（邏輯不變，位置改變）。
 
-- [ ] **Step 1: 寫失敗 widget 測試**
+- [x] **Step 1: 寫失敗 widget 測試**
 
 `test/customer_home_widget_test.dart`：以注入 fake controller 的方式 pump `CustomerHomeScreen`（比照 driver 測試模式；`CustomerController` 若無注入建構子，加最小可測建構子參數是允許的 presentation 配套）：
 
@@ -635,7 +653,7 @@ testWidgets('完成態顯示評分佔位與再叫一輛', (tester) async {
 
 Run: `flutter test test/customer_home_widget_test.dart` → Expected: FAIL。
 
-- [ ] **Step 2: 實作 `ride_phase_content.dart`**
+- [x] **Step 2: 實作 `ride_phase_content.dart`**
 
 四個 widget 都是純呈現（吃 ctrl 讀值＋呼叫既有方法）。`SearchingContent` 核心：
 
@@ -675,13 +693,13 @@ class SearchingContent extends StatelessWidget {
 
 `DriverEnRouteContent`：司機名列＋`Wrap` chips（`距您約 X 公尺`／`約 X 分鐘抵達`，邏輯搬自 `_approachText`）＋已抵達時改「請與司機會合」提示＋可取消時「取消叫車」。`OnTripContent`：階段標題「行程進行中」＋目的地＋司機名。`CompletedContent`：搬 `_CompletedRideCard` 內容（按鈕維持 disabled 佔位）。
 
-- [ ] **Step 3: `customer_home_screen.dart` 改用共用元件**
+- [x] **Step 3: `customer_home_screen.dart` 改用共用元件**
 
 - `_ActiveRideCard`／`_CompletedRideCard` 改為薄殼：Card 內依 `ride.status` 切換 `SearchingContent`／`DriverEnRouteContent`／`OnTripContent`／`CompletedContent`；小地圖 `CustomerTrackingMap` 維持現有條件顯示（地圖版在 Task 6 才接手）。
 - **移除「更新狀態」按鈕**；`ListView` 外包 `RefreshIndicator(onRefresh: () => ctrl.refreshActive())`。
 - 錯誤顯示改：`ctrl.error` 不再置頂文字，改在 build 後以 `ScaffoldMessenger.showSnackBar` 呈現（用 `WidgetsBinding.instance.addPostFrameCallback` 防重複，僅在 error 值變化時彈）。
 
-- [ ] **Step 4: 驗證 + commit**
+- [x] **Step 4: 驗證 + commit**
 
 Run: `flutter analyze && flutter test` → Expected: 全過。
 
@@ -704,7 +722,7 @@ git commit -m "feat(customer): 階段元件抽共用＋卡片版精修（Task 5�
 - Consumes: Task 5 的四個 phase widget、`AppConfig.mapsConfigured`、`ctrl.lastPosition`、`ctrl.liveDriverLat/Lng`、`ride.pickupLat/Lng`、`MapPickerScreen`（既有）。
 - Produces: `CustomerMapHomeScreen`——全螢幕 `GoogleMap` ＋ `DraggableScrollableSheet`。
 
-- [ ] **Step 1: 追加降級路徑測試**
+- [x] **Step 1: 追加降級路徑測試**
 
 ```dart
 testWidgets('未設 Maps key 時走卡片版（有 AppBar）', (tester) async {
@@ -717,7 +735,7 @@ testWidgets('未設 Maps key 時走卡片版（有 AppBar）', (tester) async {
 
 Run: `flutter test test/customer_home_widget_test.dart` → Expected: 先 PASS（守住降級路徑基準線，之後改版不得破壞）。
 
-- [ ] **Step 2: 實作 `customer_map_home_screen.dart`**
+- [x] **Step 2: 實作 `customer_map_home_screen.dart`**
 
 結構（完整骨架，phase widget 直接複用 Task 5 產出）：
 
@@ -850,11 +868,11 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
 
 司機 marker 移動時鏡頭跟隨：在 `build` 中比較上次 driver 座標，變化即 `_map?.animateCamera(CameraUpdate.newLatLng(...))`（保留 `_lastDriverLat/Lng` state 欄位）。
 
-- [ ] **Step 3: 叫車表單抽成 `OrderFormContent`**
+- [x] **Step 3: 叫車表單抽成 `OrderFormContent`**
 
 把 `customer_home_screen.dart` 的 `_OrderForm`（含 `_pickOnMap`／`_submit`／地圖選點座標失效邏輯，**一行不改**）搬到 `ride_phase_content.dart` 改名 `OrderFormContent` 公開，卡片版與地圖版共用；標題文案改「要去哪裡？」、目的地欄位放最上（目的地優先，spec §2.1）。
 
-- [ ] **Step 4: `customer/app.dart` 選版面**
+- [x] **Step 4: `customer/app.dart` 選版面**
 
 ```dart
 home: AppConfig.mapsConfigured
@@ -864,7 +882,7 @@ home: AppConfig.mapsConfigured
 
 （放在 `_CustomerRoot` 的已登入分支。）
 
-- [ ] **Step 5: 驗證 + commit**
+- [x] **Step 5: 驗證 + commit**
 
 Run: `flutter analyze && flutter test`
 Expected: 全過（測試環境無 Maps key，widget 測試全部走卡片版路徑——地圖版由 Task 7 模擬器實測驗收）。
@@ -881,14 +899,14 @@ git commit -m "feat(customer): 地圖為底＋Bottom Sheet 主畫面（Task 6）
 **Files:**
 - Modify: `README.md`（結構段補 `core/theme/`、雙主題說明）、`docs/TODO.md`（回填本次翻新）
 
-- [ ] **Step 1: 靜態全量驗證**
+- [x] **Step 1: 靜態全量驗證**
 
 ```bash
 flutter analyze   # 無 error
 flutter test      # 全過（原 34 項＋新增 widget 測試）
 ```
 
-- [ ] **Step 2: 模擬器實跑主鏈路（spec §5）**
+- [x] **Step 2: 模擬器實跑主鏈路（spec §5）**
 
 後端 `line-fleet-dispatch` docker 起好後：
 
@@ -906,7 +924,7 @@ flutter run -t lib/main_customer.dart --flavor customer \
 - 完整主鏈路：乘客叫車 → 司機接單 → 上車 → 完成 → 乘客收到完成卡。
 - 驗完關掉模擬器與後端（session cleanup）。
 
-- [ ] **Step 3: 文件收尾 + commit**
+- [x] **Step 3: 文件收尾 + commit**
 
 ```bash
 git add README.md docs/TODO.md
