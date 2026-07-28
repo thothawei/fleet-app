@@ -103,6 +103,8 @@ void main() {
 
     test('WS ride.assigned 帶 pickup 座標 → acceptOffer 後 activeRide 有上車點座標', () async {
       // 司機端地圖要標出上車點；address 字串無法定位，座標得從派單事件一路帶到 activeRide。
+      // 接單後的確認重讀失敗（弱網）＝「不知道」→ 保留樂觀行程，正好驗到 offer→activeRide 的欄位對映。
+      api.activeError = ApiException('請求逾時，請稍後再試');
       await ctrl.init();
       await ctrl.login(lineUserId: 'U_driver', password: 'pw');
 
@@ -126,6 +128,8 @@ void main() {
     test('WS ride.assigned 帶 stops → 接單「當下」activeRide 就有全程（N4）', () async {
       // 實跑抓到：RideOffer 沒解析 stops、acceptOffer 沒帶，接單當下清單與
       // 多點地圖不出現，要重啟 App 走 rides/active 還原才看得到。
+      // 重讀失敗＝「不知道」→ 保留樂觀行程，驗的是 offer 自己帶進來的全程。
+      api.activeError = ApiException('請求逾時，請稍後再試');
       await ctrl.init();
       await ctrl.login(lineUserId: 'U_driver', password: 'pw');
 
@@ -183,12 +187,14 @@ void main() {
       expect(ctrl.activeRide?.stops.length, 4);
     });
 
-    test('acceptOffer 重讀 active 回別的行程／null 時，不覆蓋剛接到的樂觀行程', () async {
-      // 防競態：active API 短暫回 null 或回到別的 rideId 時，不能把剛接到的單清掉。
+    test('acceptOffer 後 active 不是這張單 ＝ 沒接到：收掉樂觀行程並說明', () async {
+      // 後端在「被別人接走」與「非待命狀態」時回的是 **HTTP 200 ＋ 一句訊息**，
+      // 不是錯誤。只看有沒有丟例外，司機就會抱著一張別人的行程卡出發，
+      // 直到按下「乘客已上車」被 409 擋下才發現。
       await ctrl.init();
       await ctrl.login(lineUserId: 'U_driver', password: 'pw');
 
-      // 後端回 rideId 不符（模擬競態）。
+      // 後端說：你手上的 active 是別張單（或根本沒有）。
       api.restoreRide = ActiveRide.fromBackendJson(const {
         'id': 999,
         'status': RideStatus.accepted,
@@ -202,8 +208,52 @@ void main() {
       ));
       await ctrl.acceptOffer();
 
-      expect(ctrl.activeRide?.rideId, 55, reason: '保留樂觀行程，不被別的 rideId 蓋掉');
-      expect(ctrl.activeRide?.address, '士林夜市');
+      expect(ctrl.activeRide, isNull, reason: '沒接到就不能留著行程卡');
+      expect(ctrl.error, '這單已被其他司機接走');
+    });
+
+    test('接單逾時但後端其實接到了 → 不報錯，直接進行程卡', () async {
+      // 弱網下最貴的一種：請求送達了、回應丟了。報錯會讓司機按「略過」，
+      // 而後端已把他設成載客中——他收不到新派單、也無法離線，畫面上卻什麼都沒有。
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+
+      api.acceptError = ApiException('請求逾時，請稍後再試'); // statusCode == null ＝ 沒收到回應
+      api.restoreRide = ActiveRide.fromBackendJson(const {
+        'id': 61,
+        'status': RideStatus.accepted,
+        'pickup_address': '南港展覽館',
+      });
+
+      ctrl.handleWsEventForTest(FleetWsEvent(
+        type: FleetEventTypes.rideAssigned,
+        rideId: 61,
+        payload: {'address': '南港展覽館'},
+      ));
+      await ctrl.acceptOffer();
+
+      expect(ctrl.activeRide?.rideId, 61);
+      expect(ctrl.pendingOffer, isNull, reason: '接到了就不該還留著接單卡');
+      expect(ctrl.error, isNull, reason: '其實成功了，不能報錯');
+    });
+
+    test('接單逾時且後端也沒接到 → 照常報錯，接單卡留著讓司機再試', () async {
+      await ctrl.init();
+      await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+
+      api.acceptError = ApiException('請求逾時，請稍後再試');
+      api.restoreRide = null;
+
+      ctrl.handleWsEventForTest(FleetWsEvent(
+        type: FleetEventTypes.rideAssigned,
+        rideId: 62,
+        payload: {'address': '內湖'},
+      ));
+      await ctrl.acceptOffer();
+
+      expect(ctrl.activeRide, isNull);
+      expect(ctrl.pendingOffer?.rideId, 62);
+      expect(ctrl.error, '請求逾時，請稍後再試');
     });
 
     test('init 還原行程時從 rides/active 的 pickup_point 取得上車點座標', () async {
@@ -229,6 +279,8 @@ void main() {
     });
 
     test('WS ride.assigned 帶 dropoff → acceptOffer 預載目的地', () async {
+      // 同上：確認重讀失敗時保留樂觀行程，驗 offer 的目的地有進到 activeRide。
+      api.activeError = ApiException('請求逾時，請稍後再試');
       await ctrl.init();
       await ctrl.login(lineUserId: 'U_driver', password: 'pw');
 
@@ -501,6 +553,8 @@ class _FakeFleetApi extends FleetApiClient {
   String? lastToken;
   ApiException? loginError;
   ApiException? acceptError;
+  /// 讓 `GET /driver/rides/active` 失敗（模擬弱網）：接單後的確認會回「不知道」。
+  ApiException? activeError;
   ApiException? completeError;
   ApiException? deviceTokenError;
   ActiveRide? restoreRide;
@@ -536,7 +590,10 @@ class _FakeFleetApi extends FleetApiClient {
   }
 
   @override
-  Future<ActiveRide?> activeRide() async => restoreRide;
+  Future<ActiveRide?> activeRide() async {
+    if (activeError != null) throw activeError!;
+    return restoreRide;
+  }
 
   @override
   Future<List<LostItemRequest>> fetchLostItems() async => lostItems;
@@ -568,6 +625,15 @@ class _FakeFleetApi extends FleetApiClient {
   Future<String> acceptRide(int rideId) async {
     if (acceptError != null) throw acceptError!;
     acceptedRideIds.add(rideId);
+    // 真後端的 AcceptRide 在回應前就把 rides 與 driver 狀態寫完了，所以接單成功後
+    // `GET /driver/rides/active` **立即**查得到這張單。替身必須忠實反映這件事——
+    // controller 正是以「重讀 active 是不是這張單」判斷到底有沒有接到
+    // （後端「被別人接走」是 HTTP 200，不是例外）。
+    restoreRide ??= ActiveRide(
+      rideId: rideId,
+      address: '台北車站',
+      phase: DriverRidePhase.enRouteToPickup,
+    );
     return '接單成功';
   }
 

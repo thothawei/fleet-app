@@ -13,6 +13,13 @@ import '../core/push/driver_push_service.dart';
 import '../core/storage/token_storage.dart';
 import '../core/ws/fleet_ws_client.dart';
 
+/// 接單之後向後端確認的三種結果。
+///
+/// **「不知道」必須與「沒接到」分開**：兩者都不是 confirmed，但處置相反——
+/// 沒接到要把樂觀行程卡收掉，不知道（重讀也失敗）則要留著，
+/// 否則司機真的接到單卻看不到行程。
+enum _AcceptOutcome { confirmed, rejected, unknown }
+
 /// 司機端狀態：登入、上線、WS 派單、行程操作。
 class DriverController extends ChangeNotifier {
   DriverController({
@@ -533,28 +540,49 @@ class DriverController extends ChangeNotifier {
       // 以後端為權威補齊：**推播喚醒路徑**的 offer 來自 FCM data，data 值全是字串、
       // 不帶結構化的 stops 陣列（見 pitfall-fcm-data-all-strings），所以樂觀行程會缺全程。
       // 重讀 active 讓多停靠點清單／多點地圖一定齊全，不必讓推播 payload 塞 stops。
-      await _refreshActiveAfterAccept(offer.rideId);
+      //
+      // **同時這也是「到底有沒有接到」的唯一判準**：後端在「被別人接走」與
+      // 「非待命狀態」時回的是 **HTTP 200 ＋ 一句訊息**（不是錯誤），
+      // 只看有沒有丟例外，就會在沒接到的情況下留著一張別人的行程卡。
+      final outcome = await _confirmAccepted(offer.rideId);
+      if (outcome == _AcceptOutcome.rejected) {
+        _activeRide = null;
+        _setError('這單已被其他司機接走');
+      }
     } on ApiException catch (e) {
-      _setApiError(e);
+      // 連線類錯誤（沒收到 HTTP 回應）＝ **請求可能已經送達後端**：接單也許已經成功，
+      // 只是回應在路上丟了。這時候若直接報錯，司機會以為沒接到而按「略過」，
+      // 而後端已把他設成載客中——他收不到新派單、也無法離線，且畫面上什麼都沒有。
+      if (e.statusCode == null &&
+          await _confirmAccepted(offer.rideId) == _AcceptOutcome.confirmed) {
+        _pendingOffer = null;
+        _setError(null);
+      } else {
+        _setApiError(e);
+      }
     } finally {
       _busy = false;
       notifyListeners();
     }
   }
 
-  /// 接單後重讀 active，以後端回傳為權威補齊樂觀 offer 缺的欄位（尤其 stops）。
+  /// 向後端確認這張單現在是不是我的，並以後端資料覆蓋樂觀值。
   ///
-  /// **只在後端回傳非 null 且 rideId 相符時覆蓋**——active API 對剛接的單短暫回 null
-  /// 或競態回別的行程時，寧可保留樂觀設定，也不要把剛接到的單清掉。
-  /// 重讀失敗（網路）不算接單失敗：吞掉例外、不覆寫 error。
-  Future<void> _refreshActiveAfterAccept(int rideId) async {
+  /// 後端 `AcceptRide` 是同步寫入（同一個請求裡更新 rides 與 driver 狀態）後才回應，
+  /// 所以「回應之後 active 查得到」是可以依賴的——`null` 代表**真的不是我的**，
+  /// 不是還沒寫好。
+  /// 只有重讀本身失敗時才回 [_AcceptOutcome.unknown]：那代表網路仍不通，
+  /// 這時保留樂觀行程比清掉安全（真的接到卻看不到行程，司機無事可做）。
+  Future<_AcceptOutcome> _confirmAccepted(int rideId) async {
     try {
       final fresh = await _api.activeRide();
       if (fresh != null && fresh.rideId == rideId) {
         _activeRide = fresh;
+        return _AcceptOutcome.confirmed;
       }
+      return _AcceptOutcome.rejected;
     } on ApiException {
-      // 樂觀行程已足以繼續作業；重讀失敗不打斷接單流程。
+      return _AcceptOutcome.unknown;
     }
   }
 

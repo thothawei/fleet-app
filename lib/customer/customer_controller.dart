@@ -852,34 +852,68 @@ class CustomerController extends ChangeNotifier {
         // P2：null ＝不指定，client 端不會帶這個鍵。
         requiredVehicleType: _requiredVehicleType?.code,
       );
-      _activeRide = ride;
-      _lastActiveRide = ride;
-      // 這趟已送出，編輯狀態不該留到下一趟。
-      _passengers.clear();
-      // 預估屬於「建單前」的輔助資訊，送出後就該收掉，不留到下一趟。
-      _estimate = null;
-      _estimating = false;
-      _estDropoffLat = null;
-      _estDropoffLng = null;
-      _driverName = null;
-      _driverInfo = null;
-      // 新的一趟開始 → 上一趟的取消原因不該還掛著。
-      _cancelReason = null;
-      _cancelledVehicleType = null;
-      _rideCancelled = false;
-      _liveEtaSec = null;
-      _liveDistM = null;
-      _liveDriverLat = null;
-      _liveDriverLng = null;
-      _driverArrived = false;
-      _completedSummary = null;
-      _error = null;
-      _startPolling();
+      _applyCreatedRide(ride);
     } on ApiException catch (e) {
+      // 建單是**有副作用**的請求：逾時／斷線（`statusCode == null`）代表
+      // 「不知道後端有沒有收到」，而 409 更是明說「你已經有一張進行中的訂單」——
+      // 那張多半就是上一次逾時真的建起來的。兩者都先去問後端到底有沒有單，
+      // 不能直接把「請求逾時」丟給乘客：他會停在叫車表單，再按一次就得到
+      // 「已有進行中的訂單」，而畫面上根本沒有任何訂單可看。
+      if ((e.statusCode == null || e.statusCode == 409) &&
+          await _adoptExistingRide()) {
+        return;
+      }
       _error = e.message;
     } finally {
       _setBusy(false);
     }
+  }
+
+  /// 建單失敗後向後端確認是否其實已經有一張進行中的訂單；有就直接接手它。
+  /// 回 true 代表「這趟其實成立了」，呼叫端不該再報錯。
+  Future<bool> _adoptExistingRide() async {
+    try {
+      final ride = await _api.activeRide();
+      if (ride == null || RideStatus.isTerminal(ride.status)) return false;
+      _applyCreatedRide(ride);
+      // 逾時期間可能已經被司機接走了：這行把司機姓名／車輛補回來，
+      // 不必等下一個輪詢週期才顯示。
+      _applyActiveRide(ride);
+      return true;
+    } on ApiException {
+      // 連問都問不到（網路仍不通）→ 維持原本的錯誤回報，不編故事。
+      return false;
+    }
+  }
+
+  /// 一趟新訂單成立後的狀態切換（建單成功與「其實已經建好了」共用）。
+  ///
+  /// 兩條路徑必須共用同一份清單：漏掉其中一項，就會把上一趟的司機、取消通知或
+  /// 完成卡帶進這一趟。
+  void _applyCreatedRide(CustomerRide ride) {
+    _activeRide = ride;
+    _lastActiveRide = ride;
+    // 這趟已送出，編輯狀態不該留到下一趟。
+    _passengers.clear();
+    // 預估屬於「建單前」的輔助資訊，送出後就該收掉，不留到下一趟。
+    _estimate = null;
+    _estimating = false;
+    _estDropoffLat = null;
+    _estDropoffLng = null;
+    _driverName = null;
+    _driverInfo = null;
+    // 新的一趟開始 → 上一趟的取消原因不該還掛著。
+    _cancelReason = null;
+    _cancelledVehicleType = null;
+    _rideCancelled = false;
+    _liveEtaSec = null;
+    _liveDistM = null;
+    _liveDriverLat = null;
+    _liveDriverLng = null;
+    _driverArrived = false;
+    _completedSummary = null;
+    _error = null;
+    _startPolling();
   }
 
   /// [silent] ＝ 這次刷新不是使用者按出來的（背景輪詢），失敗時**不寫全域 error**。
