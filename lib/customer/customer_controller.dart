@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../core/api/api_error.dart' show sessionExpiredMessage;
 import '../core/api/customer_api_client.dart';
 import '../core/api/fleet_api_client.dart' show ApiException;
 import '../core/config/app_config.dart';
@@ -19,7 +20,10 @@ class CustomerController extends ChangeNotifier {
   })  : _storage = storage ?? CustomerTokenStorage(),
         _api = api ?? CustomerApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
-        _ws = FleetWsClient(onEvent: (_) {});
+        _ws = FleetWsClient(onEvent: (_) {}) {
+    // token 過期／失效時把乘客送回登入頁（見 _handleUnauthorized）。
+    _api.onUnauthorized = _handleUnauthorized;
+  }
 
   final CustomerTokenStorage _storage;
   final CustomerApiClient _api;
@@ -92,6 +96,8 @@ class CustomerController extends ChangeNotifier {
   List<CustomerRideSummary> _rideHistory = [];
   bool _historyLoading = false;
   String? _historyError;
+  // session 失效清理中；並發的 401（輪詢＋使用者操作同時）不重入清理。
+  bool _sessionExpiring = false;
 
   CustomerSession? get session => _session;
   bool get isLoggedIn => _session != null;
@@ -473,6 +479,25 @@ class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// token 過期／失效（401）：**本地登出**並讓乘客知道要重新登入。
+  ///
+  /// 沒有這條路，過期後乘客會停在叫車首頁，每按一次「叫車」只得到一句
+  /// 「token 無效或已過期」——他既不知道那是什麼，也沒有畫面可以重新登入
+  /// （地圖版首頁只有一顆不起眼的登出鈕）。JWT 預設 72 小時，長期使用者必然遇到。
+  void _handleUnauthorized() {
+    if (_session == null || _sessionExpiring) return;
+    _sessionExpiring = true;
+    unawaited(() async {
+      try {
+        await logout();
+        _error = sessionExpiredMessage;
+      } finally {
+        _sessionExpiring = false;
+      }
+      notifyListeners();
+    }());
+  }
+
   Future<void> logout() async {
     _stopPolling();
     await _ws.disconnect();
@@ -501,6 +526,12 @@ class CustomerController extends ChangeNotifier {
     _unreadChat = 0;
     _chatVisible = false;
     _lostItems = [];
+    // 歷史行程是**上一個帳號的個人資料**：不清的話，換人登入後一進「我的行程」
+    // 就會在自己的資料載入前先看到前一位乘客的行程與車資。
+    _rideHistory = [];
+    _historyError = null;
+    _completedRatingScore = null;
+    _completedRatingRideId = null;
     _api.setToken(null);
     notifyListeners();
   }
