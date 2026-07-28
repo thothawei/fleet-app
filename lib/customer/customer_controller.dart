@@ -48,6 +48,9 @@ class CustomerController extends ChangeNotifier {
   // 是否有待呈現的取消通知（P4）。reason 為 null 也要通知（乘客主動取消／司機放棄
   // 走泛用文案），故需獨立旗標，不能只看 _cancelReason。
   bool _rideCancelled = false;
+  // 司機放棄後「正在重新派車」的說明；與取消通知分開——**行程還在**，
+  // 混用取消通知會讓乘客以為要重新叫車。
+  String? _redispatchNotice;
   // 乘客指定的車種（P2）；null ＝不指定，維持現行行為。
   VehicleType? _requiredVehicleType;
   // 寵物車清潔費率（P5）；null ＝尚未查到（費率不常變，快取一次即可）。
@@ -123,6 +126,17 @@ class CustomerController extends ChangeNotifier {
   /// 是否該給「改用不指定車種重新叫車」快捷（P4：只有指定車種找不到才建議）。
   bool get suggestAnyVehicle =>
       _rideCancelled && shouldSuggestAnyVehicle(_cancelReason);
+
+  /// 司機放棄後的「正在重新派車」說明；null ＝ 沒有要顯示的。
+  /// 與 [cancelNotice] 互斥使用：這個代表**行程還在**，只是換司機。
+  String? get redispatchNotice => _redispatchNotice;
+
+  /// 有新司機接單／新叫車／行程結束時清掉。
+  void dismissRedispatchNotice() {
+    if (_redispatchNotice == null) return;
+    _redispatchNotice = null;
+    notifyListeners();
+  }
 
   /// 關閉取消通知（乘客按「知道了」或採用快捷操作後）。
   void dismissCancelNotice() {
@@ -471,6 +485,7 @@ class CustomerController extends ChangeNotifier {
     _cancelReason = null;
     _cancelledVehicleType = null;
     _rideCancelled = false;
+    _redispatchNotice = null;
     _requiredVehicleType = null;
     _passengers.clear();
     _estimate = null;
@@ -601,6 +616,22 @@ class CustomerController extends ChangeNotifier {
         // O4／O7：車種車牌供路邊對車，電話供直接聯絡（明碼，僅該趟乘客收得到此事件）。
         _driverInfo = RideDriverInfo.fromPayload(event.payload ?? const {});
         _driverArrived = false;
+        // 新司機接單＝「重新派車中」已經結束，通知留著會與畫面上的司機卡片矛盾。
+        _redispatchNotice = null;
+        refreshActive(silent: true);
+      // 司機放棄，行程回到派單中——**不是取消**，訂單還在，只是重新找司機。
+      // 這裡必須把上一位司機的所有痕跡清乾淨：車牌／撥號按鈕若留著，
+      // 乘客會打給一個已經不來的司機；ETA 與地圖上的車也是舊的。
+      case FleetEventTypes.rideRedispatched:
+        _driverName = null;
+        _driverInfo = null;
+        _driverArrived = false;
+        _liveEtaSec = null;
+        _liveDistM = null;
+        _liveDriverLat = null;
+        _liveDriverLng = null;
+        _redispatchNotice = '司機取消了行程，正在為您重新派車';
+        notifyListeners();
         refreshActive(silent: true);
       case FleetEventTypes.driverLocation:
         _liveEtaSec = (event.payload?['eta_sec'] as num?)?.toInt();
@@ -624,6 +655,8 @@ class CustomerController extends ChangeNotifier {
         _cancelReason = CancelReason.fromCode(event.payload?['cancel_reason'] as String?);
         _cancelledVehicleType = event.payload?['required_vehicle_type'] as String?;
         _rideCancelled = true;
+        // 行程真的結束了，「正在重新派車」不能再留著（重派沒成功才會走到這裡）。
+        _redispatchNotice = null;
         refreshActive(silent: true);
       default:
         break;
