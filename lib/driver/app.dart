@@ -5,6 +5,7 @@ import '../core/config/app_config.dart';
 import '../core/models/models.dart';
 import '../core/push/driver_push_service.dart';
 import '../core/theme/app_theme.dart';
+import '../shared/widgets/app_lifecycle_reactor.dart';
 import 'driver_controller.dart';
 import 'screens/driver_home_screen.dart';
 import 'screens/driver_login_screen.dart';
@@ -36,6 +37,15 @@ class _DriverRoot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ctrl = context.watch<DriverController>();
+    // 回前景就以後端為準重讀一次行程：司機端沒有輪詢，背景期間斷過線就再也收不到
+    // 那些 WS 事件（見 DriverController.onAppResumed）。
+    return AppLifecycleReactor(
+      onResumed: ctrl.onAppResumed,
+      child: _buildBody(ctrl),
+    );
+  }
+
+  Widget _buildBody(DriverController ctrl) {
     if (!ctrl.isLoggedIn) {
       return const DriverLoginScreen();
     }

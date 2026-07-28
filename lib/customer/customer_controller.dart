@@ -426,6 +426,17 @@ class CustomerController extends ChangeNotifier {
     }
   }
 
+  /// App 從背景回到前景：立刻對帳一次，不等下一個輪詢週期。
+  ///
+  /// 15 秒的輪詢 timer 在背景是不跑的，回前景後最久要等 15 秒才會發現行程已經變了
+  /// （司機接單、行程取消）；WS 也可能在背景期間變成半開連線。
+  /// **silent**：這不是使用者按出來的刷新，失敗不該彈 SnackBar。
+  Future<void> onAppResumed() async {
+    if (_session == null) return;
+    _ws.ensureConnected();
+    await refreshActive(silent: true);
+  }
+
   Future<void> login({
     required String lineUserId,
     required String password,

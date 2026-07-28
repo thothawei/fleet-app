@@ -744,6 +744,65 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
 
 ---
 
+## 🔄 2026-07-28 第四輪 debug：App 生命週期（背景→前景）
+
+> 接續上一段列出的「下一輪還沒碰過的角落」第 1 項。
+> 起點同樣是一句可查證的事實：`grep -rn "WidgetsBindingObserver\|didChangeAppLifecycleState" lib/`
+> **全 App 零命中**——兩端從來不知道自己被切到背景過。
+
+**三個獨立的缺口**（都不是「寫錯了」，是「從來沒做」）：
+
+1. **司機端沒有任何回前景對帳**。司機端**沒有輪詢**，行程狀態 100% 靠 WS。
+   背景期間只要斷過線（切網路、進隧道、後端重啟、系統凍結進程），
+   `ride.cancelled` 就再也不會補送——**後端不補發歷史事件**。
+   回前景後那張行程卡還掛在畫面上，司機會繼續開去接一個已經取消的乘客，
+   直到他按下某個按鈕才被 409 擋下。
+2. **WS 沒有心跳，偵測不到半開連線**。手機切背景、換網路、經過 NAT／LB 逾時後，
+   對端可能已經沒了而本地 socket 收不到 FIN：`isConnected` 仍是 true、
+   UI 顯示「即時連線正常」，卻永遠收不到派單，**而且不會觸發重連**
+   （重連只由 `onDone`／`onError` 觸發，半開連線兩個都不會來）。
+3. **回前景還要陪等退避**。退避在長時間離線後會拉到 30 秒上限；
+   使用者剛回到前景、正盯著畫面等派單／等司機，卻還要再等最多 30 秒。
+
+**順帶抓到一個既有的說謊**（本批新功能踩出來的）：`_scheduleReconnect()` **沒有清掉 `_channel`**，
+所以整個重連等待期間 `isConnected` 都回 true——與同時回報 `onConnectionChanged(false)`
+自相矛盾。舊碼沒出事是因為當時沒人讀 `isConnected`；`ensureConnected()` 一讀它就會
+「以為還連著」而什麼都不做。已一併修掉（斷線時 `_channel = null` 並靜默關閉）。
+
+**修法**：
+- `AppLifecycleReactor`（`lib/shared/widgets/app_lifecycle_reactor.dart`）：**只對 `resumed` 動作**——
+  `inactive`／`hidden` 在拉下通知欄之類的過場也會出現，對它們反應會在使用者根本沒離開 App 時
+  打一堆沒必要的請求。兩端 root 各包一層（登入頁也在底下，controller 未登入時早退）。
+- `DriverController.onAppResumed()`：`ensureConnected()` ＋ **以後端為準重讀 active** ＋ 協尋清單。
+- `CustomerController.onAppResumed()`：`ensureConnected()` ＋ `refreshActive(silent: true)`——
+  **silent**，這不是使用者按出來的刷新（沿用第一輪的原則）。
+- `FleetWsClient`：預設連線改帶 **`pingInterval` 20 秒**（`IOWebSocketChannel`）→ 半開連線由底層偵測並關閉，
+  走既有重連鏈；新增 `ensureConnected()`（已連上就什麼都不做，否則取消退避、歸零、立刻重試）。
+
+**驗收**：
+- 靜態：`flutter analyze` 無 issue、`flutter test` **248 passed**（240 ＋新 8）。
+  新增 `test/app_lifecycle_test.dart`：reactor 2 案（只對 resumed／移除後不再收通知）、
+  司機端 2 案（**背景期間行程被取消 → 回前景後行程卡消失**／未登入不打 API）、
+  乘客端 1 案（立刻對帳且失敗不彈錯誤）、`ensureConnected` 3 案（斷線中 2 秒內重連、
+  已連線不重建、登出後不偷連——後三案用真的本機 WebSocket 伺服器）。
+  **反向確認**：三處修正各自拿掉後，對應的 3 案 FAIL。
+- **✅ 模擬器實跑閉環（2026-07-28，`m6_pixel` driver flavor ＋ docker compose）**：
+  - **漏事件重現**：司機接單（ride #6 行程卡在畫面上）→ HOME 切背景 → `docker stop app`
+    （WS 斷、進入退避）→ 等 45 秒 → `docker start app` 後**在 App 重連之前**用乘客 API 取消
+    （後端 18:47:03 起來，取消也在 18:47:03；App 那時還在退避）→ 回前景 →
+    **行程卡消失，回到「等待派單中」**。
+    後端 log 交叉驗證：**回前景的同一秒（18:47:59）**收到
+    `SELECT * FROM rides WHERE driver_id = 5 AND status IN (2,3)`（＝`GET /driver/rides/active`）
+    與 `lost_item_requests` 查詢——這兩個請求在修正前**根本不存在**。
+  - **回前景立刻重連**：`docker stop app` 70 秒（退避已達 30 秒上限）→ `docker start app` →
+    **不動 App，5 秒後畫面仍是紅底「連線中斷，暫時收不到派單」**＋「未連線，派單可能延遲」→
+    切背景再回前景 → **2 秒後就變回「即時連線正常」**。
+
+**沒做／已知限制**：心跳只在 App 前景真的有效（背景被系統凍結時 timer 不跑），
+但那正是回前景對帳要補的洞，兩者互補。iOS 尚未在實機驗過（A5 階段 5 仍卡）。
+
+---
+
 ## 下次任務
 
 > **✅ 維護項 5「清開發殘留」已完成（2026-07-28）**，詳見上方。
@@ -787,8 +846,7 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
 > **第三輪（2026-07-28）修掉 token 過期後 App 說謊**，見上方「🔑 第三輪 debug」。
 >
 > **➡️ 下一輪 debug 還沒碰過的角落**（依價值排序，都不需外部資源）：
-> 1. **App 生命週期**：切到背景數分鐘再回前景，WS 是否確實重連、進行中行程是否對得上
->    （目前只驗過「後端斷線→復原」，沒驗過「App 被系統凍結→回前景」）。
+> 1. ~~**App 生命週期**~~ ✅ **已完成（2026-07-28 第四輪）**，見上方專段。
 > 2. **多裝置／同帳號重複登入**：同一司機在兩台裝置上線，後端沒有踢舊 session 的機制，
 >    兩邊都會收派單——先確認後端行為，再決定 App 該不該處理。
 > 3. **弱網**（非全斷）：`adb shell svc data` 或模擬器限速下的逾時分支，

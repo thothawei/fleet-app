@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../config/app_config.dart';
@@ -42,7 +43,17 @@ class FleetWsClient {
     required this.onEvent,
     this.onConnectionChanged,
     @visibleForTesting WebSocketChannel Function(Uri uri)? connector,
-  }) : _connector = connector ?? WebSocketChannel.connect;
+  }) : _connector = connector ?? _defaultConnector;
+
+  /// 帶心跳的預設連線方式。
+  ///
+  /// **沒有心跳就偵測不到半開連線**：手機切到背景、換網路、經過 NAT／負載平衡器逾時後，
+  /// 對端可能已經沒了，但本地 socket 收不到 FIN——`isConnected` 仍是 true、
+  /// UI 照樣顯示「即時連線正常」，司機卻永遠收不到派單，而且**不會觸發重連**
+  /// （重連只由 onDone／onError 觸發）。
+  /// 設 pingInterval 後底層會定期送 ping，對端沒回應就關閉 stream → 走既有重連鏈。
+  static WebSocketChannel _defaultConnector(Uri uri) =>
+      IOWebSocketChannel.connect(uri, pingInterval: _pingInterval);
 
   final FleetEventHandler onEvent;
   final void Function(bool connected)? onConnectionChanged;
@@ -58,6 +69,10 @@ class FleetWsClient {
 
   /// 握手逾時；超過就放棄這次連線並排重連（系統 TCP 逾時太久，等它會讓司機長時間收不到派單）。
   static const _readyTimeout = Duration(seconds: 15);
+
+  /// 心跳間隔：對端在一個 interval 內沒回 pong 就視為斷線（見 [_defaultConnector]）。
+  /// 20 秒是「多久之後才發現自己收不到派單」的上限，與省電之間的折衷。
+  static const _pingInterval = Duration(seconds: 20);
 
   /// 關閉舊連線的等待上限（對端已消失時 close handshake 不會回來）。
   static const _closeTimeout = Duration(seconds: 2);
@@ -82,6 +97,18 @@ class FleetWsClient {
     _reconnectTimer?.cancel();
     // 握手要等 `ready`，網路不通時可能卡到 TCP 逾時；不能讓登入流程陪它一起卡住。
     // 連線在背景進行，狀態一律由 onConnectionChanged 回報。
+    unawaited(_open());
+  }
+
+  /// 確保連線還在；已連上就什麼都不做，否則**立刻**重試一次。
+  ///
+  /// 給「App 回到前景」用：在背景待了幾分鐘後，退避可能已經拉到 30 秒，
+  /// 而使用者正盯著畫面等派單／等司機——這時候值得馬上試，不該讓他再等一輪退避。
+  void ensureConnected() {
+    if (_disposed || _token == null || isConnected) return;
+    _reconnectTimer?.cancel();
+    // 使用者主動回到前景，等同一次新的連線意圖：退避歸零。
+    _reconnectAttempts = 0;
     unawaited(_open());
   }
 
@@ -178,6 +205,13 @@ class FleetWsClient {
 
   void _scheduleReconnect() {
     if (_disposed) return;
+    // 連線已經死了，`_channel` 就不能再留著——否則 `isConnected` 會說謊：
+    // 它在整個重連等待期間都回 true，而 `ensureConnected()`（回前景）看的正是它，
+    // 會以為還連著而什麼都不做。舊碼只有 onConnectionChanged 報 false，
+    // 兩個真相來源不一致。
+    final dead = _channel;
+    _channel = null;
+    unawaited(_closeQuietly(dead));
     onConnectionChanged?.call(false);
     _reconnectTimer?.cancel();
     final delay = _nextReconnectDelay;
@@ -209,4 +243,7 @@ class _SilentWsClient extends FleetWsClient {
   Future<void> disconnect() async {
     onConnectionChanged?.call(false);
   }
+
+  @override
+  void ensureConnected() {}
 }

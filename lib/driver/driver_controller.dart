@@ -261,6 +261,19 @@ class DriverController extends ChangeNotifier {
     await _bindPushListener();
   }
 
+  /// App 從背景回到前景：補回背景期間可能漏掉的東西。
+  ///
+  /// **司機端沒有輪詢，行程狀態完全靠 WS**——背景期間只要斷過線（切網路、進隧道、
+  /// 系統凍結進程），`ride.cancelled` 就再也不會補送。回前景後那張行程卡還掛在畫面上，
+  /// 司機會繼續開去接一個已經取消的乘客，直到他按下某個按鈕才被 409 擋下。
+  /// 所以這裡一律以後端為準重讀一次，順便把可能半開的 WS 立刻重連（不等退避）。
+  Future<void> onAppResumed() async {
+    if (_session == null) return;
+    _ws.ensureConnected();
+    await _restoreActiveRide();
+    await refreshLostItems();
+  }
+
   /// 測試用：模擬收到 WS 事件（等同正式連線後的 onEvent）。
   @visibleForTesting
   void handleWsEventForTest(FleetWsEvent event) => _handleWsEvent(event);
