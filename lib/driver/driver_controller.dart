@@ -757,7 +757,8 @@ class DriverController extends ChangeNotifier {
           notifyListeners();
         }
       case FleetEventTypes.rideAccepted:
-        if (event.rideId != null && _activeRide?.rideId == event.rideId) {
+        if (event.rideId == null) break;
+        if (_activeRide?.rideId == event.rideId) {
           // 司機端 ride.accepted 事件帶目的地，先預載供 onTrip 導航（pickup 回應為保底來源）
           final dropoff = event.payload?['dropoff_address'] as String?;
           _activeRide = _activeRide!.copyWith(
@@ -768,11 +769,27 @@ class DriverController extends ChangeNotifier {
             dropoffLng: (event.payload?['dropoff_lng'] as num?)?.toDouble(),
           );
           notifyListeners();
+        } else {
+          // **這則事件的收件人就是「接單的那個司機」**，所以到了這裡代表
+          // 「我在別的地方接了這張單」——另一台裝置、或 LINE 那條路徑。
+          // 舊碼在這種情況下什麼都不做：接單卡繼續留在畫面上，行程卡不出現，
+          // 司機以為自己還沒接到，按下去才發現。
+          if (_pendingOffer?.rideId == event.rideId) _pendingOffer = null;
+          // 以後端為準把行程補進來（事件 payload 不含全程 stops）。
+          unawaited(_restoreActiveRide());
+          notifyListeners();
         }
       case FleetEventTypes.ridePickedUp:
         if (event.rideId != null && _activeRide?.rideId == event.rideId) {
           _activeRide = _activeRide!.copyWith(phase: DriverRidePhase.onTrip);
           notifyListeners();
+        }
+      case FleetEventTypes.rideStopUpdated:
+        // 多裝置／跨管道：另一處標記了到達或跳過。乘客端早就會收這則事件並更新進度，
+        // 司機端卻不處理——同一位司機的兩台裝置會看到不同的「下一站」，
+        // 而「下一站」正是司機端唯一給操作的那一站。
+        if (event.rideId != null && _activeRide?.rideId == event.rideId) {
+          unawaited(_restoreActiveRide());
         }
       case FleetEventTypes.rideCompleted:
       case FleetEventTypes.rideCancelled:
