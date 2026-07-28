@@ -197,13 +197,15 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   至此三端齊備：**乘客評 → 司機看得到自己的平均分 → 營運看得出誰評價低**。
   詳見 [`docs/TODO.md`](docs/TODO.md)「⭐ 乘客評分司機」。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **227 passed**（2026-07-28）。
+**目前**：`flutter analyze` 無 issue、`flutter test` **230 passed**（2026-07-28）。
 
 **2026-07-28 修掉的 4 個 bug**（每個都先寫測試看它 FAIL 才修，詳見
 [`docs/TODO.md`](docs/TODO.md)「🐞 2026-07-28 debug」）：司機端 8 秒一次的定位探針會把
 **業務錯誤**（如完成行程被 409 擋下）一起洗掉；乘客端 15 秒一次的背景輪詢失敗會不停彈
 SnackBar；FCM token 輪替失敗會冒出司機看不懂也無事可做的紅色橫幅；
-**司機放棄訂單時 App 乘客收不到任何事件**（後端只推 LINE，跨端對帳抓到）。
+**司機放棄訂單時 App 乘客收不到任何事件**（後端只推 LINE，跨端對帳抓到）；
+**production 首頁沒有遺失物協尋入口**（banner 只寫在非 production 的卡片版首頁，乘客付不了處理費就拿不回東西）。
+三個「畫面沒人讀」類的修正已於同日在 `m6_pixel` 模擬器上**逐一實機閉環驗證**。
 
 ## 規劃中（尚未實作）
 
