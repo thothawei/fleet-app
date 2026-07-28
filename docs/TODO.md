@@ -485,11 +485,49 @@ admin 端 `grep -i rating` 零命中，營運方對爛司機完全無感。
 
 ---
 
+## 🧹 清開發殘留 worktree／舊分支（維護項 5，2026-07-28 完成）
+
+> 三個 repo 累積的殘留：**76 條本地分支、18 個 worktree**。
+> 這項的重點不是刪，而是**刪之前逐條證明內容真的在 main**——
+> 前兩批「救回」（app PR #48、dispatch PR #49）就是因為有人把未合併的分支當成已合併。
+
+**判定方法**（不靠 commit message、不靠「PR 看起來合併了」）：
+1. `git merge-base --is-ancestor <branch> main` → 是 ancestor 就安全。
+2. 非 ancestor 者查對應 PR，**MERGED 還要再比對 `headRefOid`**——
+   squash merge 後本地 tip 可能又有新 commit，PR 頁面不會告訴你。
+   全 40 條 MERGED 分支的本地 tip **都等於合併時的 tip**（無漏網）。
+3. 剩下的例外逐條看 diff：**只有 4 條**不是「已合併且 tip 相同」。
+
+**4 條例外的判定**：
+
+| 分支 | 判定 | 依據 |
+|---|---|---|
+| app `claude/todo-review-priority-54ffe7`（PR #40 CLOSED） | 已救回 | 整合測試＋`tool/watch_driver_location.sh` 在 PR #48、功能碼在 PR #41 |
+| app `claude/project-planning-docs-803c8e`（PR #37 CLOSED） | 已被取代 | 純文件；T1 車資預估已完成、T2/T3 仍列在下方、T5-2 評分已上線 |
+| dispatch `claude/driver-phone-profile`（PR #42 CLOSED） | 已被取代 | 那份 service 測試的每一條都被 main 的 `handler/driver_profile_test.go`（真 DB）覆蓋，含「改電話不重置 O5 審核」；且**「空字串＝清除電話」在 main 已改成 400 拒絕**，原測拿到 main 反而會 FAIL |
+| dispatch `claude/determined-shannon-17f4ac`（**從未開 PR**） | 🐛 有漏 → 已救回 | 功能碼（`PickUpResult`／`dropoff_lat`／tracking ETA）都在 main，但帶著一份 main 沒有的 `ride_dropoff_integration_test.go` |
+
+- [x] **救回 dropoff repository 測試**（dispatch PR #50）：原檔測的 `GetDropoffCoords`
+      在 main 已不存在，故改寫成對現有 API（`Create` → `GetByID`）的等價覆蓋。
+      關鍵是**「未指定目的地 → `DropoffPoint` 必須是 nil」這條 main 完全沒有**——
+      守的是踩過的 `GeoPoint.Scan` 坑：NULL 被當成掃描成功而留下 `(0,0)`，
+      導航與計費會把幾內亞灣外海當真目的地且**不報錯**。
+      負向斷言的取值路徑由同檔正向案例校準（同一個 `GetByID → DropoffPoint`），
+      不會永遠 PASS。真 PostGIS（testcontainers）實跑 **2/2 PASS**、gofmt／go vet 乾淨。
+- [x] **清除**（三端數字皆為實測 `git worktree list`／`git branch -a`）：
+      本地分支 **76 → 5**（app 55→2、admin 2→1、dispatch 19→2）、
+      worktree **18 → 3**（僅留兩個進行中的工作區）、
+      remote 舊分支 **17 → 0**（app 7、dispatch 10；使用者 2026-07-28 同意含 4 條未合併的一併刪，
+      GitHub 的 PR 頁面仍看得到 diff）。admin 端本來就乾淨。
+
+---
+
 ## 下次任務
 
-> **✅ B5 評分的模擬器實跑 E2E 已完成（2026-07-27）**，詳見上方「⭐ 乘客評分司機」。
-> 實跑抓到一個後端文案 bug（評分被拒時講遺失物協尋），已修（dispatch PR #46）——
-> 又一次印證「單元測試綠 ≠ 使用者看到的東西是對的」。
+> **✅ 維護項 5「清開發殘留」已完成（2026-07-28）**，詳見上方。
+> 清理過程又撈到一份未合併的測試（dispatch PR #50）——
+> **「從未開過 PR」的分支是最危險的一種殘留**：它不在任何 PR 列表裡，
+> 只有逐條比對 diff 才看得到。
 >
 > **➡️ 下次任務：剩下的都被外部資源卡住**，開工前先確認前置條件到位：
 > 1. **A2 真裝置推播**——需要你先建 Firebase 專案並提供 `google-services.json`（後端 FCM 已上線）。
@@ -499,9 +537,7 @@ admin 端 `grep -i rating` 零命中，營運方對爛司機完全無感。
 > 4. **車種供給為零時的選項處理**——等產品拍板要停用、隱藏、還是照選但提示。
 >
 > **不需前置條件、隨時可做的維護項**（2026-07-27 盤點新增）：
-> 5. **清開發殘留**：三個 repo 累積了十幾個**已合併卻沒刪的 worktree 與舊分支**
->    （`git worktree list` 看得到）。它們會讓 `git branch -a` 難讀，
->    也讓下次開 worktree 時撞名。**條件**：純維護，不動產品程式碼。
+> 5. ~~**清開發殘留 worktree／舊分支**~~ ✅ **已完成（2026-07-28）**，見上方專段。
 > 6. **清 dev DB 測試殘留**：本機 docker compose 的 DB 堆了大量前幾次 session 的
 >    測試司機與訂單——2026-07-27 的 B5 實跑就因為十幾個殘留的「線上」司機擋在派單佇列前，
 >    白跑了一輪派單逾時才輪到目標司機。**條件**：會寫 DB，動手前要先問過。
@@ -509,6 +545,12 @@ admin 端 `grep -i rating` 零命中，營運方對爛司機完全無感。
 >    **沒有低分司機的處理流程**（通知／停權／申訴）。
 >    **條件**：等實際累積評分、營運說得出要對低分司機做什麼再開——
 >    做在前面只會做出沒人用的流程。
+>
+> **🎯 下次開工第一件事**：第 6 項（清 dev DB 測試殘留）是唯一還能動的維護項，
+> 但它**會寫 DB，動手前必須先問過使用者**（`ask-before-db-writes`）。
+> 建議做法：先只讀盤點（`SELECT` 出殘留的線上司機／未結案訂單數量），
+> 把要刪什麼列給使用者看，取得同意後才 `DELETE`。
+> 若使用者不想動 DB，第 1–4 項就都要等他提供外部資源／拍板，屆時**不要硬找事做**。
 
 > **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
 > 以 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸，driver/customer 兩 flavor 共用。
