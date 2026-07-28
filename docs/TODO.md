@@ -568,6 +568,60 @@ ride_ratings 2、ride_messages 1、daily_driver_earnings 11、device_tokens 1。
 
 ---
 
+## 🐞 2026-07-28 debug：4 個 bug ＋ 跨端契約對帳
+
+### 修掉的 4 個（每個都先寫測試看它 FAIL 才修）
+
+前三個是**同一家族**：使用者沒按任何東西的背景動作，汙染了使用者的錯誤出口，
+或反過來把使用者真正需要看的訊息洗掉（app PR #52）。
+
+1. **司機端定位探針洗掉業務錯誤**：`_reportPosition` 成功時清掉**所有**錯誤
+   （理由是「探針成功＝後端可達」），但它 8 秒跑一次。司機按「完成行程」被 409 擋下時，
+   那句唯一的回饋幾秒內就被無聲抹掉。**修法**：只清連線類
+   （`ApiException.statusCode == null` ＝根本沒收到 HTTP 回應），4xx/5xx 必須留著；
+   error 指派全部收斂到 `_setError`／`_setApiError` 才記得住這個分類。
+2. **乘客端背景輪詢失敗彈 SnackBar**：15 秒一次，後端一斷線就每 15 秒蓋住 sheet 上的按鈕，
+   使用者沒按過任何東西也無法讓它停。**修法**：`refreshActive({silent})`——
+   輪詢與 WS 觸發的刷新靜默，使用者主動觸發的維持照舊回報。
+3. **FCM token 輪替失敗冒紅色橫幅**：推播是可降級的輔助管道（README 明載「可略過，仍可用 WS」）。
+   登入路徑剛好被後續的 `_setError(null)` 蓋掉，**token 輪替那條沒有任何保護**。
+   ⚠️ 修了 (1) 之後這條橫幅不再被探針清掉，所以 (1) 讓 (3) 變得更必須修。
+4. **司機放棄訂單時 App 乘客收不到任何事件**（dispatch PR #52 ＋ app PR #53）：
+   後端**寫好了**文案「司機取消了行程，正在為您重新派車」，卻只走 `line.PushText`。
+   App 乘客的司機卡片（含車牌與撥號按鈕）停在畫面上，直到最多 15 秒後的輪詢才無聲退回
+   「配對中」——期間可能打給一個已經不來的司機。**修法**：補送 `ride.redispatched`
+   （型別本來就定義好，先前只用於 audit）；**刻意不用 `ride.cancelled`**——
+   行程沒取消只是回到派單中，送它會讓 App 清掉整筆訂單。
+   App 端接住後清乾淨上一位司機的所有痕跡，並在配對中畫面顯示說明。
+
+### 跨端契約對帳：**這些已驗過是乾淨的，下次不必重做**
+
+方法：起真實後端，WS 同時掛上司機與乘客跑完整鏈路，抓**後端實際送出的 payload**
+逐欄比對 App 的解析程式碼——不是讀程式碼猜。以下全部查證通過：
+
+| 檢查 | 結果 |
+|---|---|
+| 13 個 WS 事件型別是否有 App 沒處理的 | 無漏接（`ride.requested`／`ride.redispatched` 當時只是 audit 型別） |
+| 停靠點 8 個鍵（含 `arrived_at`／`skipped_at` 只在發生時才帶） | 完全對齊 |
+| `cancel_reason` 機器可讀 code | 實跑驗到 `no_driver_available` 與 `no_vehicle_of_type`＋`required_vehicle_type`，兩端一致 |
+| REST 巢狀 `pickup_point` vs WS 扁平 `pickup_lat` | App 兩種都解析 |
+| 建單回 `ride_id`、其他端點回 `id`／`ID` | App 三種都接 |
+| `rating_avg` 實際回**整數** `4`（Go 的 float64 4.0） | App 用 `as num?`，不會 TypeError |
+| REST 帶 `cleaning_fee_cents: 0`（非缺鍵） | App 用 `> 0` 判斷，不會多顯示一行 NT$0 |
+| App 讀的所有 JSON 鍵 vs 後端送出的所有鍵（集合差集） | 無「App 期待但後端不送」的鍵 |
+| 乘客 REST 還原是否帶 `stops`／`rating` | `customerRideView` 兩者都帶（WS-only 的坑已補） |
+
+**同時推翻的後端假設**（沒有 bug，不硬報）：`SetDriverEnabled` 已擋「載客中不可停用」、
+`AcceptRide` 會再驗一次 `Status != Idle`、取消時 `releaseAndReset` 會把司機放回待命、
+admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchInterval`。
+
+**下次要重跑對帳**：dev DB 是空的，腳本要重建帳號（司機還要走 O5 審核才能接單）。
+腳本邏輯：註冊司機／乘客 → admin 核准車輛 → 上線＋回報位置 → 雙方連 `ws://…/ws?token=`
+→ 叫車 → 接單 → 上車 → 完成 → 評分，全程把 REST 與 WS 的原始 payload 印出來比對。
+**沒覆蓋到的**：遺失物協尋鏈路、admin 端的 REST 形狀（只驗過司機／乘客兩端）。
+
+---
+
 ## 下次任務
 
 > **✅ 維護項 5「清開發殘留」已完成（2026-07-28）**，詳見上方。
@@ -597,10 +651,18 @@ ride_ratings 2、ride_messages 1、daily_driver_earnings 11、device_tokens 1。
 > **前置條件當日實查**：`android/app/google-services.json` **不存在**（A2 仍卡）、
 > `xcrun devicectl list devices` → **No devices found**（A5 階段 5 仍卡）。
 >
+> **2026-07-28 收尾**：清單清空後改做 debug——修掉 4 個 bug、做完一輪跨端契約對帳，
+> 見上方「🐞 2026-07-28 debug」。**六份清單（本檔、admin TODO、IOS_PLAN、gap-analysis-plan、
+> 兩份 UI/UX 執行計畫）的勾選現在全部對得上程式碼現況**，文件層面沒有可清的東西了。
+>
 > **🎯 下次開工第一件事**：**維護項已經清空了**（5、6 都完成，7 要等營運需求）。
 > 第 1–4 項全部需要你提供外部資源或拍板，**沒有前置條件就不要硬找事做**——
 > 開工前先確認：Firebase 專案（A2）／iPhone＋Xcode Personal Team（A5 階段 5）／
 > 金流方案（付款）／車種供給為零的產品方向。四者皆無時，正確答案是「這輪沒有可做的事」。
+>
+> 真的想再往前推、又不解上述卡點的話，**唯一剩下有價值的方向是繼續 debug**：
+> 上一輪沒覆蓋到的是**遺失物協尋鏈路**與 **admin 端 REST 形狀**（對帳只驗過司機／乘客兩端），
+> 以及模擬器 UI 層（資料對但畫面沒顯示那一類，只有實跑抓得到）。
 
 > **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
 > 以 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸，driver/customer 兩 flavor 共用。
