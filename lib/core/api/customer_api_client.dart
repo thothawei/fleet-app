@@ -7,7 +7,7 @@ import 'fleet_api_client.dart' show ApiException;
 
 /// 乘客端 REST API 封裝，自動帶 JWT。端點對齊後端 cmd/server/main.go 的 customer 路由。
 class CustomerApiClient {
-  CustomerApiClient({Dio? dio, String? token})
+  CustomerApiClient({Dio? dio, String? token, this.onUnauthorized})
       : _dio = dio ??
             Dio(BaseOptions(
               baseUrl: '${AppConfig.apiBase}/api',
@@ -19,6 +19,9 @@ class CustomerApiClient {
   }
 
   final Dio _dio;
+
+  /// session 失效時的回呼（帶 token 的請求收到 401）；由 controller 注入。
+  void Function()? onUnauthorized;
 
   void setToken(String? token) {
     if (token == null) {
@@ -308,6 +311,14 @@ class CustomerApiClient {
     }
   }
 
-  ApiException _wrap(DioException e) =>
-      ApiException(apiErrorMessage(e), statusCode: e.response?.statusCode);
+  /// 401（登入／註冊以外）＝ session 失效：通知 controller 清掉它。
+  /// 詳見 `FleetApiClient._wrap`——兩端同一條規則。
+  ApiException _wrap(DioException e) {
+    final code = e.response?.statusCode;
+    if (code == 401 && !isAuthPath(e.requestOptions.path)) {
+      onUnauthorized?.call();
+      return ApiException(sessionExpiredMessage, statusCode: code);
+    }
+    return ApiException(apiErrorMessage(e), statusCode: code);
+  }
 }

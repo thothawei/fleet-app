@@ -16,7 +16,7 @@ class ApiException implements Exception {
 
 /// REST API 封裝，自動帶 JWT。
 class FleetApiClient {
-  FleetApiClient({Dio? dio, String? token})
+  FleetApiClient({Dio? dio, String? token, this.onUnauthorized})
       : _dio = dio ??
             Dio(BaseOptions(
               baseUrl: '${AppConfig.apiBase}/api',
@@ -28,6 +28,11 @@ class FleetApiClient {
   }
 
   final Dio _dio;
+
+  /// session 失效時的回呼（帶 token 的請求收到 401）。
+  /// 由 controller 注入，用來把使用者送回登入頁——App 端沒有 refresh token，
+  /// 401 之後不論重試幾次都只會再拿到 401。
+  void Function()? onUnauthorized;
 
   void setToken(String? token) {
     if (token == null) {
@@ -321,6 +326,15 @@ class FleetApiClient {
     }
   }
 
-  ApiException _wrap(DioException e) =>
-      ApiException(apiErrorMessage(e), statusCode: e.response?.statusCode);
+  /// 401（登入／註冊以外）＝ 這個 session 已經不能用了：通知 controller 清掉它，
+  /// 並把訊息換成使用者看得懂的一句話。後端原文「token 無效或已過期」
+  /// 只會讓司機盯著一個他無法處理的錯誤，而畫面仍停在首頁假裝一切正常。
+  ApiException _wrap(DioException e) {
+    final code = e.response?.statusCode;
+    if (code == 401 && !isAuthPath(e.requestOptions.path)) {
+      onUnauthorized?.call();
+      return ApiException(sessionExpiredMessage, statusCode: code);
+    }
+    return ApiException(apiErrorMessage(e), statusCode: code);
+  }
 }

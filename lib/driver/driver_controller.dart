@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../core/api/api_error.dart' show sessionExpiredMessage;
 import '../core/api/fleet_api_client.dart';
 import '../core/config/app_config.dart';
 import '../core/location/driver_location_permissions.dart';
@@ -23,7 +24,10 @@ class DriverController extends ChangeNotifier {
         _api = api ?? FleetApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
         _push = push ?? NoOpDriverPushService(),
-        _ws = FleetWsClient(onEvent: (_) {});
+        _ws = FleetWsClient(onEvent: (_) {}) {
+    // token 過期／失效時把司機送回登入頁（見 _handleUnauthorized）。
+    _api.onUnauthorized = _handleUnauthorized;
+  }
 
   final DriverAuthStore _storage;
   final FleetApiClient _api;
@@ -45,6 +49,8 @@ class DriverController extends ChangeNotifier {
   StreamSubscription<String>? _tokenRefreshSub;
   String? _fcmToken;
   bool _busy = false;
+  // session 失效清理中；並發的 401（位置回報＋還原行程同時打）不重入清理。
+  bool _sessionExpiring = false;
 
   // 聊天：WS chat.message 即時串流 + 未讀計數（聊天室開啟時不累計）。
   final _chatStream = StreamController<RideMessage>.broadcast();
@@ -358,15 +364,46 @@ class DriverController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    await goOffline();
     if (_fcmToken != null) {
       try {
         await _api.unregisterDeviceToken(token: _fcmToken!);
       } catch (_) {}
-      _fcmToken = null;
     }
+    await _clearSession();
+    notifyListeners();
+  }
+
+  /// token 過期／失效（401）：**本地登出**並讓司機知道要重新登入。
+  ///
+  /// 沒有這條路，過期後的畫面會說謊：`isLoggedIn` 仍為 true，司機停在首頁、
+  /// 上線開關看起來是開的，但每一次位置回報都被 401 擋下——他不在派單池裡，
+  /// 卻只看到「等待派單中」。JWT 預設 72 小時（後端 `JWT_EXPIRY_HOURS`），
+  /// 這不是邊角情境，是每個持續使用的司機三天後必然遇到的。
+  ///
+  /// **不打 `unregisterDeviceToken`**：token 已失效，那支 API 只會再回一次 401。
+  void _handleUnauthorized() {
+    if (_session == null || _sessionExpiring) return;
+    _sessionExpiring = true;
+    unawaited(() async {
+      try {
+        await _clearSession();
+        _setError(sessionExpiredMessage);
+      } finally {
+        _sessionExpiring = false;
+      }
+      notifyListeners();
+    }());
+  }
+
+  /// 清掉本機 session 與所有跟著它的狀態（登出與 session 失效共用）。
+  ///
+  /// **車輛狀態一定要一起清**：留著它，下一個登入的司機會在自己的資料載入前
+  /// 先看到上一個人的審核狀態（甚至直接進首頁）。
+  Future<void> _clearSession() async {
+    await goOffline();
     await _ws.disconnect();
     await _storage.clear();
+    _fcmToken = null;
     _session = null;
     _api.setToken(null);
     _pendingOffer = null;
@@ -374,7 +411,8 @@ class DriverController extends ChangeNotifier {
     _unreadChat = 0;
     _chatVisible = false;
     _lostItems = [];
-    notifyListeners();
+    _vehicle = null;
+    _vehicleLoadFailed = false;
   }
 
   Future<void> toggleOnline() async {

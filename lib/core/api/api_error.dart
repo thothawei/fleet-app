@@ -9,6 +9,17 @@ import 'package:dio/dio.dart';
 /// **不可直接用 `e.message`**——那是 dio 的英文技術訊息，例如後端沒起時會得到
 /// 「The connection errored: Connection refused This indicates an error which most
 /// likely cannot be solved by the library.」，實跑時它整段出現在司機端錯誤 banner 上。
+/// token 過期／失效（401）時給使用者看的訊息。
+///
+/// **不能沿用後端原文**「token 無效或已過期」——那是給開發者看的：使用者不知道
+/// token 是什麼，更不知道自己該做什麼。這句話要能直接對應到唯一的出路（重新登入）。
+const sessionExpiredMessage = '登入已過期，請重新登入';
+
+/// 這兩條路徑的 401 是「帳號或密碼錯誤」，不是 session 失效——
+/// 拿它去清 session 會把「打錯密碼」變成「被登出」。
+bool isAuthPath(String path) =>
+    path.endsWith('/login') || path.endsWith('/register');
+
 String apiErrorMessage(DioException e) {
   final backend = _backendError(e.response?.data);
   if (backend != null && backend.isNotEmpty) return backend;
