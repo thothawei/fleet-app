@@ -44,12 +44,24 @@
   回到 **No issues found**、`flutter test` 169 passed。CI 是乾淨 checkout 所以沒被影響，
   但本機分析會被淹沒。
 - ✅ **階段 7（收尾）也完成**：CI 加了 iOS job、README 補了 iOS 段、TODO 回填。
+- 🔁 **2026-07-28 重驗與勾選對齊**：先前階段 1 的四項（1-1／1-2／1-3／1-5）、3-4、7-1
+  的**勾選框與這段散文不一致**——散文說完成、勾選框仍是 `[ ]`／`[~]`，
+  下一個 session 只讀清單會以為要重跑那些 sudo 步驟。已逐條重新取證後補勾：
+  `xcode-select -p`／`xcodebuild -version`（Xcode 26.6）／`xctrace list devices`（iOS 26.5 runtime）／
+  `flutter doctor`（No issues found）／`Info.plist` 三個定位鍵；
+  **並實跑 `flutter build ios --no-codesign --flavor driver -t lib/main_driver.dart`
+  → `✓ Built build/ios/iphoneos/Runner.app (20.6MB)`（Xcode build 116.8s）**
+  ——先前只驗過 customer flavor 的 build，driver flavor 的不簽名 build 這次才真的跑過。
+  7-1「CI 推不上去」是過期敘述，已更正（見階段 7）。
 - ➡️ **只剩階段 5（實機）與階段 6（推播，需付費帳號）**。
   階段 5 需要使用者把 iPhone 接上電腦，並在 Xcode 幫 Runner target 選 Personal Team（簽名）
   ＋在手機上信任開發者憑證——這兩件事是 GUI 操作，Claude 代勞不了。
   這階段最大的產出是 **A1「鎖屏長跑背景定位」的 iOS 實機驗收**，模擬器測不出來。
 
-## 0. 環境現況（2026-07-20 實測）
+## 0. 環境現況（2026-07-20 實測 — **歷史快照**）
+
+> ⚠️ 這張表是**動工前**的狀態，四個 ❌ 都已在階段 1 清掉（2026-07-28 重驗仍成立）。
+> 保留它是為了重裝機器時知道要處理什麼，**不要當成現況讀**。
 
 | 項目 | 實測結果 | 是否阻塞 |
 | --- | --- | --- |
@@ -68,22 +80,24 @@
 
 ## 階段 1 — 工具鏈打通（必須先做，會需要 sudo 密碼）
 
-- [ ] **1-1 切換 developer directory**
+- [x] **1-1 切換 developer directory** ✅ 2026-07-21（使用者執行，需 sudo）
       `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`
-      驗收：`xcodebuild -version` 印出 `Xcode 26.x`。
-- [ ] **1-2 同意授權 + 安裝首次啟動元件**
-      `sudo xcodebuild -license accept` → `sudo xcodebuild -runFirstLaunch`
-      驗收：兩個指令 exit 0。
-- [ ] **1-3 安裝 iOS 模擬器 runtime**（Xcode 26 預設不含）
-      `xcodebuild -downloadPlatform iOS`
-      驗收：`xcrun simctl list devices available | grep iPhone` 有裝置。
+      驗收（2026-07-28 重驗）：`xcode-select -p` = `/Applications/Xcode.app/Contents/Developer`、
+      `xcodebuild -version` = **Xcode 26.6 (17F113)**。
+- [x] **1-2 同意授權 + 安裝首次啟動元件** ✅ 2026-07-21（使用者執行，需 sudo）
+      驗收：`xcodebuild` 可正常執行（若授權未接受會在每次呼叫時擋下並要求同意）；
+      2026-07-28 的 `flutter build ios` 實跑全程無授權提示。
+- [x] **1-3 安裝 iOS 模擬器 runtime** ✅ 2026-07-21
+      驗收（2026-07-28 重驗）：`xcrun xctrace list devices` 列出 **iOS 26.5** 的
+      iPhone 17／17 Pro／iPad 等模擬器。
 - [x] **1-4 安裝 CocoaPods** ✅ 2026-07-21
       `brew install cocoapods`（避開系統 Ruby 2.6）。
       驗收：`pod --version` → **1.17.0**，`which pod` → `/opt/homebrew/bin/pod`。
-- [ ] **1-5 `flutter doctor -v`**
-      驗收：Xcode 與 CocoaPods 兩列都是 ✓，無 `!`。
+- [x] **1-5 `flutter doctor -v`** ✅ 2026-07-21
+      驗收（2026-07-28 重驗）：`[✓] Xcode - develop for iOS and macOS (Xcode 26.6)`、
+      **No issues found!**（Flutter 3.44.4 stable／macOS 26.5.2）。
 
-> ⚠️ 1-1 / 1-2 需要 sudo 密碼，Claude 無法代打。下次 session 開場請使用者自己跑這兩行，或允許互動輸入。
+> ⚠️ 1-1 / 1-2 需要 sudo 密碼，Claude 無法代打——**已由使用者執行完畢，這段留作重裝機器時的參考**。
 
 ---
 
@@ -131,7 +145,9 @@
 - [x] **3-3 區網權限說明** ✅ 2026-07-21（plist 已加，驗收要等階段 5 真機）
       iOS 14+ 存取區網要 `NSLocalNetworkUsageDescription`，已寫入 Info.plist。
       驗收：真機第一次連 `192.168.x.x:8080` 時出現權限詢問並可連線。
-- [ ] **3-4 背景定位 Info.plist 補齊**
+- [x] **3-4 背景定位 Info.plist 補齊** ✅（階段 5 所需的部分已齊；`remote-notification` 留給階段 6）
+      驗收（2026-07-28 實查 `ios/Runner/Info.plist`）：`UIBackgroundModes` 含 `location`、
+      `NSLocationWhenInUseUsageDescription` 與 `NSLocationAlwaysAndWhenInUseUsageDescription` 皆在。
       現況已有 `UIBackgroundModes: location` + 兩則位置用途說明 ✅，階段 5 實機驗背景定位夠用。
       `remote-notification` 留到階段 6（買付費帳號）再補——現在加了也沒有 APNs 可用。
       程式面 [`driver_location_settings.dart`](../lib/core/location/driver_location_settings.dart)
@@ -261,18 +277,18 @@ App 既有的 **WebSocket 派單路徑（`ride.assigned`）不依賴 APNs**，�
 
 ## 階段 7 — 收尾
 
-- [~] **7-1 CI 加 iOS job** —— **已寫好但推不上去（2026-07-21）**：
-      `git push` 被 GitHub 擋下（`refusing to allow an OAuth App to create or update workflow
-      ... without workflow scope`），改動留在本機工作區未提交。
-      要納入請先 `gh auth refresh -h github.com -s workflow` 再提交，或把下面這段自己貼進檔案。
-      內容：`.github/workflows/flutter-ci.yml` 新增
-      `build-ios`（`macos-latest`），跑
+- [x] **7-1 CI 加 iOS job** ✅ **已進 main 並實際在跑**（2026-07-28 查證）
+      `.github/workflows/flutter-ci.yml` 的 `build-ios`（`macos-latest`）跑
       `flutter build ios --no-codesign --flavor customer -t lib/main_customer.dart`。
       只跑一個 flavor 控 macOS runner 時間——兩個 flavor 共用同一個 Runner target，
       會壞的東西（Podfile／xcconfig／Info.plist）一個就測得出來。
-      **同一條指令已在本機跑過**：`✓ Built build/ios/iphoneos/Runner.app (20.4MB)`，
-      且產物 Info.plist 是 `dev.linefleet.line_fleet_app.customer`／「乘客端」
-      → 連 **Release-customer** configuration 都驗到了，不只 Debug。
+      **驗收**：最近一次完整執行（run `30319680445`）`build-ios` **success，6 分鐘**
+      （01:14→01:20），同一 run 的 `analyze-and-test` 也 success。
+      ⚠️ **2026-07-21 寫的「已寫好但推不上去（token 缺 `workflow` scope）」是過期敘述**，
+      2026-07-28 更正：檔案早就在 main（`.github/workflows/flutter-ci.yml`），
+      不需要再 `gh auth refresh`。
+      **注意 `build-ios` 不是 branch protection 的必要檢查**——它 pending 時 PR 仍可合併
+      （app PR #49 就是這樣合的）。要讓它擋門得去 repo Settings 設 required check。
 - [x] **7-2 README 補 iOS 段** ✅ 2026-07-21：環境需求改寫（Xcode 26＋模擬器 runtime＋CocoaPods）、
       新增「iOS」章節（兩個 flavor 指令、bundle id、顯示名機制、ATS、`--flavor` 配對 `-t` 的坑、
       `GoogleService-Info.plist` 為何還沒導入）、以及 `API_BASE` 平台預設值對照表。

@@ -60,8 +60,12 @@
       兩個 shared scheme，bundle id 對齊 Android（`dev.linefleet.line_fleet_app.driver`／`.customer`），
       顯示名走 xcconfig 變數；模擬器主畫面「司機端」「乘客端」**兩個 icon 並存不互相覆蓋**。
       **✅ 階段 7 收尾**：README 補 iOS 段與 `API_BASE` 平台預設對照表；
-      CI 的 `build-ios` job（macos-latest，customer flavor 不簽名 build）**已寫好但推不上去**——
-      token 缺 `workflow` scope，改動留在本機工作區，需 `gh auth refresh -h github.com -s workflow`。
+      CI 的 `build-ios` job（macos-latest，customer flavor 不簽名 build）**已在 main 並且真的在跑**——
+      2026-07-28 查證最近一次完整執行 `build-ios` **success（6 分鐘）**。
+      先前寫的「已寫好但推不上去（token 缺 `workflow` scope）」是**過期敘述，已更正**。
+      ⚠️ 但它**不是 branch protection 的必要檢查**：pending 時 PR 照樣合得進去（PR #49 即如此）。
+      **2026-07-28 補驗**：`flutter build ios --no-codesign --flavor driver -t lib/main_driver.dart`
+      實跑過（`20.6MB`，Xcode build 116.8s）——先前只驗過 customer flavor 的不簽名 build。
       **➡️ 只剩階段 5 實機部署**（需使用者接上 iPhone＋Xcode 選 Personal Team＋手機信任憑證，
       產出是 A1「鎖屏長跑背景定位」的 iOS 實機驗收）**與階段 6 推播**（卡在付費 Apple 帳號）。
       **實機已有、Apple 帳號為免費 Personal Team**：階段 1–5（含實機部署與 A1 背景定位實機驗收）
@@ -586,6 +590,12 @@ ride_ratings 2、ride_messages 1、daily_driver_earnings 11、device_tokens 1。
 >    **沒有低分司機的處理流程**（通知／停權／申訴）。
 >    **條件**：等實際累積評分、營運說得出要對低分司機做什麼再開——
 >    做在前面只會做出沒人用的流程。
+>
+> **2026-07-28 又補了一項（不在原清單上）**：`docs/IOS_PLAN.md` 的**勾選框與散文不一致**——
+> 階段 1 的四項、3-4、7-1 的散文說完成、勾選框卻仍是 `[ ]`／`[~]`。
+> 只讀清單的人會以為要重跑那些 sudo 步驟。已逐條重新取證後補勾（見 IOS_PLAN「執行進度」）。
+> **前置條件當日實查**：`android/app/google-services.json` **不存在**（A2 仍卡）、
+> `xcrun devicectl list devices` → **No devices found**（A5 階段 5 仍卡）。
 >
 > **🎯 下次開工第一件事**：**維護項已經清空了**（5、6 都完成，7 要等營運需求）。
 > 第 1–4 項全部需要你提供外部資源或拍板，**沒有前置條件就不要硬找事做**——
