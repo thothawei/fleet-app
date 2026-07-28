@@ -581,7 +581,8 @@ class CustomerController extends ChangeNotifier {
         // O6：只有乘客指定寵物車的行程才有；後端未加收時**不帶這個鍵** → null。
         cleaningFeeCents: (event.payload?['cleaning_fee_cents'] as num?)?.toInt(),
       );
-      refreshActive();
+      // WS 事件觸發，不是使用者按的 → 失敗靜默，交給輪詢補
+      refreshActive(silent: true);
       return;
     }
     final active = _activeRide;
@@ -600,7 +601,7 @@ class CustomerController extends ChangeNotifier {
         // O4／O7：車種車牌供路邊對車，電話供直接聯絡（明碼，僅該趟乘客收得到此事件）。
         _driverInfo = RideDriverInfo.fromPayload(event.payload ?? const {});
         _driverArrived = false;
-        refreshActive();
+        refreshActive(silent: true);
       case FleetEventTypes.driverLocation:
         _liveEtaSec = (event.payload?['eta_sec'] as num?)?.toInt();
         _liveDistM = (event.payload?['dist_m'] as num?)?.toInt();
@@ -615,7 +616,7 @@ class CustomerController extends ChangeNotifier {
         _liveDriverLng = null;
         notifyListeners();
       case FleetEventTypes.ridePickedUp:
-        refreshActive();
+        refreshActive(silent: true);
       case FleetEventTypes.rideCancelled:
         // P4：以機器可讀的 cancel_reason 判斷，不 parse 後端文案（文案會改）。
         // 只有逾時取消會帶這兩個鍵；乘客主動取消／司機放棄不帶 → 解析為 null，
@@ -623,7 +624,7 @@ class CustomerController extends ChangeNotifier {
         _cancelReason = CancelReason.fromCode(event.payload?['cancel_reason'] as String?);
         _cancelledVehicleType = event.payload?['required_vehicle_type'] as String?;
         _rideCancelled = true;
-        refreshActive();
+        refreshActive(silent: true);
       default:
         break;
     }
@@ -806,13 +807,18 @@ class CustomerController extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshActive() async {
+  /// [silent] ＝ 這次刷新不是使用者按出來的（背景輪詢），失敗時**不寫全域 error**。
+  /// 15 秒一次的輪詢若把失敗丟給畫面層，後端一斷線就變成每 15 秒彈一次 SnackBar
+  /// 蓋住 sheet 上的按鈕，而使用者沒有任何辦法讓它停——他根本沒按過什麼。
+  /// 使用者自己觸發的刷新（下拉、登入還原）維持照舊回報。
+  Future<void> refreshActive({bool silent = false}) async {
     if (_session == null) return;
     try {
       final ride = await _api.activeRide();
       _applyActiveRide(ride);
       notifyListeners();
     } on ApiException catch (e) {
+      if (silent) return;
       _error = e.message;
       notifyListeners();
     }
@@ -897,7 +903,7 @@ class CustomerController extends ChangeNotifier {
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(_pollInterval, (_) => refreshActive());
+    _pollTimer = Timer.periodic(_pollInterval, (_) => refreshActive(silent: true));
   }
 
   void _stopPolling() {

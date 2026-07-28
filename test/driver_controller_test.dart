@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:line_fleet_app/core/api/fleet_api_client.dart';
 import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/models/models.dart';
@@ -401,6 +402,94 @@ void main() {
 
       expect(api.registeredFcmTokens, ['fcm-tok-abc', 'fcm-tok-new']);
     });
+
+    // 上線期間每 8 秒一次的位置回報成功時會清掉錯誤橫幅（當作「後端可達」的健康探針）。
+    // 問題是它原本清掉**所有**錯誤：司機按「完成行程」被後端以 409 擋下，
+    // 那句話是他唯一的回饋，卻會在幾秒內被探針無聲抹掉。
+    // 連線類錯誤（斷線／逾時，statusCode 為 null）才該被探針清掉。
+    group('錯誤橫幅與位置回報探針', () {
+      Position fakePosition() => Position(
+            latitude: 25.03,
+            longitude: 121.56,
+            timestamp: DateTime.now(),
+            accuracy: 5,
+            altitude: 0,
+            altitudeAccuracy: 0,
+            heading: 0,
+            headingAccuracy: 0,
+            speed: 0,
+            speedAccuracy: 0,
+          );
+
+      Future<void> loginAndTakeRide() async {
+        await ctrl.init();
+        await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+        ctrl.handleWsEventForTest(FleetWsEvent(
+          type: FleetEventTypes.rideAssigned,
+          rideId: 42,
+          payload: {'address': '上車點'},
+        ));
+        await ctrl.acceptOffer();
+        await ctrl.pickUpPassenger();
+        ctrl.setOnlineForTest(true);
+      }
+
+      test('業務錯誤（409）不會被位置回報探針清掉', () async {
+        await loginAndTakeRide();
+        api.completeError = ApiException('此行程已完成', statusCode: 409);
+
+        await ctrl.completeTrip();
+        expect(ctrl.error, '此行程已完成');
+
+        await ctrl.reportPositionForTest(fakePosition());
+
+        expect(ctrl.error, '此行程已完成',
+            reason: '後端明確拒絕的理由是司機唯一的回饋，不能被 8 秒一次的探針抹掉');
+      });
+
+      // 註冊 FCM token 是登入時與 token 輪替時的**背景**動作，司機沒按任何東西。
+      // 它失敗只代表推播喚醒這條退路暫時不可用（WS 仍在跑），
+      // 把它變成首頁上一條紅色橫幅，只會讓司機以為自己不能接單。
+      test('登入時 FCM token 註冊失敗不寫錯誤橫幅', () async {
+        api.deviceTokenError = ApiException('device token 註冊失敗', statusCode: 500);
+
+        await ctrl.init();
+        await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+
+        expect(ctrl.isLoggedIn, isTrue, reason: '推播註冊失敗不該影響登入本身');
+        expect(ctrl.error, isNull,
+            reason: 'FCM 是可降級的輔助管道，失敗要靜默（README 的降級設計）');
+      });
+
+      // 這條才是真正沒有保護的路徑：token 輪替發生在登入之後的任意時間，
+      // 後面沒有任何 _setError(null) 會把它蓋掉——司機會突然多出一條紅色橫幅，
+      // 而他什麼都沒按、也無事可做。
+      test('FCM token 輪替時註冊失敗也不寫錯誤橫幅', () async {
+        await ctrl.init();
+        await ctrl.login(lineUserId: 'U_driver', password: 'pw');
+        expect(ctrl.error, isNull);
+
+        api.deviceTokenError = ApiException('device token 註冊失敗', statusCode: 500);
+        push.refreshToken('fcm-tok-rotated');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(ctrl.error, isNull,
+            reason: '背景輪替的推播註冊失敗，司機無事可做也看不懂，不該變成錯誤橫幅');
+      });
+
+      test('連線類錯誤（無 statusCode）仍會被探針清掉', () async {
+        await loginAndTakeRide();
+        api.completeError = ApiException('無法連線到伺服器，請檢查網路');
+
+        await ctrl.completeTrip();
+        expect(ctrl.error, '無法連線到伺服器，請檢查網路');
+
+        await ctrl.reportPositionForTest(fakePosition());
+
+        expect(ctrl.error, isNull,
+            reason: '位置回報成功＝後端可達，這時還掛著「連不上伺服器」只會誤導');
+      });
+    });
   });
 }
 
@@ -412,6 +501,8 @@ class _FakeFleetApi extends FleetApiClient {
   String? lastToken;
   ApiException? loginError;
   ApiException? acceptError;
+  ApiException? completeError;
+  ApiException? deviceTokenError;
   ActiveRide? restoreRide;
   List<LostItemRequest> lostItems = const [];
   // 預設已填車輛：init()／login() 都會呼叫 fetchVehicle，Fake 沒覆蓋就會打真網路，
@@ -485,6 +576,7 @@ class _FakeFleetApi extends FleetApiClient {
 
   @override
   Future<void> completeRide(int rideId) async {
+    if (completeError != null) throw completeError!;
     completedRideIds.add(rideId);
   }
 
@@ -501,6 +593,7 @@ class _FakeFleetApi extends FleetApiClient {
     required String platform,
     required String token,
   }) async {
+    if (deviceTokenError != null) throw deviceTokenError!;
     registeredFcmTokens.add(token);
   }
 

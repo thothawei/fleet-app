@@ -66,6 +66,69 @@ void main() {
     expect(find.text('token 無效或已過期'), findsOneWidget,
         reason: '第二次同樣的失敗也必須有回饋');
   });
+
+  // 反面：**背景輪詢**（15 秒一次，使用者沒按任何東西）失敗不該彈 SnackBar。
+  // 會彈就是每 15 秒蓋住 sheet 上的按鈕一次，而且使用者沒有辦法讓它停。
+  group('背景輪詢失敗不該打擾使用者', () {
+    late CustomerController pollCtrl;
+    late _FlakyAfterFirstApi flaky;
+
+    Widget pollApp() => ChangeNotifierProvider.value(
+          value: pollCtrl,
+          child: MaterialApp(
+            theme: appLightTheme,
+            home: const CustomerMapHomeScreen(),
+          ),
+        );
+
+    setUp(() {
+      flaky = _FlakyAfterFirstApi();
+      pollCtrl = CustomerController(api: flaky);
+      pollCtrl.setSessionForTest(
+        const CustomerSession(customerId: 1, token: 'tok', name: '測試乘客'),
+      );
+    });
+
+    // 輪詢是 Timer.periodic，測試結束時一定還掛著；dispose 會停掉它，
+    // 否則 testWidgets 會以 "Pending timers" 失敗。
+    testWidgets('輪詢期間後端斷線：不彈 SnackBar、不寫全域 error', (tester) async {
+      await tester.pumpWidget(pollApp());
+      await tester.pump();
+
+      // 第一次成功 → 拿到進行中行程並啟動輪詢
+      await pollCtrl.refreshActive();
+      await tester.pump();
+      expect(pollCtrl.activeRide?.rideId, 77);
+
+      // 之後後端斷線；跳過一個輪詢週期（15 秒）
+      await tester.pump(const Duration(seconds: 16));
+      await tester.pump();
+
+      expect(flaky.calls, greaterThan(1), reason: '輪詢確實跑了，否則這個測試沒驗到東西');
+      expect(pollCtrl.error, isNull,
+          reason: '背景輪詢失敗是暫時性的，不該變成使用者要處理的錯誤');
+      expect(find.text('無法連線到伺服器，請檢查網路'), findsNothing);
+
+      pollCtrl.dispose();
+    });
+
+    testWidgets('同樣斷線，使用者自己觸發的刷新仍要說出來', (tester) async {
+      await tester.pumpWidget(pollApp());
+      await tester.pump();
+
+      await pollCtrl.refreshActive(); // 第一次成功
+      await tester.pump();
+
+      await pollCtrl.refreshActive(); // 使用者主動觸發，這次失敗
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('無法連線到伺服器，請檢查網路'), findsOneWidget,
+          reason: '使用者自己按的動作失敗，一定要有回饋');
+
+      pollCtrl.dispose();
+    });
+  });
 }
 
 /// 模擬 token 失效的後端：任何查詢都回 401。
@@ -75,4 +138,22 @@ class _FailingApi extends CustomerApiClient {
   @override
   Future<CustomerRide?> activeRide() async =>
       throw ApiException('token 無效或已過期', statusCode: 401);
+}
+
+/// 第一次查詢成功（回一筆進行中行程並啟動輪詢），之後一律斷線。
+class _FlakyAfterFirstApi extends CustomerApiClient {
+  _FlakyAfterFirstApi()
+      : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
+
+  int calls = 0;
+
+  @override
+  Future<CustomerRide?> activeRide() async {
+    calls++;
+    if (calls == 1) {
+      return const CustomerRide(rideId: 77, status: RideStatus.accepted);
+    }
+    // 斷線＝沒有 HTTP 回應，statusCode 為 null
+    throw ApiException('無法連線到伺服器，請檢查網路');
+  }
 }

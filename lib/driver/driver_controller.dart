@@ -34,6 +34,7 @@ class DriverController extends ChangeNotifier {
   AuthSession? _session;
   bool _loading = false;
   String? _error;
+  bool _errorIsConnectivity = false;
   bool _online = false;
   bool _wsConnected = false;
   RideOffer? _pendingOffer;
@@ -68,6 +69,20 @@ class DriverController extends ChangeNotifier {
   /// 操作進行中（接單／完成／標記停靠點…）；供按鈕禁用避免重複送出。
   bool get busy => _busy;
   String? get error => _error;
+
+  /// 錯誤一律走這兩個入口設定，才能記住它「是不是連線類」。
+  /// 這個分類只有一個用途：位置回報探針只能清掉連線類錯誤（見 `_reportPosition`）。
+  void _setError(String? message) {
+    _error = message;
+    _errorIsConnectivity = false;
+  }
+
+  /// `statusCode == null` ＝ 沒收到 HTTP 回應（斷線／逾時），才算連線類；
+  /// 4xx／5xx 是後端明確拒絕（如 409「此行程已完成」），屬業務錯誤。
+  void _setApiError(ApiException e) {
+    _error = e.message;
+    _errorIsConnectivity = e.statusCode == null;
+  }
   bool get online => _online;
   bool get wsConnected => _wsConnected;
   RideOffer? get pendingOffer => _pendingOffer;
@@ -95,7 +110,7 @@ class DriverController extends ChangeNotifier {
     final ride = _activeRide;
     if (ride == null) return false;
     _busy = true;
-    _error = null;
+    _setError(null);
     notifyListeners();
     try {
       await action(ride.rideId, stopId);
@@ -103,7 +118,7 @@ class DriverController extends ChangeNotifier {
       await _restoreActiveRide();
       return true;
     } on ApiException catch (e) {
-      _error = e.message; // 重複標記／已跳過／已完成（409）的訊息已中文化
+      _setApiError(e); // 重複標記／已跳過／已完成（409）的訊息已中文化
       return false;
     } finally {
       _busy = false;
@@ -150,9 +165,9 @@ class DriverController extends ChangeNotifier {
     try {
       _vehicle = await _api.fetchVehicle();
       _vehicleLoadFailed = false;
-      _error = null;
+      _setError(null);
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
       _vehicleLoadFailed = true;
     }
     notifyListeners();
@@ -165,7 +180,7 @@ class DriverController extends ChangeNotifier {
     required String plateNumber,
   }) async {
     _vehicleSaving = true;
-    _error = null;
+    _setError(null);
     notifyListeners();
     try {
       _vehicle = await _api.updateVehicle(
@@ -174,7 +189,7 @@ class DriverController extends ChangeNotifier {
       );
       return true;
     } on ApiException catch (e) {
-      _error = e.message; // 車牌重複（409）等訊息已由 api_error 中文化
+      _setApiError(e); // 車牌重複（409）等訊息已由 api_error 中文化
       return false;
     } finally {
       _vehicleSaving = false;
@@ -192,14 +207,14 @@ class DriverController extends ChangeNotifier {
   /// 以後端回傳值更新本地狀態（號碼已去分隔符）。
   Future<bool> savePhone(String phone) async {
     _vehicleSaving = true;
-    _error = null;
+    _setError(null);
     notifyListeners();
     try {
       final saved = await _api.updateProfilePhone(phone);
       _vehicle = (_vehicle ?? DriverVehicle.empty).withPhone(saved);
       return true;
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
       return false;
     } finally {
       _vehicleSaving = false;
@@ -251,13 +266,17 @@ class DriverController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 測試用：模擬一次位置回報（正式路徑由 Geolocator stream 觸發，測試環境沒有 GPS）。
+  @visibleForTesting
+  Future<void> reportPositionForTest(Position pos) => _reportPosition(pos);
+
   /// App 重啟後從後端還原進行中行程（Accepted/PickedUp）。
   Future<void> _restoreActiveRide() async {
     try {
       _activeRide = await _api.activeRide();
       notifyListeners();
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
       notifyListeners();
     }
   }
@@ -295,13 +314,13 @@ class DriverController extends ChangeNotifier {
       );
       await _storage.save(session);
       await _applySession(session);
-      _error = null;
+      _setError(null);
       // 登入即更新「遺失物協尋」角標與工作清單，不用等進頁下拉（比照 init() 還原 session）。
       await refreshLostItems();
       // 登入後立刻查車輛：沒填的話 _DriverRoot 會直接導去設定頁（O3 gate 的 App 端引導）。
       await refreshVehicle();
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
     } finally {
       _setLoading(false);
     }
@@ -330,8 +349,11 @@ class DriverController extends ChangeNotifier {
       if (token == null || token.isEmpty) return;
       await _api.registerDeviceToken(platform: 'fcm', token: token);
       _fcmToken = token;
-    } on ApiException catch (e) {
-      _error = e.message;
+    } on ApiException {
+      // 靜默降級：這是登入時與 token 輪替時的背景動作，司機沒按任何東西。
+      // 註冊失敗只代表「推播喚醒」這條退路暫時不可用，WS 派單仍照常運作——
+      // 變成首頁上一條紅色橫幅只會讓司機以為自己不能接單，而他也無事可做。
+      // 下一次輪替或重新登入會自動再試。
     }
   }
 
@@ -367,12 +389,12 @@ class DriverController extends ChangeNotifier {
     if (_session == null) return;
     final ok = await ensureDriverLocationPermissions();
     if (!ok) {
-      _error = '需要定位權限才能上線';
+      _setError('需要定位權限才能上線');
       notifyListeners();
       return;
     }
     _online = true;
-    _error = null;
+    _setError(null);
     await _startLocationStream();
     notifyListeners();
   }
@@ -423,11 +445,15 @@ class DriverController extends ChangeNotifier {
       _lastPosition = pos;
       await _api.reportLocation(lat: pos.latitude, lng: pos.longitude);
       // 位置回報是上線期間每幾秒一次的健康探針：它成功＝後端可達，
-      // 此時還掛著上一輪的錯誤（例如「無法連線到伺服器」）只會誤導司機。
-      _error = null;
-      notifyListeners();
+      // 此時還掛著上一輪的「無法連線到伺服器」只會誤導司機。
+      // **但只能清連線類**：後端明確拒絕的業務錯誤（例如完成行程被 409 擋下）
+      // 是司機唯一的失敗回饋，被 8 秒一次的探針抹掉就等於沒說過。
+      if (_errorIsConnectivity) {
+        _setError(null);
+        notifyListeners();
+      }
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
       notifyListeners();
     } catch (_) {}
   }
@@ -452,13 +478,13 @@ class DriverController extends ChangeNotifier {
         stops: offer.stops,
       );
       _pendingOffer = null;
-      _error = null;
+      _setError(null);
       // 以後端為權威補齊：**推播喚醒路徑**的 offer 來自 FCM data，data 值全是字串、
       // 不帶結構化的 stops 陣列（見 pitfall-fcm-data-all-strings），所以樂觀行程會缺全程。
       // 重讀 active 讓多停靠點清單／多點地圖一定齊全，不必讓推播 payload 塞 stops。
       await _refreshActiveAfterAccept(offer.rideId);
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
     } finally {
       _busy = false;
       notifyListeners();
@@ -499,9 +525,9 @@ class DriverController extends ChangeNotifier {
         dropoffLat: dropoff.lat,
         dropoffLng: dropoff.lng,
       );
-      _error = null;
+      _setError(null);
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
     } finally {
       _busy = false;
       notifyListeners();
@@ -516,9 +542,9 @@ class DriverController extends ChangeNotifier {
     try {
       await _api.completeRide(ride.rideId);
       _activeRide = null;
-      _error = null;
+      _setError(null);
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
     } finally {
       _busy = false;
       notifyListeners();
@@ -533,9 +559,9 @@ class DriverController extends ChangeNotifier {
     try {
       await _api.cancelRide(ride.rideId);
       _activeRide = null;
-      _error = null;
+      _setError(null);
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
     } finally {
       _busy = false;
       notifyListeners();
