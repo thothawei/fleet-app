@@ -522,6 +522,48 @@ admin 端 `grep -i rating` 零命中，營運方對爛司機完全無感。
 
 ---
 
+## 🗄️ 清 dev DB 測試殘留（維護項 6，2026-07-28 完成）
+
+> ⚠️ **先更正原本這條待辦寫錯的機制**：舊敘述說「十幾個殘留的『線上』司機**擋在派單佇列前**」。
+> 讀 `dispatchRound` → `Store.NearbyDriverIDs` 後確認**跨 session 不成立**：
+> 派單候選**只從 Redis 的 `drivers:geo` 取**，且每個候選還要 `driver:<id>:loc`
+> 的 `updated_at` 在心跳鮮度內才算數。compose 的 redis **沒有掛 volume**，
+> `docker compose down` 之後派單池是空的（實測 `dbsize` 0、`zcard drivers:geo` 0）。
+> 所以 Postgres 裡的 `status=1` 殘留**本身不會**吃掉派單輪次；
+> 2026-07-27 那次白跑，是**同一個 session 內**那些司機還在送位置心跳造成的。
+
+**盤點到的真正的坑**（這個才會咬下一次的自己）：
+`GoOnline` 對 `status=OnTrip` 的司機**直接 return、不改狀態**，`GoOffline` 則回
+`ErrDriverOnTrip`。上次留下 **3 個卡在「載客中」的司機**（id 4 `o5-driver`、11、13）——
+下次重用這些帳號時，**App 會顯示上線成功，但派單要求 `Idle` 所以永遠收不到單，也無法離線**，
+沒有任何錯誤訊息。另有 **4 張未結案訂單**（#7 已派單但無司機、#11／#14／#16 已接單）
+讓 customer 3／6／9／11 一律拿到「已有進行中訂單」。
+
+**清理前的盤點**（只讀）：drivers 24（19 待命／3 卡載客中／2 離線）、customers 20、
+rides 27（13 完成／10 取消／**4 未結案**）、ride_events 108、ride_stops 12、
+ride_ratings 2、ride_messages 1、daily_driver_earnings 11、device_tokens 1。
+
+- [x] **做法：整個砍掉重練**（使用者 2026-07-28 拍板；`ask-before-db-writes` 已遵守，
+      盤點先只讀、把選項與代價列出後才動手）。`docker compose down -v` 刪掉
+      `line-fleet-dispatch_postgis_data`。**動手前先核對過不會損失任何設定**：
+      `fleet_settings` 的每個值都等於 migration 預設（8500／2000／8500／1500／300000／
+      lost_item_fee_bps 1000／pet_cleaning_fee_bps 0），admin 帳號由 app 啟動時重種。
+- [x] **驗證重建後仍是可用的 dev DB**（不只是刪掉）：`docker compose up -d` →
+      migration 自動跑到 **000023**、admins 重種 1 筆（`admin`／superadmin）、
+      `fleet_settings` 1 筆回到預設值，其餘業務表**全部 0 筆**；
+      `POST /api/admin/login`（admin／admin）**200 並取得 token**、
+      未帶 token 的 `GET /api/customer/fees` 正確回 **401**。
+- [x] **順手清掉兩個孤兒 volume**（使用者同意）：`customer-ride-stops_postgis_data`／
+      `driver-phone_postgis_data`，各 114MB、`LINKS=0`，是維護項 5 刪掉的 worktree 留下的。
+      共釋出 **228MB**。
+
+**下次做 E2E 前的提醒**：這個 DB 現在是全新的，所以**沒有任何測試帳號**——
+司機／乘客都要重新註冊，司機還要走 O5 車輛審核（admin 核准）才能接單。
+若又要收尾，離開前把 `status=OnTrip` 的司機與未結案訂單處理掉，
+否則下一次又會踩上面那個「上線成功卻收不到單」的無聲坑。
+
+---
+
 ## 下次任務
 
 > **✅ 維護項 5「清開發殘留」已完成（2026-07-28）**，詳見上方。
@@ -538,19 +580,17 @@ admin 端 `grep -i rating` 零命中，營運方對爛司機完全無感。
 >
 > **不需前置條件、隨時可做的維護項**（2026-07-27 盤點新增）：
 > 5. ~~**清開發殘留 worktree／舊分支**~~ ✅ **已完成（2026-07-28）**，見上方專段。
-> 6. **清 dev DB 測試殘留**：本機 docker compose 的 DB 堆了大量前幾次 session 的
->    測試司機與訂單——2026-07-27 的 B5 實跑就因為十幾個殘留的「線上」司機擋在派單佇列前，
->    白跑了一輪派單逾時才輪到目標司機。**條件**：會寫 DB，動手前要先問過。
+> 6. ~~**清 dev DB 測試殘留**~~ ✅ **已完成（2026-07-28）**，見上方專段
+>    （**原本寫的機制是錯的**，一併更正）。
 > 7. **評分的營運動作**（B5 下游）：三端現在都只「看得到」評分，
 >    **沒有低分司機的處理流程**（通知／停權／申訴）。
 >    **條件**：等實際累積評分、營運說得出要對低分司機做什麼再開——
 >    做在前面只會做出沒人用的流程。
 >
-> **🎯 下次開工第一件事**：第 6 項（清 dev DB 測試殘留）是唯一還能動的維護項，
-> 但它**會寫 DB，動手前必須先問過使用者**（`ask-before-db-writes`）。
-> 建議做法：先只讀盤點（`SELECT` 出殘留的線上司機／未結案訂單數量），
-> 把要刪什麼列給使用者看，取得同意後才 `DELETE`。
-> 若使用者不想動 DB，第 1–4 項就都要等他提供外部資源／拍板，屆時**不要硬找事做**。
+> **🎯 下次開工第一件事**：**維護項已經清空了**（5、6 都完成，7 要等營運需求）。
+> 第 1–4 項全部需要你提供外部資源或拍板，**沒有前置條件就不要硬找事做**——
+> 開工前先確認：Firebase 專案（A2）／iPhone＋Xcode Personal Team（A5 階段 5）／
+> 金流方案（付款）／車種供給為零的產品方向。四者皆無時，正確答案是「這輪沒有可做的事」。
 
 > **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
 > 以 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸，driver/customer 兩 flavor 共用。
