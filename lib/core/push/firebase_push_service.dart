@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../ws/fleet_ws_client.dart';
 import 'fleet_push_service.dart';
 import 'fcm_background.dart';
+import 'pending_push_replay.dart';
 import 'push_payload.dart';
 
 /// 真實 FCM 實作：需 `android/app/google-services.json`（見 README）。
@@ -26,7 +27,9 @@ class FirebaseFleetPushService implements FleetPushService {
   /// 在建構子取會在沒有 google-services.json 的裝置上直接拋 [core/no-app]。
   final FirebaseMessaging? _injectedMessaging;
   late final FirebaseMessaging _messaging;
-  final _events = StreamController<FleetWsEvent>.broadcast();
+  /// **不是普通的 broadcast controller**：冷啟動時 `getInitialMessage()` 發出事件的當下
+  /// （`runApp` 之前）還沒有任何訂閱者，普通廣播串流會把它丟掉。見 [PendingReplaySink]。
+  final _events = PendingReplaySink<FleetWsEvent>();
   final _tokenRefresh = StreamController<String>.broadcast();
   StreamSubscription<String>? _tokenRefreshSub;
   bool _available = false;
