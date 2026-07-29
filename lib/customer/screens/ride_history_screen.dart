@@ -6,6 +6,7 @@ import '../../core/util/money.dart';
 import '../../shared/screens/ride_chat_screen.dart';
 import '../customer_controller.dart';
 import '../widgets/rating_sheet.dart';
+import 'lost_item_screen.dart';
 
 /// 「我的行程」歷史列表（留言板入口補遺）。
 ///
@@ -196,6 +197,23 @@ class _RideHistoryCard extends StatelessWidget {
                               ),
                       icon: const Icon(Icons.star_outline, size: 18),
                       label: const Text('評分'),
+                    ),
+                  // 遺失物協尋：**完成卡關掉後唯一的申請路徑**。
+                  // `_completedSummary` 只由 WS `ride.completed` 設定、沒有任何 REST 還原，
+                  // 所以按下「再叫一輛」、重開 App，或行程完成當下 App 剛好在背景／WS 斷線，
+                  // 完成卡上那顆「物品遺失？聯絡司機」就永遠不會再出現——
+                  // 而東西通常是**下車以後**才發現不見的。
+                  // 首頁的協尋 banner 只顯示**已存在**的單子，進不了申請表單。
+                  if (ride.canReportLostItem)
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              CustomerLostItemScreen(rideId: ride.rideId),
+                        ),
+                      ),
+                      icon: const Icon(Icons.help_outline, size: 18),
+                      label: const Text('物品遺失'),
                     ),
                 ],
               ),
