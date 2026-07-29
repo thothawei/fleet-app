@@ -68,6 +68,67 @@ void main() {
       expect(ctrl.error, '已有進行中的訂單');
     });
 
+    test('接手時連司機資訊一起帶出來（不必等下一輪輪詢）', () async {
+      // 建單失敗到接手之間可能已經被司機接走了。少了這一步，乘客會先看到一段
+      // 「配對中」的假象，直到 15 秒後的輪詢才冒出司機——而司機可能已經在門口。
+      // 司機欄在後端是**扁平鍵**（與 WS payload 同一組），不是巢狀物件。
+      final api = _ConflictApi()
+        ..active = CustomerRide.fromJson(const {
+          'id': 33,
+          'status': RideStatus.accepted,
+          'pickup_address': '台北車站',
+          'driver_name': '阿明',
+          'driver_phone': '0912345678',
+          'driver_vehicle_type': 'sedan',
+          'driver_plate_number': 'ABC-1234',
+        });
+      final ctrl = await _customer(api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.handleCreateFailure(
+        ApiException('已有進行中的訂單', statusCode: 409),
+      );
+
+      expect(ctrl.activeRide?.rideId, 33);
+      expect(ctrl.driverName, '阿明');
+      expect(ctrl.driverInfo?.plateNumber, 'ABC-1234',
+          reason: '路邊要對車牌，這是這張卡存在的理由');
+      expect(ctrl.driverInfo?.phone, '0912345678');
+    });
+
+    test('對帳本身也失敗（網路仍不通）→ 維持原本的錯誤，不編故事', () async {
+      final api = _ConflictApi()
+        ..activeError = ApiException('無法連線到伺服器，請檢查網路');
+      final ctrl = await _customer(api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.handleCreateFailure(
+        ApiException('已有進行中的訂單', statusCode: 409),
+      );
+
+      expect(ctrl.activeRide, isNull);
+      expect(ctrl.error, '已有進行中的訂單', reason: '問不到就維持原訊息，不可假裝接手成功');
+    });
+
+    test('後端回的是終態訂單 → 不算數（剛結束的上一趟不能變成這一趟）', () async {
+      final api = _ConflictApi()
+        ..active = CustomerRide.fromJson(const {
+          'id': 34,
+          'status': RideStatus.completed,
+          'pickup_address': '上一趟',
+        });
+      final ctrl = await _customer(api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.handleCreateFailure(
+        ApiException('已有進行中的訂單', statusCode: 409),
+      );
+
+      expect(ctrl.activeRide, isNull,
+          reason: '把已完成的上一趟接手過來，乘客會盯著一張永遠不會動的行程');
+      expect(ctrl.error, '已有進行中的訂單');
+    });
+
     test('其他有狀態碼的拒絕（如 429 限流）仍不對帳', () async {
       final api = _ConflictApi()
         ..active = CustomerRide.fromJson(const {
@@ -104,7 +165,9 @@ class _ConflictApi extends CustomerApiClient {
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
   CustomerRide? active;
+  ApiException? activeError;
   int _calls = 0;
+  int adoptCalls = 0;
 
   @override
   void setToken(String? token) {}
@@ -112,7 +175,13 @@ class _ConflictApi extends CustomerApiClient {
   @override
   // init() 的還原一律回 null——乘客按下叫車時畫面上沒有任何訂單，
   // 這正是 409「已有進行中的訂單」讓人無路可走的前提。
-  Future<CustomerRide?> activeRide() async => _calls++ == 0 ? null : active;
+  Future<CustomerRide?> activeRide() async {
+    final first = _calls++ == 0;
+    if (first) return null;
+    adoptCalls++;
+    if (activeError != null) throw activeError!;
+    return active;
+  }
 
   @override
   Future<List<LostItemRequest>> fetchLostItems() async => const [];
