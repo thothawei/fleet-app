@@ -47,6 +47,11 @@ class FleetEventTypes {
 
   /// 司機標記到達／跳過某一站（N8）。payload 帶**整趟** stops，收到直接覆蓋即可。
   static const rideStopUpdated = 'ride.stop_updated';
+
+  /// 這單被別人接走了——**只送給本輪收過派單邀請但沒接到的司機**。
+  /// 同一張單會同時推給半徑內每一位待命司機，先前沒有任何事件收得掉沒搶到那些人的接單卡
+  /// （`ride.accepted` 只送給接到的那位），他們得自己按下去拿到「手慢了」才會消失。
+  static const rideTaken = 'ride.taken';
   static const chatMessage = 'chat.message';
   static const lostItemCreated = 'lost_item.created';
   static const lostItemUpdated = 'lost_item.updated';
