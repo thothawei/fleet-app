@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/fleet_api_client.dart' show ApiException;
 import '../../core/models/models.dart';
+import '../widgets/app_lifecycle_reactor.dart';
 
 /// 乘客↔司機共用聊天室。
 /// - 歷史：進場以 REST 載入，之後以 afterId 增量補讀（WS 斷線重連保底）。
 /// - 即時：訂閱 controller 的 chatStream（WS chat.message），以訊息 id 去重。
 /// - 發送：走 REST，後端持久化後即時推播給雙方。
+/// - **回前景時補讀一次**：WS 重連不會補送斷線期間的訊息，見 [_loadHistory]。
 class RideChatScreen extends StatefulWidget {
   const RideChatScreen({
     required this.rideId,
@@ -63,7 +65,17 @@ class _RideChatScreenState extends State<RideChatScreen> {
     super.dispose();
   }
 
-  Future<void> _loadHistory() async {
+  /// 補讀歷史：進場（此時 `_messages` 為空 ＝ 全量）、錯誤橫幅按「重試」、
+  /// 以及**從背景回到前景時**。
+  ///
+  /// 最後那個觸發點原本沒有，於是這支方法的增量補讀（afterId）**只有進場那次會走到**——
+  /// 聊天室開著切背景、或 WS 斷線的期間，對方送的訊息就永遠不會出現在畫面上
+  /// （WS 重連**不會補送**漏掉的事件，見 docs/TODO.md 第四輪），
+  /// 而且連未讀角標都不會亮——聊天室開著時本來就不累計未讀。
+  /// 使用者只能離開聊天室再進來才看得到。
+  /// [silent] 給回前景那條路徑用：使用者只是把 App 切回來、沒按任何東西，
+  /// 補讀失敗不該冒出錯誤橫幅（同 2026-07-28 修掉的「背景動作汙染錯誤出口」那一族）。
+  Future<void> _loadHistory({bool silent = false}) async {
     try {
       final afterId = _messages.isEmpty ? 0 : _messages.last.id;
       final history =
@@ -81,7 +93,7 @@ class _RideChatScreenState extends State<RideChatScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.message;
+        if (!silent) _error = e.message;
       });
     }
   }
@@ -132,6 +144,15 @@ class _RideChatScreenState extends State<RideChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 沿用 app root 那支 reactor：`inactive` 不算回前景（通知列下拉、來電橫幅都會觸發它，
+    // 連線並沒有斷），只有真的離開過前景才補讀。
+    return AppLifecycleReactor(
+      onResumed: () => _loadHistory(silent: true),
+      child: _buildChat(context),
+    );
+  }
+
+  Widget _buildChat(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: Column(
