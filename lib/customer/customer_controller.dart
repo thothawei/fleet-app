@@ -426,6 +426,21 @@ class CustomerController extends ChangeNotifier {
     }
   }
 
+  /// App 從背景回到前景（由 `AppLifecycleReactor` 呼叫）。
+  ///
+  /// 背景期間 WS 可能已被系統關掉，15 秒的輪詢 timer 在 iOS 也是凍結的——
+  /// 回前景後最壞情況要再等一輪才對得上帳，這段時間畫面顯示的是背景前的舊狀態
+  /// （司機早就接單了卻還寫「配對中」）。所以立刻重連 WS ＋ 主動對帳一次。
+  ///
+  /// **靜默**：使用者只是把 App 切回來，沒按任何東西；失敗不該冒出錯誤
+  /// （同背景輪詢的規則，見 `refreshActive` 的 silent 說明）。
+  Future<void> onAppResumed() async {
+    if (_session == null) return;
+    _ws.ensureConnected();
+    await refreshActive(silent: true);
+    await refreshLostItems();
+  }
+
   Future<void> login({
     required String lineUserId,
     required String password,

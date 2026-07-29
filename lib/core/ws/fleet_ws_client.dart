@@ -69,8 +69,20 @@ class FleetWsClient {
   /// 連續失敗次數；握手成功或 `connect()` 時歸零。
   int _reconnectAttempts = 0;
 
-  /// 已完成握手才算連線（`_channel` 只在 `ready` 後才設）。
-  bool get isConnected => _channel != null;
+  /// 是否有一次連線嘗試進行中（握手最長 15 秒）。
+  /// `ensureConnected()` 靠它避免在既有嘗試上再疊一條——兩條 `_open()` 會互相
+  /// 蓋掉 `_channel`，留下一個沒人取消的訂閱。
+  bool _opening = false;
+
+  /// 目前是否真的連著。
+  ///
+  /// **不能用 `_channel != null` 判斷**：連線斷掉時（onDone／onError）只會排重連，
+  /// `_channel` 要留到下一次 `_open()` 才清得掉，中間這段它指著一條已死的 channel。
+  /// 旗標與回報給 UI 的 `onConnectionChanged` 一起翻，兩邊永遠說同一件事。
+  bool get isConnected => _connected;
+
+  /// 握手成功後才為 true；斷線／關閉時翻回 false。
+  bool _connected = false;
 
   Future<void> connect(String token) async {
     _token = token;
@@ -85,17 +97,40 @@ class FleetWsClient {
     unawaited(_open());
   }
 
+  /// 沒連上就**立刻**重連，不等退避 timer（最長 30 秒）。App 從背景回到前景時呼叫。
+  ///
+  /// 背景期間 OS 會凍結 timer，回前景那一刻退避可能才剛開始倒數；那段空窗司機
+  /// 收不到任何派單，畫面卻只寫「連線中斷」——切回來的人會以為它已經在重試了。
+  /// **已連上或正在連線時什麼都不做**：把一條好的連線砍掉重開只會製造更長的空窗。
+  void ensureConnected() {
+    if (_disposed || _token == null || isConnected || _opening) return;
+    _reconnectTimer?.cancel();
+    // 回前景是「使用者就在看」的時刻，退避重新從 3 秒起算。
+    _reconnectAttempts = 0;
+    unawaited(_open());
+  }
+
   Future<void> disconnect() async {
     _disposed = true;
     _reconnectTimer?.cancel();
     await _sub?.cancel();
     await _channel?.sink.close();
     _channel = null;
+    _connected = false;
     onConnectionChanged?.call(false);
   }
 
   Future<void> _open() async {
     if (_disposed || _token == null) return;
+    _opening = true;
+    try {
+      await _openOnce();
+    } finally {
+      _opening = false;
+    }
+  }
+
+  Future<void> _openOnce() async {
     // 清掉上一條連線再重連。這裡的清理**絕不能無限等待**：硬斷線（伺服器被砍、網路消失）
     // 時 sink.close() 會等 close handshake 而可能永不完成，`_open()` 就卡死在這行，
     // 重連鏈默默停擺、也不會有任何例外——App 從此停在「連線中斷」直到重開。
@@ -105,6 +140,7 @@ class FleetWsClient {
     _sub = null;
     await _closeQuietly(_channel);
     _channel = null;
+    _connected = false;
 
     final uri = Uri.parse('${AppConfig.wsBase}/ws').replace(
       queryParameters: {'token': _token},
@@ -124,6 +160,7 @@ class FleetWsClient {
         return;
       }
       _channel = channel;
+      _connected = true;
       // 真的連上了：退避歸零，下次閃斷仍在 3 秒內恢復。
       _reconnectAttempts = 0;
       onConnectionChanged?.call(true);
@@ -177,6 +214,8 @@ class FleetWsClient {
   Duration get _nextReconnectDelay => reconnectDelayFor(_reconnectAttempts);
 
   void _scheduleReconnect() {
+    // 旗標要在早退之前就翻：斷線就是斷線，不因為已 disconnect 而繼續說「連著」。
+    _connected = false;
     if (_disposed) return;
     onConnectionChanged?.call(false);
     _reconnectTimer?.cancel();
@@ -202,6 +241,12 @@ class _SilentWsClient extends FleetWsClient {
 
   @override
   Future<void> connect(String token) async {
+    onConnectionChanged?.call(true);
+  }
+
+  @override
+  void ensureConnected() {
+    // 測試替身不開真連線；覆寫掉才不會讓 widget 測試偷偷去打真的 WebSocket。
     onConnectionChanged?.call(true);
   }
 
