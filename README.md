@@ -197,7 +197,7 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
   至此三端齊備：**乘客評 → 司機看得到自己的平均分 → 營運看得出誰評價低**。
   詳見 [`docs/TODO.md`](docs/TODO.md)「⭐ 乘客評分司機」。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **281 passed**（2026-07-29）。
+**目前**：`flutter analyze` 無 issue、`flutter test` **285 passed**（2026-07-29）。
 
 **2026-07-29 這一批**（詳見 [`docs/TODO.md`](docs/TODO.md) 第四～六輪 debug ＋「🧾 PR 佇列稽核」）：
 - **回到前景會對帳**：背景期間 OS 凍結 timer、WS 可能被關掉，回前景時**立刻重連 WS**
