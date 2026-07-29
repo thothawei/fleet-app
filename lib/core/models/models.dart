@@ -763,6 +763,25 @@ class ActiveRide {
     );
   }
 
+  /// 以 [fallback] 補齊自己缺的欄位（自己有值就不動）。
+  ///
+  /// 用在接單後重讀 active：後端是權威，但派單事件／推播 payload 有時帶著這支端點
+  /// 不一定回的東西（目的地座標、上車點座標）。整份換掉會讓行程卡莫名少東西，
+  /// 所以「以後端為準」＝**後端有值時聽後端的**，不是「後端沒有就當作沒有」。
+  ActiveRide filledFrom(ActiveRide fallback) {
+    return ActiveRide(
+      rideId: rideId,
+      address: address.isEmpty ? fallback.address : address,
+      phase: phase,
+      pickupLat: pickupLat ?? fallback.pickupLat,
+      pickupLng: pickupLng ?? fallback.pickupLng,
+      dropoffAddress: dropoffAddress ?? fallback.dropoffAddress,
+      dropoffLat: dropoffLat ?? fallback.dropoffLat,
+      dropoffLng: dropoffLng ?? fallback.dropoffLng,
+      stops: stops.isEmpty ? fallback.stops : stops,
+    );
+  }
+
   /// 從 GET /api/driver/rides/active 回傳的 model.Ride JSON 還原司機端行程。
   factory ActiveRide.fromBackendJson(Map<String, dynamic> json) {
     final status = (json['status'] as num).toInt();

@@ -109,9 +109,24 @@ class FleetApiClient {
     }
   }
 
-  Future<void> cancelRide(int rideId) async {
+  /// 放棄已接的訂單。回後端的說明訊息——**成功與失敗都是 200**
+  /// （後端拒絕時回「此訂單目前無法放棄」而不是錯誤碼），呼叫端不可只看有沒有丟例外。
+  Future<String> cancelRide(int rideId) async {
     try {
-      await _dio.post('/rides/$rideId/cancel');
+      final res = await _dio.post<Map<String, dynamic>>('/rides/$rideId/cancel');
+      return res.data?['message'] as String? ?? '已放棄此訂單';
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 略過這張派單（對齊 POST /api/rides/:id/decline）。
+  ///
+  /// 後端把這位司機加進該訂單的「已拒接」名單，重新派單時會跳過他——
+  /// 不呼叫的話，同一張單重派時還會再送到他面前。
+  Future<void> declineRide(int rideId) async {
+    try {
+      await _dio.post('/rides/$rideId/decline');
     } on DioException catch (e) {
       throw _wrap(e);
     }
