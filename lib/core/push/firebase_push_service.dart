@@ -119,17 +119,18 @@ class FirebaseFleetPushService implements FleetPushService {
   }
 }
 
-/// 司機端：只收派單邀請（喚醒後要顯示接單卡）。
+/// 司機端：派單邀請（喚醒後要顯示接單卡）＋乘客傳來的對話訊息。
 Future<FleetPushService> createDriverPushService() =>
-    _create(isRideOfferPush);
+    _create(isDriverPush);
 
 /// 乘客端：收行程狀態變化。
 ///
 /// **推播只當作「去跟後端對一次帳」的訊號**，payload 不直接套用到畫面——
 /// FCM data 的值全是字串又稀疏（見 pitfall-fcm-data-all-strings），
 /// 直接灌進 `_handleWsEvent` 會把司機姓名／車牌之類的欄位洗成空的。
+/// 對話訊息同樣只當訊號：推播只負責把未讀角標點亮，內容由聊天室自己以 REST 補齊。
 Future<FleetPushService> createCustomerPushService() =>
-    _create(isCustomerRidePush);
+    _create(isCustomerPush);
 
 /// 依環境建立推播服務：有 Firebase 設定則用 FCM，否則 no-op
 /// （**沒有 `google-services.json` 的裝置照樣能用 App，只是少了推播喚醒**）。
