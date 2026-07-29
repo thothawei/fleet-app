@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:line_fleet_app/core/api/fleet_api_client.dart';
 import 'package:line_fleet_app/core/models/models.dart';
-import 'package:line_fleet_app/core/push/driver_push_service.dart';
+import 'package:line_fleet_app/core/push/fleet_push_service.dart';
 import 'package:line_fleet_app/core/storage/token_storage.dart';
 import 'package:line_fleet_app/core/ws/fleet_ws_client.dart';
 import 'package:line_fleet_app/driver/driver_controller.dart';
@@ -36,7 +36,7 @@ DriverController _controller(_EarningsApi api) => DriverController(
       storage: MemoryDriverAuthStore(),
       api: api,
       wsFactory: FleetWsClient.silent,
-      push: NoOpDriverPushService(),
+      push: NoOpFleetPushService(),
     );
 
 const _earnings = DriverEarnings(
@@ -74,7 +74,7 @@ void main() {
       storage: MemoryDriverAuthStore(),
       api: api,
       wsFactory: FleetWsClient.silent,
-      push: NoOpDriverPushService(),
+      push: NoOpFleetPushService(),
     );
     addTearDown(ctrl.dispose);
 

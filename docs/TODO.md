@@ -61,6 +61,7 @@
 - [📡 第八輪：事件收件人矩陣](#-2026-07-29-第八輪-debug事件收件人矩陣app-寫好的處理後端從沒送過本批修掉-2-個)
 - [🔬 第九輪盤點：下一輪的三個候選（**未修，只取證**）](#-2026-07-29-第九輪盤點下一輪的三個候選本批只盤點沒有修)
 - [🔧 第十輪：聊天室回前景補讀＋三條寫入路徑的逾時對帳](#-2026-07-29-第十輪-debug把第九輪的候選-23-修掉本批)
+- [📲 第十一輪：乘客端推播接線（候選 1 的前半）](#-2026-07-29-第十一輪乘客端推播接線候選-1-的前半)
 
 **四、維護、決策與待辦**
 - [🧹 清開發殘留 worktree／舊分支（維護項 5）](#-清開發殘留-worktree舊分支維護項-52026-07-28-完成)
@@ -77,7 +78,7 @@
 - **UI/UX 翻新（2026-07-10）**：LINE 綠亮暗雙主題；司機駕駛情境 UI；乘客地圖為底＋卡片降級。靜態驗收 49 tests 通過；模擬器主鏈路待後端 docker 可起後補跑。
   **登入／註冊頁 2026-07-23 補齊翻新**（先前是唯一漏網畫面），詳見下方「🔐 登入頁 UI/UX 翻新＋驗證」。
 - **座標導航（2026-07-10）**：司機端目的地導航改吃後端 `dropoff_point` 座標，地址僅供顯示與退路。
-- 單元測試：**42 個測試檔、`flutter test` 303 passed**（2026-07-29 實跑；`flutter analyze` 無 issue）。
+- 單元測試：**43 個測試檔、`flutter test` 312 passed**（2026-07-29 實跑；`flutter analyze` 無 issue）。
   ~~（54 項）~~ 是 2026-07-10 的數字，長期沒更新，已更正——**本節的數字請跟著最後盤點日一起改**。
 - 遠端：`github.com/thothawei/fleet-app`。**2026-07-29 實查**：`git ls-remote --heads origin` 只有 `main`、
   `gh pr list` 三個 repo 的 open PR 皆為 0（開工前請自己再跑一次，見「下次任務」第 1 點）。
@@ -1292,9 +1293,9 @@ WS 一回來就對得上。**要做就先做 `completeTrip`**。
   （2026-07-28 查過一次，這是第二次；**這兩條每次開工都值得重跑，因為它們是外部資源，
   隨時可能到位而沒有人會來通知**。）
 
-> **➡️ 候選 2、3 已於同日修掉**，見
-> [第十輪](#-2026-07-29-第十輪-debug把第九輪的候選-23-修掉本批)。
-> 候選 1（乘客端推播）仍卡在 Firebase 憑證，維持待辦。
+> **➡️ 三條候選都動了**：2、3 見 [第十輪](#-2026-07-29-第十輪-debug把第九輪的候選-23-修掉本批)，
+> 候選 1 的**接線那半**見 [第十一輪](#-2026-07-29-第十一輪乘客端推播接線候選-1-的前半)——
+> 剩下的是 Firebase 憑證（同 A2）**與後端還沒有推播給乘客的送出路徑**。
 
 ### 維護項 8：又冒出一個殘留 worktree
 
@@ -1377,6 +1378,68 @@ WS 一回來就對得上。**要做就先做 `completeTrip`**。
 
 ---
 
+## 📲 2026-07-29 第十一輪：乘客端推播接線（候選 1 的**前半**）
+
+> 候選 1 原本整條卡在「要 Firebase 憑證」，但拆開看只有**後半**卡：
+> 註冊／註銷 token、收到推播要做什麼、登出與 session 失效的處理——
+> 這些都不需要任何憑證就能寫完並用測試釘住。憑證到位那天只要放進
+> `google-services.json`，這條路就通了。
+
+**先確認事實**（2026-07-29 實查）：後端 `POST/DELETE /api/customer/device-token`
+（`RegisterByCustomer`／`UnregisterByCustomer`）**早就在路由上**，App 這端一行都沒有。
+
+### 改了什麼
+
+- **推播服務改成兩端共用**：`DriverPushService` → **`FleetPushService`**
+  （檔名 `driver_push_service.dart` → `fleet_push_service.dart`），
+  Firebase 實作改吃一個 `accepts` 過濾器，`createDriverPushService()`／
+  `createCustomerPushService()` 兩支工廠只差在那個過濾器。
+  **刻意不再抄一份**——「各抄一份」正是遺失物 banner 換版時掉了的根因。
+- **乘客端關心哪些推播**（`isCustomerRidePush`）：`ride.accepted`／`driver.arrived`／
+  `ride.completed`／`ride.cancelled`／`ride.redispatched`。
+  **不含 `driver.location`**：司機每 8 秒回報一次，拿它當推播只會把電池與額度燒光，
+  而且乘客 App 不在前景時本來也看不到地圖上的移動。
+- **推播只當「去跟後端對一次帳」的訊號**（`_handlePushEvent` → `refreshActive(silent)`
+  ＋`refreshLostItems()`），**payload 不直接套進畫面**：FCM data 的值全是字串又稀疏
+  （見 `pitfall-fcm-data-all-strings`），直接餵進 `_handleWsEvent` 會把司機姓名／車牌／ETA
+  洗成空的——**推播喚醒後的畫面反而比不開還糟**。REST 一定完整。
+  司機端則相反，它必須直接用 payload 顯示接單卡（後端沒有「目前 offer」端點）。
+- **登入註冊、輪替重註冊、登出註銷**：`_syncDeviceToken()` 在 `_applySession` 呼叫，
+  `tokenRefresh` 也接到同一支；`logout()` 先 `unregisterDeviceToken` 再清 session——
+  不註銷的話，**下一個在這台裝置登入的人會收到上一位乘客的行程通知**。
+- 🔑 **session 失效（401）不可去註銷**：那支 API 只會再回一次 401（並再觸發一次清理）。
+  乘客端原本 `logout()` 一支打天下，這批**拆成 `logout()`／`_clearSession()`**
+  ——與司機端同一個結構，也是第三輪學到的同一條。
+- **註冊失敗、對帳失敗一律靜默**：兩者都是使用者沒按任何東西的背景動作
+  （同 2026-07-28 修掉的那一族）。推播只是輔助管道，WS 與 15 秒輪詢照常運作。
+
+### ⚠️ 這條路還沒通——**後端沒有推播給乘客的送出路徑**
+
+`notify.Dispatcher` 目前**只有** `NotifyDriverRideOffer`；`grep -rn "RoleCustomer" internal/`
+在 dispatch 只命中 device-token 的存取層。所以乘客的 token 現在是**存起來備用**：
+App 這端該做的都做完了，真正的喚醒要等後端補送出路徑。
+
+**➡️ 留給後端的（跨 repo，不在本批）**：
+1. 行程狀態變化時，對該乘客的裝置送 FCM（`ride.accepted`／`driver.arrived`／
+   `ride.completed`／`ride.cancelled`／`ride.redispatched`）。
+2. **data payload 只需要 `type`（＋ `ride_id`）**——App 收到就去 REST 對帳，
+   不依賴推播裡的欄位，所以這一側沒有額外契約要維護。
+
+### 驗收
+
+- 靜態：`flutter analyze` 無 issue、`flutter test` **312 passed**（303 ＋新 9）。
+  新增 `test/customer_push_test.dart`：註冊／註銷 5 案（登入註冊＋登出註銷／
+  401 不註銷／推播不可用時不打 API／註冊失敗靜默／token 輪替重註冊）、
+  推播對帳 3 案（只帶 type 也能靠 REST 補齊司機姓名／對帳失敗靜默／未登入不打 API）、
+  過濾器 1 案（`driver.location` 與 `ride.assigned` 都不算乘客端的）。
+- **反向確認**（三組分別跑）：拿掉登入註冊＋登出註銷 → **3 案 FAIL**；
+  把 session 失效改回呼叫 `logout()` → **1 案 FAIL**（它會去打那支必定 401 的 API）；
+  拿掉 `_bindPushListener()` → **2 案 FAIL**。
+- **未做**：真推播的端到端（**需要 `google-services.json`**，本檔 A2 的同一個卡點）。
+  這批驗的是接線，不是推播本身；README 的「乘客端推播」段寫了憑證到位後要做什麼。
+
+---
+
 ## 下次任務
 
 > **✅ 維護項 5「清開發殘留」已完成（2026-07-28）**，詳見上方。
@@ -1416,10 +1479,13 @@ WS 一回來就對得上。**要做就先做 `completeTrip`**。
 > 見上方「🐞 2026-07-28 debug」。**六份清單（本檔、admin TODO、IOS_PLAN、gap-analysis-plan、
 > 兩份 UI/UX 執行計畫）的勾選現在全部對得上程式碼現況**，文件層面沒有可清的東西了。
 >
-> **🎯 下次開工第一件事**（2026-07-29 第十輪後更新）：先跑 `gh pr list`，再看
+> **🎯 下次開工第一件事**（2026-07-29 第十一輪後更新）：先跑 `gh pr list`，再看
 > [第九輪盤點](#-2026-07-29-第九輪盤點下一輪的三個候選本批只盤點沒有修)——
-> 三條候選的 **2、3 已經在[第十輪](#-2026-07-29-第十輪-debug把第九輪的候選-23-修掉本批)修掉**，
-> 只剩候選 1（乘客端推播）卡在 Firebase 憑證。
+> 三條候選**都做完了**（2、3 在[第十輪](#-2026-07-29-第十輪-debug把第九輪的候選-23-修掉本批)，
+> 1 的接線在[第十一輪](#-2026-07-29-第十一輪乘客端推播接線候選-1-的前半)）。
+> **乘客端推播還有兩塊不在 App 這端**：Firebase 憑證（同 A2，要你提供）
+> 與**後端還沒有推播給乘客的送出路徑**（`notify.Dispatcher` 只有 `NotifyDriverRideOffer`）——
+> 後者不需要憑證就能先做，屬 dispatch repo。
 > **兩項修正都只有測試層證據，沒有模擬器實跑**——下次起 docker／模擬器時，
 > 把第十輪寫的那兩條「怎麼證實」順手跑掉（注意 `docker pause` 造不出正向競態，
 > 那一分支需要一支吃掉回應的代理）。
@@ -1448,7 +1514,7 @@ WS 一回來就對得上。**要做就先做 `completeTrip`**。
 >
 > | # | 候選 | 需要外部資源？ | 建議順序 |
 > |---|---|---|---|
-> | 1 | **乘客端完全沒有推播管道**（後端 `/api/customer/device-token` 已就緒、App 從沒接） | 憑證那半要 Firebase（同 A2）；**接線那半不用** | **仍待辦**：先做不需憑證的接線 |
+> | 1 | **乘客端完全沒有推播管道**（後端 `/api/customer/device-token` 已就緒、App 從沒接） | 憑證那半要 Firebase（同 A2） | ✅ **接線已完成（第十一輪）**；**剩憑證＋後端送出路徑** |
 > | 2 | ~~聊天室的 `afterId` 增量補讀是死路徑~~ | 不用 | ✅ **已修（第十輪）** |
 > | 3 | ~~`completeTrip`／`pickUpPassenger`／`_markStop` 沒有逾時對帳~~ | 不用 | ✅ **已修（第十輪）** |
 >
