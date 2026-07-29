@@ -446,6 +446,11 @@ class CustomerController extends ChangeNotifier {
         _onChatPush();
         return;
       }
+      if (isLostItemPush(event)) {
+        // 協尋單的狀態變了，但行程沒有——只重讀協尋清單就夠。
+        unawaited(refreshLostItems());
+        return;
+      }
       unawaited(_handlePushEvent());
     });
     await _tokenRefreshSub?.cancel();

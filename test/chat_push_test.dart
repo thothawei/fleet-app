@@ -34,6 +34,17 @@ void main() {
       expect(isCustomerPush(ev(FleetEventTypes.chatMessage)), isTrue);
     });
 
+    test('協尋單兩端也收', () {
+      for (final t in [
+        FleetEventTypes.lostItemCreated,
+        FleetEventTypes.lostItemUpdated,
+      ]) {
+        expect(isLostItemPush(ev(t)), isTrue, reason: t);
+        expect(isDriverPush(ev(t)), isTrue, reason: t);
+        expect(isCustomerPush(ev(t)), isTrue, reason: t);
+      }
+    });
+
     test('原本的白名單沒有被放寬', () {
       // 司機端仍只要派單邀請（＋對話）。
       expect(isDriverPush(ev(FleetEventTypes.rideAssigned)), isTrue);
@@ -80,6 +91,23 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(ctrl.$1.unreadChat, 0);
+    });
+
+    test('協尋推播 → 重讀協尋清單（推播 data 沒有協尋單本體）', () async {
+      final ctrl = _driver(loggedIn: true);
+      addTearDown(ctrl.$1.dispose);
+      await ctrl.$1.init();
+      final before = ctrl.$3.lostItemCalls;
+
+      ctrl.$2.emit(FleetWsEvent(
+        type: FleetEventTypes.lostItemCreated,
+        rideId: 9,
+        payload: const {},
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(ctrl.$3.lostItemCalls, greaterThan(before),
+          reason: '推播 data 沒有協尋單本體，只能靠重讀清單');
     });
 
     test('派單推播照樣開接單卡（多一層分流不能把原路徑弄斷）', () async {
@@ -136,6 +164,26 @@ void main() {
       expect(ctrl.unreadChat, 0);
     });
 
+    test('協尋推播 → 只重讀協尋清單，不重讀行程', () async {
+      final api = _CustomerApi();
+      final push = _FakePush();
+      final ctrl = await _customer(api, push);
+      addTearDown(ctrl.dispose);
+      final activeBefore = api.activeCalls;
+      final lostBefore = api.lostItemCalls;
+
+      push.emit(FleetWsEvent(
+        type: FleetEventTypes.lostItemUpdated,
+        rideId: 9,
+        payload: const {},
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(api.lostItemCalls, greaterThan(lostBefore));
+      expect(api.activeCalls, activeBefore,
+          reason: '協尋單變了不代表行程變了');
+    });
+
     test('行程狀態推播仍走對帳（沒被對話那條分流吃掉）', () async {
       final api = _CustomerApi();
       final push = _FakePush();
@@ -155,15 +203,20 @@ void main() {
   });
 }
 
-(DriverController, _FakePush) _driver() {
+(DriverController, _FakePush, _DriverApi) _driver({bool loggedIn = false}) {
   final push = _FakePush();
+  final api = _DriverApi();
+  final storage = MemoryDriverAuthStore();
+  if (loggedIn) {
+    storage.save(const AuthSession(driverId: 7, token: 'tok', name: '阿明'));
+  }
   final ctrl = DriverController(
-    storage: MemoryDriverAuthStore(), // 未登入：init() 不會打任何 API
-    api: _DriverApi(),
+    storage: storage,
+    api: api,
     wsFactory: FleetWsClient.silent,
     push: push,
   );
-  return (ctrl, push);
+  return (ctrl, push, api);
 }
 
 Future<CustomerController> _customer(_CustomerApi api, _FakePush push) async {
@@ -181,6 +234,30 @@ Future<CustomerController> _customer(_CustomerApi api, _FakePush push) async {
 
 class _DriverApi extends FleetApiClient {
   _DriverApi() : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
+
+  int lostItemCalls = 0;
+
+  @override
+  Future<ActiveRide?> activeRide() async => null;
+
+  @override
+  Future<DriverVehicle> fetchVehicle() async => const DriverVehicle(
+        vehicleType: 'sedan',
+        plateNumber: 'ABC-1234',
+        hasVehicle: true,
+      );
+
+  @override
+  Future<List<LostItemRequest>> fetchLostItems() async {
+    lostItemCalls++;
+    return const [];
+  }
+
+  @override
+  Future<void> registerDeviceToken({
+    required String platform,
+    required String token,
+  }) async {}
 }
 
 class _CustomerApi extends CustomerApiClient {
@@ -188,6 +265,7 @@ class _CustomerApi extends CustomerApiClient {
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
   int activeCalls = 0;
+  int lostItemCalls = 0;
 
   @override
   Future<CustomerRide?> activeRide() async {
@@ -196,7 +274,10 @@ class _CustomerApi extends CustomerApiClient {
   }
 
   @override
-  Future<List<LostItemRequest>> fetchLostItems() async => const [];
+  Future<List<LostItemRequest>> fetchLostItems() async {
+    lostItemCalls++;
+    return const [];
+  }
 
   @override
   Future<void> registerDeviceToken({
