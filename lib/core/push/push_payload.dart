@@ -62,10 +62,19 @@ bool isCustomerRidePush(FleetWsEvent? event) =>
 bool isChatPush(FleetWsEvent? event) =>
     event?.type == FleetEventTypes.chatMessage;
 
-/// 司機端接受的推播：派單邀請＋對方訊息。
-bool isDriverPush(FleetWsEvent event) =>
-    isRideOfferPush(event) || isChatPush(event);
+/// 遺失物協尋單有動靜（**兩端共用**）。
+///
+/// 協尋的節奏是**小時級**（司機要回車上翻、乘客要等），雙方幾乎都不在 App 前景——
+/// 沒有推播的話，每一步都要靠當事人自己想起來去開 App 看。
+/// 後端只推給對方（動作發起者自己剛按完，不必再收一則）。
+bool isLostItemPush(FleetWsEvent? event) =>
+    event?.type == FleetEventTypes.lostItemCreated ||
+    event?.type == FleetEventTypes.lostItemUpdated;
 
-/// 乘客端接受的推播：行程狀態變化＋對方訊息。
+/// 司機端接受的推播：派單邀請＋對方訊息＋協尋單。
+bool isDriverPush(FleetWsEvent event) =>
+    isRideOfferPush(event) || isChatPush(event) || isLostItemPush(event);
+
+/// 乘客端接受的推播：行程狀態變化＋對方訊息＋協尋單。
 bool isCustomerPush(FleetWsEvent event) =>
-    isCustomerRidePush(event) || isChatPush(event);
+    isCustomerRidePush(event) || isChatPush(event) || isLostItemPush(event);

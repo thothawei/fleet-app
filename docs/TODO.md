@@ -80,7 +80,7 @@
 - **UI/UX 翻新（2026-07-10）**：LINE 綠亮暗雙主題；司機駕駛情境 UI；乘客地圖為底＋卡片降級。靜態驗收 49 tests 通過；模擬器主鏈路待後端 docker 可起後補跑。
   **登入／註冊頁 2026-07-23 補齊翻新**（先前是唯一漏網畫面），詳見下方「🔐 登入頁 UI/UX 翻新＋驗證」。
 - **座標導航（2026-07-10）**：司機端目的地導航改吃後端 `dropoff_point` 座標，地址僅供顯示與退路。
-- 單元測試：**45 個測試檔、`flutter test` 325 passed**（2026-07-30 實跑；`flutter analyze` 無 issue）。
+- 單元測試：**45 個測試檔、`flutter test` 328 passed**（2026-07-30 實跑；`flutter analyze` 無 issue）。
   ~~（54 項）~~ 是 2026-07-10 的數字，長期沒更新，已更正——**本節的數字請跟著最後盤點日一起改**。
 - 遠端：`github.com/thothawei/fleet-app`。**2026-07-29 實查**：`git ls-remote --heads origin` 只有 `main`、
   `gh pr list` 三個 repo 的 open PR 皆為 0（開工前請自己再跑一次，見「下次任務」第 1 點）。
@@ -1519,12 +1519,28 @@ main() → createXxxPushService() → initialize() → getInitialMessage() → _
 
 ### 驗收
 
-- `flutter analyze` 無 issue、`flutter test` **325 passed**（317 ＋新 8）。
+- `flutter analyze` 無 issue、`flutter test` **328 passed**（317 ＋新 11，含協尋那批）。
   新增 `test/chat_push_test.dart`：白名單 2 案、司機端 3 案（角標 +1／聊天室開著忽略／
   **派單推播照樣開接單卡**）、乘客端 3 案（角標 +1 且不重讀行程／聊天室開著忽略／
   **行程狀態推播仍走對帳**）。後兩案是這次新增分流的回歸網——分流寫錯會把原路徑吃掉。
 - **反向確認**：白名單拿掉對話 → 1 案 FAIL；兩端 controller 拿掉分流 → 2 案 FAIL。
 - **未做**：真裝置端到端（同 A2，卡 `google-services.json`）。
+
+### 同批：協尋單也走推播
+
+**為什麼**：協尋的節奏是**小時級**（司機要回車上翻、乘客要等），雙方幾乎都不在 App 前景。
+先前每一步都只走 WS，等於整條流程要靠當事人自己想起來去開 App 看——
+建了單司機不知道、找到了乘客不知道、付了款司機不知道。
+
+- 後端（dispatch [PR #63](https://github.com/thothawei/fleet-dispatch/pull/63)）在建單與每一次
+  狀態轉換推給**對方**，標題講的是「收訊者接下來要做什麼」
+  （`found` 對乘客是「司機找到你的遺失物了」＝該付處理費了）。
+- App 兩端收到 `lost_item.created`／`lost_item.updated` → **只重讀協尋清單**。
+  同樣**不能餵進 `_handleWsEvent`**（推播 data 沒有協尋單本體，`LostItemRequest.fromJson`
+  會解析失敗被丟掉）；乘客端也**不走 `_handlePushEvent`**——那支會連行程一起重讀，
+  但協尋單變了不代表行程變了。
+- 驗收：`flutter test` **328 passed**（325 ＋新 3）；反向確認拿掉兩端分流 → 2 案 FAIL
+  （乘客那案抓的正是「順手多打了一支行程 API」）。
 
 ---
 

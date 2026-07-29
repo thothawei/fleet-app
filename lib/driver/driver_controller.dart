@@ -425,6 +425,12 @@ class DriverController extends ChangeNotifier {
       _onChatPush();
       return;
     }
+    if (isLostItemPush(event)) {
+      // 同樣不能餵進 _handleWsEvent：推播 data 沒有協尋單本體，
+      // LostItemRequest.fromJson 會解析失敗被丟掉，清單與角標都不會動。
+      unawaited(refreshLostItems());
+      return;
+    }
     _handleWsEvent(event);
   }
 
