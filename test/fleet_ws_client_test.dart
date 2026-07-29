@@ -176,6 +176,40 @@ void main() {
         reason: '次數大到左移溢位（變負數）時也要夾到上限，不能變成 0 秒狂重連');
   });
 
+  test('正式連線一定要開心跳——半開連線只有它偵測得到', () async {
+    // 半開（half-open）：對端已經沒了，但本地 socket 收不到 FIN。
+    // 串流不會 onDone／onError，重連鏈就永遠不會被觸發，畫面卻顯示「即時連線正常」。
+    // 客戶端 ping 收不到 pong 才會把連線關掉 → 走既有重連鏈。
+    final socket = await WebSocket.connect(wsUri.toString());
+    addTearDown(() => socket.close().catchError((_) => null));
+
+    // 校準：dart:io 預設不送 ping（pingInterval 為 null），所以下面那條斷言不是恆真。
+    expect(socket.pingInterval, isNull, reason: '預設沒有心跳，正是本修正要補的洞');
+
+    FleetWsClient.enableKeepAlive(socket);
+    expect(
+      socket.pingInterval,
+      FleetWsClient.pingInterval,
+      reason: '沒設 pingInterval 就偵測不到半開連線，司機會靜靜地收不到派單',
+    );
+  });
+
+  test('預設 connector（含心跳）仍連得上且收得到事件', () async {
+    // 換成 IOWebSocketChannel 是為了心跳，但正式路徑不能因此壞掉。
+    final channel = FleetWsClient.defaultConnector(wsUri);
+    addTearDown(() => channel.sink.close().catchError((_) => null));
+    await channel.ready.timeout(const Duration(seconds: 10));
+
+    final received = channel.stream.first.timeout(const Duration(seconds: 10));
+    // 伺服器端 socket 由 WebSocketTransformer 非同步加入，等它出現再送。
+    while (serverSockets.isEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    serverSockets.first.add('{"type":"ride.assigned","ride_id":1}');
+
+    expect(await received, contains('ride.assigned'));
+  });
+
   test('握手成功後退避歸零，下次閃斷仍在 3 秒內重連', () async {
     final states = StreamController<bool>.broadcast();
     final client = FleetWsClient(
