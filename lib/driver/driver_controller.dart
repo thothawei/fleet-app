@@ -902,6 +902,14 @@ class DriverController extends ChangeNotifier {
         if (event.rideId != null &&
             (_activeRide?.rideId == event.rideId ||
                 _pendingOffer?.rideId == event.rideId)) {
+          // 取消的行程卡**不能無聲消失**：司機正開往上車點，畫面突然少一張卡
+          // 只會讓他以為 App 壞了。這則事件只有「別人取消」才會送到司機這邊
+          // （他自己放棄走的是 ride.redispatched，且不推給司機），所以說得出原因。
+          // 完成不必說——那是他自己按的。
+          if (event.type == FleetEventTypes.rideCancelled &&
+              _activeRide?.rideId == event.rideId) {
+            _setError('這筆訂單已被取消，不用再前往上車點');
+          }
           if (_activeRide?.rideId == event.rideId) _activeRide = null;
           if (_pendingOffer?.rideId == event.rideId) _pendingOffer = null;
           notifyListeners();
