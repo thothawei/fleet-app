@@ -985,12 +985,37 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
    stacked PR 的 base 不是 main 時，push 不觸發 CI；把 base 改成 main 也不補觸發
    （`edited` 不在預設 types 裡）。要 `gh pr close` 再 `gh pr reopen` 才會跑。
 
+### 第二輪比對：被取代的 PR 還藏著四條 main 沒有的測試（PR #69）
+
+> 功能救回之後又做了一次**逐檔**比對（`git diff --diff-filter=A` 找只存在於那三支的檔案），
+> 結果撈到兩個檔：`customer_place_order_timeout_test.dart`（#60）與
+> `driver_multi_device_test.dart`（#61）。程式碼本身 main 都已經是對的，
+> **缺的是釘住它的測試**——少了它們，下一個人重構 `_adoptRideIfCreated` 時會靜悄悄壞掉。
+
+| 救回的斷言 | 壞掉會怎樣 |
+|---|---|
+| 接手既有訂單時**連司機資訊一起帶出來** | 乘客先看到一段假的「配對中」，直到 15 秒後輪詢才冒出司機——而司機可能已經在門口 |
+| **對帳本身也失敗**時維持原錯誤 | 問不到卻假裝接手成功 |
+| 後端回的是**終態**訂單 → 不算數 | 把已完成的上一趟接手過來，乘客盯著一張永遠不會動的行程 |
+| **登出後 `ensureConnected()` 不可偷偷連回去**（救自 #59） | 已登出的 client 帶著**舊 token** 重連，上一個帳號的事件繼續進來 |
+
+**反向確認的誠實結果**：前三案拿掉 `_applyActiveRide` 與 `isTerminal` 後 **2 案 FAIL**
+（「對帳失敗」那案由既有 `catch` 覆蓋，拿不掉也不會紅）；第四案是 **defense-in-depth**——
+`ensureConnected()` 與 `_open()` **各有一道** `_disposed` 守門，單獨拿掉任一道都仍 PASS，
+**兩道同時拿掉才 FAIL**。這種案子仍值得留，但不能宣稱它釘住了某一行。
+
+`flutter test` **281 passed**。至此 #59／#60／#61 的內容（功能＋測試）**全部在 main**，
+三支遠端分支已刪除。
+
 ### 順手做的整理
 
 - dispatch：#53（`ride.stop_updated` 也推給司機）、#54（結構化 JSON log ＋ request_id）已合併，
-  遠端分支清空（只剩 main）。
+  遠端分支清空（只剩 main）；另補 **#55** 把 App 實跑查出的四個後端缺口記進後端自己的 TODO（T1–T4）。
 - app 遠端殘留分支 `claude/todo-task-execution-pr-3978a3` 經比對 **tip 等於 PR #58 合併時的
-  `headRefOid`**（沒有未合併內容），可安全刪除。
+  `headRefOid`**（沒有未合併內容），已刪除。
+- 從本地 worktree 撈到一個**從未開過 PR** 的孤兒 commit（UI/UX 翻新計畫的 30 個 Step 回填），
+  逐檔重新查證產出存在後補開 PR **#67** 合併。
+- **app 遠端分支現在只剩 `main`**；三個 repo 的 open PR 皆為 0。
 
 ---
 
