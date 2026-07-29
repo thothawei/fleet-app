@@ -51,6 +51,11 @@ class DriverController extends ChangeNotifier {
   bool _busy = false;
   // session 失效清理中；並發的 401（位置回報＋還原行程同時打）不重入清理。
   bool _sessionExpiring = false;
+  // 有一筆位置回報在路上（弱網下防止請求疊起來，見 _reportPosition）。
+  bool _reportingPosition = false;
+  // 最後一次**成功**回報位置的時刻；上線後還沒成功過時為 null（改看 _onlineSince）。
+  DateTime? _lastLocationOkAt;
+  DateTime? _onlineSince;
 
   // 聊天：WS chat.message 即時串流 + 未讀計數（聊天室開啟時不累計）。
   final _chatStream = StreamController<RideMessage>.broadcast();
@@ -91,6 +96,22 @@ class DriverController extends ChangeNotifier {
   }
   bool get online => _online;
   bool get wsConnected => _wsConnected;
+
+  /// 位置已經久到後端不再把他當派單候選（＝**上線了卻收不到派單**）。
+  ///
+  /// 門檻取後端的 `DRIVER_OFFLINE_SEC`（預設 60 秒）：`NearbyDriverIDs` 只收
+  /// `driver:<id>:loc` 的 `updated_at` 在這個窗內的司機，超過就直接跳過。
+  /// 弱網最惡劣的地方就在這裡——連線沒斷、WS 看起來也還連著（凍結的後端不會送 FIN），
+  /// 司機畫面上寫「等待派單中」，但他其實早就不在派單池裡了（實跑驗到）。
+  ///
+  /// 上線後還沒成功回報過就從上線時刻起算，否則剛按下上線的那幾秒會誤報。
+  bool get locationStale {
+    if (!_online) return false;
+    final since = _lastLocationOkAt ?? _onlineSince;
+    if (since == null) return false;
+    return DateTime.now().difference(since) >
+        const Duration(seconds: AppConfig.driverOfflineSec);
+  }
   RideOffer? get pendingOffer => _pendingOffer;
   ActiveRide? get activeRide => _activeRide;
   Position? get lastPosition => _lastPosition;
@@ -269,6 +290,21 @@ class DriverController extends ChangeNotifier {
   @visibleForTesting
   void setOnlineForTest(bool value) {
     _online = value;
+    notifyListeners();
+  }
+
+  /// 測試用：直接設定 WS 連線旗標（正式路徑由 WS client 回報）。
+  @visibleForTesting
+  void setWsConnectedForTest(bool value) {
+    _wsConnected = value;
+    notifyListeners();
+  }
+
+  /// 測試用：把「上線時刻／最後成功回報時刻」往前挪，驗位置過期的門檻。
+  @visibleForTesting
+  void markOnlineSinceForTest(DateTime since) {
+    _onlineSince = since;
+    _lastLocationOkAt = null;
     notifyListeners();
   }
 
@@ -454,6 +490,8 @@ class DriverController extends ChangeNotifier {
       return;
     }
     _online = true;
+    _onlineSince = DateTime.now();
+    _lastLocationOkAt = null;
     _setError(null);
     await _startLocationStream();
     notifyListeners();
@@ -461,6 +499,8 @@ class DriverController extends ChangeNotifier {
 
   Future<void> goOffline() async {
     _online = false;
+    _onlineSince = null;
+    _lastLocationOkAt = null;
     await _stopLocationStream();
     notifyListeners();
   }
@@ -501,9 +541,17 @@ class DriverController extends ChangeNotifier {
 
   Future<void> _reportPosition(Position pos) async {
     if (!_online || _session == null) return;
+    // 弱網保護：一次只放一筆位置在路上。
+    // 定位每 8 秒一個 tick，但單筆請求最久可以拖 25 秒（連線 10＋接收 15），
+    // 不擋的話請求會疊起來——實測後端凍結時同時連線數從 1 漲到 3，而且先送的舊座標
+    // 可能後到，把司機在派單池裡的位置往回拉。丟掉這一筆沒有損失：下一個 tick
+    // 送的是**更新**的座標，回報位置本來就只在乎最後一筆。
+    if (_reportingPosition) return;
+    _reportingPosition = true;
     try {
       _lastPosition = pos;
       await _api.reportLocation(lat: pos.latitude, lng: pos.longitude);
+      _lastLocationOkAt = DateTime.now();
       // 位置回報是上線期間每幾秒一次的健康探針：它成功＝後端可達，
       // 此時還掛著上一輪的「無法連線到伺服器」只會誤導司機。
       // **但只能清連線類**：後端明確拒絕的業務錯誤（例如完成行程被 409 擋下）
@@ -515,7 +563,10 @@ class DriverController extends ChangeNotifier {
     } on ApiException catch (e) {
       _setApiError(e);
       notifyListeners();
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _reportingPosition = false;
+    }
   }
 
   Future<void> acceptOffer() async {
@@ -546,6 +597,11 @@ class DriverController extends ChangeNotifier {
       await _refreshActiveAfterAccept(offer.rideId, message);
     } on ApiException catch (e) {
       _setApiError(e);
+      // 弱網：逾時／連線失敗**不代表後端沒接到**（請求可能已經送達並處理完，
+      // 只是回應沒回來）。這時直接報錯會讓司機再按一次，而後端會回
+      // 「手慢了，這單已被其他司機接走」——他自己搶走了自己的單。
+      // 所以先問後端：這張單現在是不是我的。
+      if (e.statusCode == null) await _adoptRideIfAccepted(offer.rideId);
     } finally {
       _busy = false;
       notifyListeners();
@@ -579,6 +635,23 @@ class DriverController extends ChangeNotifier {
       _setError(message);
     } on ApiException {
       // 樂觀行程已足以繼續作業；重讀失敗不打斷接單流程。
+    }
+  }
+
+  /// 接單請求逾時後，向後端確認這張單是不是已經接到手了。
+  ///
+  /// 接到了 → 收掉接單卡、顯示行程卡、清掉那句逾時錯誤（他其實成功了）。
+  /// 沒接到 → 什麼都不動，逾時訊息留著讓他自己決定要不要再按一次。
+  /// 查詢本身也失敗 → 同樣什麼都不動（不知道就不亂改）。
+  Future<void> _adoptRideIfAccepted(int rideId) async {
+    try {
+      final fresh = await _api.activeRide();
+      if (fresh == null || fresh.rideId != rideId) return;
+      _activeRide = fresh;
+      _pendingOffer = null;
+      _setError(null);
+    } on ApiException {
+      // 弱網下這一問也可能逾時；維持原本的錯誤訊息。
     }
   }
 

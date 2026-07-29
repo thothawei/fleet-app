@@ -23,6 +23,11 @@ class AppConfig {
 
   /// 司機位置回報間隔（與後端模擬器預設 8s 對齊）
   static const locationIntervalSec = 8;
+
+  /// 後端把司機視為「離線」的位置鮮度窗（dispatch 的 `DRIVER_OFFLINE_SEC`，預設 60 秒）。
+  /// 超過這個時間沒成功回報位置，他就不再是派單候選——App 端據此誠實降級 hero
+  /// （見 `DriverController.locationStale`）。後端調整時這裡要跟著改。
+  static const driverOfflineSec = 60;
 }
 
 /// WebSocket 事件型別（對齊後端 internal/events/event.go）
