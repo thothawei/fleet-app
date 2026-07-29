@@ -155,8 +155,8 @@ void main() {
       await ctrl.init();
       await ctrl.login(lineUserId: 'U_driver', password: 'pw');
 
-      // 後端 active 有全程（模擬 rides/active 回傳的多停靠點行程）。
-      api.restoreRide = ActiveRide.fromBackendJson(const {
+      // 後端 active 有全程（模擬接單後 rides/active 回傳的多停靠點行程）。
+      api.acceptedActive = ActiveRide.fromBackendJson(const {
         'id': 30,
         'status': RideStatus.accepted,
         'pickup_address': '台北101',
@@ -183,13 +183,16 @@ void main() {
       expect(ctrl.activeRide?.stops.length, 4);
     });
 
-    test('acceptOffer 重讀 active 回別的行程／null 時，不覆蓋剛接到的樂觀行程', () async {
-      // 防競態：active API 短暫回 null 或回到別的 rideId 時，不能把剛接到的單清掉。
+    // 舊契約是「active 回 null／別張單就保留樂觀行程」，理由是假設 active API 對剛接的單
+    // 會短暫回 null。對真後端實測推翻了它：接單成功時 ride 在回應前就已寫入，
+    // 讀不到就是真的沒有——而**沒搶到的司機拿到的正是 HTTP 200**
+    // （`{"message":"手慢了，這單已被其他司機接走"}`），舊契約會給他一張假的行程卡。
+    // 新契約見 test/driver_offer_race_test.dart；這裡只釘住「後端說你手上是別張單」的分支。
+    test('acceptOffer 重讀 active 回別的行程 → 以後端那張為準，不留樂觀的假單', () async {
       await ctrl.init();
       await ctrl.login(lineUserId: 'U_driver', password: 'pw');
 
-      // 後端回 rideId 不符（模擬競態）。
-      api.restoreRide = ActiveRide.fromBackendJson(const {
+      api.acceptedActive = ActiveRide.fromBackendJson(const {
         'id': 999,
         'status': RideStatus.accepted,
         'pickup_address': '別的行程',
@@ -202,8 +205,8 @@ void main() {
       ));
       await ctrl.acceptOffer();
 
-      expect(ctrl.activeRide?.rideId, 55, reason: '保留樂觀行程，不被別的 rideId 蓋掉');
-      expect(ctrl.activeRide?.address, '士林夜市');
+      expect(ctrl.activeRide?.rideId, 999, reason: '後端說進行中的是 999，就不能顯示 55');
+      expect(ctrl.error, '接單成功', reason: '把後端那句話原樣說給司機聽（不 parse 它）');
     });
 
     test('init 還原行程時從 rides/active 的 pickup_point 取得上車點座標', () async {
@@ -518,6 +521,7 @@ class _FakeFleetApi extends FleetApiClient {
   final acceptedRideIds = <int>[];
   final completedRideIds = <int>[];
   final cancelledRideIds = <int>[];
+  final declinedRideIds = <int>[];
   final registeredFcmTokens = <String>[];
   final unregisteredFcmTokens = <String>[];
 
@@ -535,8 +539,19 @@ class _FakeFleetApi extends FleetApiClient {
     return const LoginResult(driverId: 7, token: 'tok-7', name: '阿明');
   }
 
+  /// 接單／放棄之後 active 要回什麼。
+  ///
+  /// **預設模仿真後端**：接單成功後 `GET /driver/rides/active` 立刻就有這張單
+  /// （後端在回應前就寫好 ride 的 status/driver_id）。Fake 只回 id 與階段，
+  /// 其餘欄位由 `ActiveRide.filledFrom` 以樂觀 offer 補齊——正是真後端會回的內容。
+  ActiveRide? acceptedActive;
+  bool _accepted = false;
+
   @override
-  Future<ActiveRide?> activeRide() async => restoreRide;
+  Future<ActiveRide?> activeRide() async {
+    if (!_accepted) return restoreRide;
+    return acceptedActive;
+  }
 
   @override
   Future<List<LostItemRequest>> fetchLostItems() async => lostItems;
@@ -568,6 +583,12 @@ class _FakeFleetApi extends FleetApiClient {
   Future<String> acceptRide(int rideId) async {
     if (acceptError != null) throw acceptError!;
     acceptedRideIds.add(rideId);
+    acceptedActive ??= ActiveRide(
+      rideId: rideId,
+      address: '',
+      phase: DriverRidePhase.enRouteToPickup,
+    );
+    _accepted = true;
     return '接單成功';
   }
 
@@ -581,8 +602,16 @@ class _FakeFleetApi extends FleetApiClient {
   }
 
   @override
-  Future<void> cancelRide(int rideId) async {
+  Future<String> cancelRide(int rideId) async {
     cancelledRideIds.add(rideId);
+    acceptedActive = null;
+    _accepted = true;
+    return '已放棄此訂單';
+  }
+
+  @override
+  Future<void> declineRide(int rideId) async {
+    declinedRideIds.add(rideId);
   }
 
   @override
