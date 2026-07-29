@@ -133,9 +133,10 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
 REST 一定完整，而推播要傳達的資訊只有「有事發生了」。
 所以**這一側沒有額外的 payload 契約**，後端只要帶 `type`（＋ `ride_id`）即可。
 
-⚠️ **後端目前還不會推播給乘客**：`notify.Dispatcher` 只有 `NotifyDriverRideOffer`
-（`grep -rn "RoleCustomer" internal/` 只命中 device-token 的存取層）。
-所以乘客 token 現在只是「存起來備用」——真正的喚醒要等後端補送出路徑（已記在 dispatch TODO）。
+✅ **後端送出路徑已補上**（dispatch [PR #61](https://github.com/thothawei/fleet-dispatch/pull/61)，
+2026-07-30）：`Dispatcher.NotifyCustomerRideUpdate` ＋ 五個發送點，data 正好只帶
+`type` 與 `ride_id`。~~先前只有 `NotifyDriverRideOffer`，乘客 token 只是「存起來備用」。~~
+**整條鏈路現在只剩 Firebase 憑證**（同 A2）——憑證放進來就該直接會動，不需再改程式碼。
 
 ## 功能進度
 
@@ -214,7 +215,16 @@ REST 一定完整，而推播要傳達的資訊只有「有事發生了」。
   至此三端齊備：**乘客評 → 司機看得到自己的平均分 → 營運看得出誰評價低**。
   詳見 [`docs/TODO.md`](docs/TODO.md)「⭐ 乘客評分司機」。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **291 passed**（2026-07-29）。
+**目前**：`flutter analyze` 無 issue、`flutter test` **317 passed**（44 個測試檔，2026-07-30 實跑）。
+~~291 passed（2026-07-29）~~ 是漏更新的舊數字——**這一行請跟著最後一次實跑一起改**。
+
+**2026-07-30 這一批**（詳見 [`docs/TODO.md`](docs/TODO.md) 第十二輪）：
+- **點推播喚醒的事件不再被丟掉**：`getInitialMessage()`（App 被殺後點通知的唯一管道）
+  在 `runApp` 之前就把事件送進廣播串流，而 controller 要到 `init()` 才訂閱——
+  廣播串流不緩衝，事件當場消失。**司機端「被殺 → 點推播 → 接單卡」與乘客端
+  「點推播 → 對帳」兩條都是死路徑**。改成沒人訂閱時留著最後一則、第一個訂閱者上來補送。
+- **後端補上乘客端推播的送出路徑**（dispatch PR #61）：先前 `notify.Dispatcher` 只有
+  司機派單那一條，乘客註冊的 token 沒有任何用途。至此整條鏈路**只剩 Firebase 憑證**。
 
 **2026-07-29 這一批**（詳見 [`docs/TODO.md`](docs/TODO.md) 第四～六輪 debug ＋「🧾 PR 佇列稽核」）：
 - **回到前景會對帳**：背景期間 OS 凍結 timer、WS 可能被關掉，回前景時**立刻重連 WS**
