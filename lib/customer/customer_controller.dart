@@ -856,29 +856,7 @@ class CustomerController extends ChangeNotifier {
         // P2：null ＝不指定，client 端不會帶這個鍵。
         requiredVehicleType: _requiredVehicleType?.code,
       );
-      _activeRide = ride;
-      _lastActiveRide = ride;
-      // 這趟已送出，編輯狀態不該留到下一趟。
-      _passengers.clear();
-      // 預估屬於「建單前」的輔助資訊，送出後就該收掉，不留到下一趟。
-      _estimate = null;
-      _estimating = false;
-      _estDropoffLat = null;
-      _estDropoffLng = null;
-      _driverName = null;
-      _driverInfo = null;
-      // 新的一趟開始 → 上一趟的取消原因不該還掛著。
-      _cancelReason = null;
-      _cancelledVehicleType = null;
-      _rideCancelled = false;
-      _liveEtaSec = null;
-      _liveDistM = null;
-      _liveDriverLat = null;
-      _liveDriverLng = null;
-      _driverArrived = false;
-      _completedSummary = null;
-      _error = null;
-      _startPolling();
+      _applyCreatedRide(ride);
     } on ApiException catch (e) {
       await _handleCreateFailure(e);
     } finally {
@@ -903,23 +881,64 @@ class CustomerController extends ChangeNotifier {
 
   Future<void> _handleCreateFailure(ApiException e) async {
     _error = e.message;
-    if (e.statusCode == null) await _adoptRideIfCreated();
+    // **409 也要對帳**：那句話是後端在明說「你已經有一張進行中的訂單」，
+    // 而畫面上一張都沒有——多半就是上一次逾時其實建成了（或訂單來自 LINE／另一台裝置）。
+    // 只把這句話原樣丟給乘客，他無事可做：再按一次還是 409，唯一出路是重開 App。
+    if (e.statusCode == null || e.statusCode == 409) {
+      await _adoptRideIfCreated();
+    }
   }
 
-  /// 建單請求逾時後，向後端確認訂單到底有沒有成立。
+  /// 建單失敗後向後端確認訂單到底有沒有成立。
   ///
-  /// 有 → 套用它（畫面直接進入追蹤）並清掉那句逾時錯誤（他其實叫到車了）。
-  /// 沒有 → 什麼都不動，逾時訊息留著讓他重試。
+  /// 有 → 套用它（畫面直接進入追蹤）並清掉那句錯誤（他其實叫到車了）。
+  /// 沒有 → 什麼都不動，錯誤訊息留著讓他重試。
   /// 查詢本身也失敗 → 同樣什麼都不動（不知道就不亂改）。
   Future<void> _adoptRideIfCreated() async {
     try {
       final ride = await _api.activeRide();
       if (ride == null || RideStatus.isTerminal(ride.status)) return;
+      // 這趟其實成立了 → 走**與建單成功同一套**狀態切換。
+      // 只做 `_applyActiveRide` 是不夠的：編輯中的多乘客清單、預估車資、
+      // 上一趟的取消通知都會留著，下一次叫車就帶著別趟的殘骸。
+      _applyCreatedRide(ride);
+      // 這段空窗可能已經被司機接走了：把司機姓名／車牌／電話補回來，
+      // 不必等下一個輪詢週期才顯示。
       _applyActiveRide(ride);
       _error = null;
     } on ApiException {
       // 弱網下這一問也可能逾時；維持原本的錯誤訊息。
     }
+  }
+
+  /// 一趟新訂單成立後的狀態切換（建單成功與「其實已經建好了」共用）。
+  ///
+  /// 兩條路徑必須共用同一份清單：漏掉其中一項，就會把上一趟的司機、取消通知或
+  /// 完成卡帶進這一趟。
+  void _applyCreatedRide(CustomerRide ride) {
+    _activeRide = ride;
+    _lastActiveRide = ride;
+    // 這趟已送出，編輯狀態不該留到下一趟。
+    _passengers.clear();
+    // 預估屬於「建單前」的輔助資訊，送出後就該收掉，不留到下一趟。
+    _estimate = null;
+    _estimating = false;
+    _estDropoffLat = null;
+    _estDropoffLng = null;
+    _driverName = null;
+    _driverInfo = null;
+    // 新的一趟開始 → 上一趟的取消原因不該還掛著。
+    _cancelReason = null;
+    _cancelledVehicleType = null;
+    _rideCancelled = false;
+    _liveEtaSec = null;
+    _liveDistM = null;
+    _liveDriverLat = null;
+    _liveDriverLng = null;
+    _driverArrived = false;
+    _completedSummary = null;
+    _error = null;
+    _startPolling();
   }
 
   /// [silent] ＝ 這次刷新不是使用者按出來的（背景輪詢），失敗時**不寫全域 error**。
