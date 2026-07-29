@@ -897,6 +897,15 @@ class DriverController extends ChangeNotifier {
         if (event.rideId != null && _activeRide?.rideId == event.rideId) {
           unawaited(_restoreActiveRide(silent: true));
         }
+      case FleetEventTypes.rideTaken:
+        // 別的司機搶到了這單。同一張單會同時推給半徑內每一位待命司機，
+        // 先前沒有任何事件收得掉沒搶到那些人的接單卡——他得自己按下去、
+        // 拿到「手慢了，這單已被其他司機接走」才會消失（期間還蓋著整個畫面）。
+        // **不寫錯誤訊息**：他什麼都沒做，卡片安靜地收掉就是正確的行為。
+        if (event.rideId != null && _pendingOffer?.rideId == event.rideId) {
+          _pendingOffer = null;
+          notifyListeners();
+        }
       case FleetEventTypes.rideCompleted:
       case FleetEventTypes.rideCancelled:
         if (event.rideId != null &&
