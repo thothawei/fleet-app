@@ -55,3 +55,17 @@ const _customerPushTypes = {
 
 bool isCustomerRidePush(FleetWsEvent? event) =>
     event != null && _customerPushTypes.contains(event.type);
+
+/// 對方傳來對話訊息（**兩端共用**）。
+///
+/// 後端只推給**收訊那一方**（發話者自己的裝置不推），所以 App 這端不必再判斷是誰說的。
+bool isChatPush(FleetWsEvent? event) =>
+    event?.type == FleetEventTypes.chatMessage;
+
+/// 司機端接受的推播：派單邀請＋對方訊息。
+bool isDriverPush(FleetWsEvent event) =>
+    isRideOfferPush(event) || isChatPush(event);
+
+/// 乘客端接受的推播：行程狀態變化＋對方訊息。
+bool isCustomerPush(FleetWsEvent event) =>
+    isCustomerRidePush(event) || isChatPush(event);

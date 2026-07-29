@@ -9,6 +9,7 @@ import '../core/api/fleet_api_client.dart' show ApiException;
 import '../core/config/app_config.dart';
 import '../core/models/models.dart';
 import '../core/push/fleet_push_service.dart';
+import '../core/push/push_payload.dart';
 import '../core/storage/customer_token_storage.dart';
 import '../core/ws/fleet_ws_client.dart';
 
@@ -439,7 +440,14 @@ class CustomerController extends ChangeNotifier {
   /// 訂閱推播：事件本身只當**對帳訊號**，token 輪替則重新註冊。
   Future<void> _bindPushListener() async {
     await _pushSub?.cancel();
-    _pushSub = _push.rideEvents.listen((_) => unawaited(_handlePushEvent()));
+    _pushSub = _push.rideEvents.listen((event) {
+      // 對話訊息不必重讀行程與協尋：它只影響未讀角標，多打兩支 API 是浪費。
+      if (isChatPush(event)) {
+        _onChatPush();
+        return;
+      }
+      unawaited(_handlePushEvent());
+    });
     await _tokenRefreshSub?.cancel();
     _tokenRefreshSub =
         _push.tokenRefresh.listen((_) => unawaited(_syncDeviceToken()));
@@ -457,6 +465,16 @@ class CustomerController extends ChangeNotifier {
     if (_session == null) return;
     await refreshActive(silent: true);
     await refreshLostItems();
+  }
+
+  /// 收到「司機傳來訊息」的推播：只把未讀角標點亮，內容等聊天室自己以 REST 補齊。
+  ///
+  /// 聊天室開著時忽略：那代表 App 在前景、WS 也連著，同一則訊息已經由 WS 送到並顯示，
+  /// 這裡再加一次會把角標加在乘客正在看的訊息上。
+  void _onChatPush() {
+    if (_chatVisible) return;
+    _unreadChat++;
+    notifyListeners();
   }
 
   /// 登入後向後端註冊推播 token；token 輪替時亦會重註冊。

@@ -10,6 +10,7 @@ import '../core/location/driver_location_permissions.dart';
 import '../core/location/driver_location_settings.dart';
 import '../core/models/models.dart';
 import '../core/push/fleet_push_service.dart';
+import '../core/push/push_payload.dart';
 import '../core/storage/token_storage.dart';
 import '../core/ws/fleet_ws_client.dart';
 
@@ -409,9 +410,32 @@ class DriverController extends ChangeNotifier {
 
   Future<void> _bindPushListener() async {
     await _pushSub?.cancel();
-    _pushSub = _push.rideEvents.listen(_handleWsEvent);
+    _pushSub = _push.rideEvents.listen(_handlePushEvent);
     await _tokenRefreshSub?.cancel();
     _tokenRefreshSub = _push.tokenRefresh.listen((_) => _syncDeviceToken());
+  }
+
+  /// 推播事件的入口。
+  ///
+  /// 派單邀請直接走 `_handleWsEvent`——它的 data 是完整的（後端沒有「目前 offer」端點，
+  /// 喚醒後只能靠 payload 開接單卡）。**對話訊息不行**：推播 data 只有 `type` 與 `ride_id`，
+  /// 餵進去 `RideMessage.fromJson` 會解析失敗被丟掉，未讀角標不會動。
+  void _handlePushEvent(FleetWsEvent event) {
+    if (isChatPush(event)) {
+      _onChatPush();
+      return;
+    }
+    _handleWsEvent(event);
+  }
+
+  /// 收到「乘客傳來訊息」的推播：只把未讀角標點亮，內容等聊天室自己以 REST 補齊。
+  ///
+  /// 聊天室開著時忽略：那代表 App 在前景、WS 也連著，同一則訊息已經由 WS 送到並顯示，
+  /// 這裡再加一次會把角標加在使用者正在看的訊息上。
+  void _onChatPush() {
+    if (_chatVisible) return;
+    _unreadChat++;
+    notifyListeners();
   }
 
   /// 登入後向後端註冊 FCM token；token 刷新時亦會重註冊。
