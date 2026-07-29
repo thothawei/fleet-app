@@ -910,6 +910,66 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
 
 ---
 
+## 🧾 2026-07-29 PR 佇列稽核：兩條 stack 做了同一件事（本批清掉）
+
+> 這一輪的起點不是程式碼，是**盤點三個 repo 的實際狀態**：
+> app **6 支 open PR（#59–#64）**、dispatch **2 支（#53／#54）**、admin **0 支**。
+> 全部 CI 綠（#59 為 BLOCKED）。也就是說，「還有什麼可以補強」的答案當下不是再寫新功能，
+> **是這些做完的東西沒有進 main**。
+
+### 查出來的問題：兩條平行 stack 撞在一起
+
+| stack | PR | 內容 |
+|---|---|---|
+| A | #59 → #60 → #61 | 回前景對帳／接單建單對帳／司機多裝置 |
+| B | #62 → #63 → #64 | 回前景對帳／搶單假行程卡／弱網 |
+
+**#59 與 #62 是同一個功能的兩份獨立實作**——連新檔名都一樣
+（`lib/shared/widgets/app_lifecycle_reactor.dart`），由兩個平行 worktree 的 session
+在兩小時內各做了一次；往上疊的 #60/#61 與 #63/#64 也大量重疊（接單結果對帳、
+`ride.accepted` 的多裝置處理）。兩條都合會直接衝突。
+
+**決策**：保留較新且較完整的 B 條（#62→#63→#64 全數合併），
+關閉 A 條，但**先把 A 條獨有的三項救回來**（本 PR）——這正是
+[清開發殘留](#-清開發殘留-worktree舊分支維護項-52026-07-28-完成) 那次學到的：
+「看起來被取代」不等於「內容都在」，要逐條比對 diff。
+
+### A 條獨有、已救回的三項
+
+| 救自 | 修正 | 為什麼 B 條沒有 |
+|---|---|---|
+| #59 | **WS 客戶端心跳**（`pingInterval` 20 秒） | B 條只做了「回前景立刻重連」，但半開連線（對端沒了、本地收不到 FIN）**不會 onDone／onError**，重連鏈根本不會啟動；後端只做了另一半（54 秒 ping、60 秒沒 pong 砍連線），保護的是伺服器不留死連線 |
+| #60 | **建單 409 也去對帳** ＋ 接手時共用建單成功的狀態切換 | B 條的 #64 只對帳連線類（`statusCode == null`），409 只顯示訊息；但 409 正是「後端說你有單、你的畫面沒有」，再按一次還是 409，出路只剩重開 App。接手時原本也只做 `_applyActiveRide`，編輯中的多乘客清單／預估會留到下一趟 |
+| #61 | **司機端處理 `ride.stop_updated`** | B 條的 #63 收掉了 `ride.accepted` 的多裝置缺口，但停靠點沒有；兩台裝置會停在不同的「下一站」，而那是司機端唯一給操作鈕的一站。後端側同批合併 dispatch#53（該事件原本只推給乘客） |
+
+**驗收**：`flutter analyze` 無 issue、`flutter test` **277 passed**（268 ＋新 9）。
+新增 `driver_stop_updated_test.dart`（3）、`customer_create_conflict_test.dart`（4）、
+`fleet_ws_client_test.dart` 兩案（心跳）。**反向確認**：拿掉 `ride.stop_updated`
+處理後 1 案 FAIL、拿掉 409 分支後 2 案 FAIL；心跳那案先斷言預設 `pingInterval` 為 null
+再斷言設定後的值，避免寫出恆真的斷言。
+**未做**：這三項都**沒有模擬器實跑**（半開連線要斷網卡層級的手法才造得出來，
+409 與跨裝置停靠點需要兩台裝置＋後端），只有單元測試與反向確認。
+
+### 兩個 GitHub 操作坑（下次做 stacked PR 一定會再踩）
+
+1. **`--delete-branch` 會連帶關閉以該分支為 base 的 PR**。合併 #62 並刪分支的當下，
+   #63／#64 立刻被 GitHub 關掉，而且**重開會被拒**（`Cannot reopen`／
+   `Cannot change the base branch of a closed pull request`）——只能 rebase 後另開新 PR
+   （#63 → **#65**）。之後改用「**合併時不刪分支** → 把下一支 rebase 到 main →
+   `gh pr edit --base main` → 再刪舊分支」，#64 的編號就保住了。
+2. **CI 不會跑，因為 workflow 的 `pull_request: branches: [main]` 是 base 過濾器**。
+   stacked PR 的 base 不是 main 時，push 不觸發 CI；把 base 改成 main 也不補觸發
+   （`edited` 不在預設 types 裡）。要 `gh pr close` 再 `gh pr reopen` 才會跑。
+
+### 順手做的整理
+
+- dispatch：#53（`ride.stop_updated` 也推給司機）、#54（結構化 JSON log ＋ request_id）已合併，
+  遠端分支清空（只剩 main）。
+- app 遠端殘留分支 `claude/todo-task-execution-pr-3978a3` 經比對 **tip 等於 PR #58 合併時的
+  `headRefOid`**（沒有未合併內容），可安全刪除。
+
+---
+
 ## 下次任務
 
 > **✅ 維護項 5「清開發殘留」已完成（2026-07-28）**，詳見上方。
@@ -967,6 +1027,21 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
 > **➡️ 三個角落都清完了。** 再往下的 debug 題目要重新盤點；不需外部資源的方向可考慮：
 > 多停靠點行程在弱網／背景切換下的狀態一致性、以及乘客端在 App 被系統殺掉後的還原路徑
 > （目前只驗過冷啟動還原，沒驗過「被系統殺掉又從推播喚醒」）。
+>
+> ---
+>
+> **🎯 2026-07-29 收尾（PR 佇列稽核那一批，見上方專段）——下一次開工先做這三件**：
+>
+> 1. **開工第一件事是 `gh pr list`，不是 `git log`**。這一輪盤點發現三個 repo 有
+>    **8 支 open PR**，其中兩支是同一個功能的獨立實作——**平行 worktree 的 session
+>    彼此看不見對方**，題目又都取自本檔的「下一輪 debug 角落」清單，撞題是必然的。
+>    要嘛開工前先看 PR 佇列，要嘛在本檔把認領的題目**當場劃掉**。
+> 2. **本批救回的三項只有單元測試，沒有模擬器實跑**：WS 心跳（半開連線）、
+>    建單 409 接手、司機端跨裝置 `ride.stop_updated`。
+>    有機會起兩台裝置＋docker 時，這三條值得各跑一次真機閉環。
+> 3. **stacked PR 的兩個 GitHub 坑**（`--delete-branch` 連帶關閉、
+>    `pull_request: branches: [main]` 的 base 過濾器擋掉 CI）已寫在上方專段，
+>    下次再疊 PR 前先看那兩條。
 
 > **🎨 App icon（叫車系統圖示）✅ 已完成（2026-07-15，PR #15）**：品牌綠 LINE green #06C755 + 白色計程車，
 > 以 `flutter_launcher_icons` 產生 Android（含 adaptive icon）與 iOS 各尺寸，driver/customer 兩 flavor 共用。

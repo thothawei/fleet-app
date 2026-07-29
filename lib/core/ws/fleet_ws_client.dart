@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show WebSocket;
 
 import 'package:flutter/foundation.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../config/app_config.dart';
@@ -42,7 +44,34 @@ class FleetWsClient {
     required this.onEvent,
     this.onConnectionChanged,
     @visibleForTesting WebSocketChannel Function(Uri uri)? connector,
-  }) : _connector = connector ?? WebSocketChannel.connect;
+  }) : _connector = connector ?? defaultConnector;
+
+  /// 正式連線方式：dart:io 的 WebSocket ＋ 客戶端心跳（見 [enableKeepAlive]）。
+  ///
+  /// 只出貨 Android／iOS（CI 亦只 build 這兩個），故直接用 dart:io；
+  /// 日後若要支援 web，這裡得改成條件匯入。
+  @visibleForTesting
+  static WebSocketChannel defaultConnector(Uri uri) => IOWebSocketChannel(
+        WebSocket.connect(uri.toString()).then(enableKeepAlive),
+      );
+
+  /// 開啟客戶端心跳：**沒有它就偵測不到半開連線**。
+  ///
+  /// 手機換網路、離開 NAT／負載平衡器的閒置逾時、後端整台消失時，本地 socket 可能
+  /// 收不到 FIN——串流不會 `onDone`、也不會 `onError`，於是 `isConnected` 仍是 true、
+  /// UI 照樣顯示「即時連線正常」，而重連鏈只由 onDone／onError 觸發，**永遠不會啟動**。
+  /// 司機因此靜靜地收不到派單，正是這個 client 一路修掉的「畫面說謊」家族。
+  ///
+  /// 後端只做了另一半（`writePump` 每 54 秒 ping、60 秒收不到 pong 就砍連線），
+  /// 那保護的是**伺服器**不留死連線；客戶端要自己發 ping 才知道對面還在。
+  /// dart:io 的 `pingInterval` 在一個間隔內收不到 pong 就關閉連線 → 走既有重連鏈。
+  @visibleForTesting
+  static WebSocket enableKeepAlive(WebSocket socket) =>
+      socket..pingInterval = pingInterval;
+
+  /// 心跳間隔：也是「半開之後多久才會發現自己收不到派單」的上限。
+  /// 取 20 秒對齊後端的派單 offer 逾時（同一個數量級），比它久就等於整輪派單白白錯過。
+  static const pingInterval = Duration(seconds: 20);
 
   final FleetEventHandler onEvent;
   final void Function(bool connected)? onConnectionChanged;
