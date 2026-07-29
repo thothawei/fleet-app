@@ -880,9 +880,45 @@ class CustomerController extends ChangeNotifier {
       _error = null;
       _startPolling();
     } on ApiException catch (e) {
-      _error = e.message;
+      await _handleCreateFailure(e);
     } finally {
       _setBusy(false);
+    }
+  }
+
+  /// 建單失敗的處理（`placeOrder` 的 catch 全部走這裡）。
+  ///
+  /// 弱網：逾時／連線失敗**不代表後端沒建單**——請求可能已經送達、訂單已經成立，
+  /// 只是回應沒回來。什麼都不做的話乘客會停在叫車畫面（沒有進行中訂單就不會輪詢），
+  /// 車已經在派了他卻看不到；再按一次則會拿到「已有進行中的訂單」這條死路。
+  /// 所以先問後端：我現在到底有沒有訂單。
+  ///
+  /// **只有連線類（`statusCode == null`）才對帳**：後端明確拒絕（車種不合、限流…）
+  /// 時它本來就沒建單，再問一次只是白跑。
+  ///
+  /// 直接可測：正式入口 `placeOrder` 一定會先經過 geolocator 的 platform channel，
+  /// 單元測試環境沒有它（既有測試也只驗得到 placeOrder 送出前那一段）。
+  @visibleForTesting
+  Future<void> handleCreateFailure(ApiException e) => _handleCreateFailure(e);
+
+  Future<void> _handleCreateFailure(ApiException e) async {
+    _error = e.message;
+    if (e.statusCode == null) await _adoptRideIfCreated();
+  }
+
+  /// 建單請求逾時後，向後端確認訂單到底有沒有成立。
+  ///
+  /// 有 → 套用它（畫面直接進入追蹤）並清掉那句逾時錯誤（他其實叫到車了）。
+  /// 沒有 → 什麼都不動，逾時訊息留著讓他重試。
+  /// 查詢本身也失敗 → 同樣什麼都不動（不知道就不亂改）。
+  Future<void> _adoptRideIfCreated() async {
+    try {
+      final ride = await _api.activeRide();
+      if (ride == null || RideStatus.isTerminal(ride.status)) return;
+      _applyActiveRide(ride);
+      _error = null;
+    } on ApiException {
+      // 弱網下這一問也可能逾時；維持原本的錯誤訊息。
     }
   }
 

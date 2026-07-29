@@ -15,8 +15,13 @@ class OnlineHeroCard extends StatelessWidget {
     // 上線但 WS 斷線＝實際收不到派單。若照樣顯示「等待派單中」，司機會以為自己在接單，
     // 其實派單根本進不來（實跑遇過：WS Connection timed out，畫面卻一切正常）。
     final offlineDespiteOnline = online && !ctrl.wsConnected;
+    // 弱網（連得上但通不了）：WS 看起來還連著（凍結的後端不會送 FIN），可是位置回報
+    // 已經超過後端的鮮度窗——他早就不是派單候選了。這時仍寫「等待派單中」，
+    // 就是把「上線」與「收得到單」混為一談，和 WS 斷線同一種謊。
+    final staleLocation = online && ctrl.locationStale;
+    final degraded = offlineDespiteOnline || staleLocation;
     return Card(
-      color: offlineDespiteOnline
+      color: degraded
           ? scheme.errorContainer
           : (online ? scheme.primaryContainer : scheme.surfaceContainerHighest),
       child: Padding(
@@ -24,11 +29,11 @@ class OnlineHeroCard extends StatelessWidget {
         child: Row(
           children: [
             Icon(
-              offlineDespiteOnline
+              degraded
                   ? Icons.cloud_off
                   : (online ? Icons.local_taxi : Icons.power_settings_new),
               size: 40,
-              color: offlineDespiteOnline
+              color: degraded
                   ? scheme.error
                   : (online ? scheme.primary : scheme.outline),
             ),
@@ -47,7 +52,9 @@ class OnlineHeroCard extends StatelessWidget {
                   Text(
                     offlineDespiteOnline
                         ? '連線中斷，暫時收不到派單'
-                        : (online ? '等待派單中' : '目前不會收到派單'),
+                        : staleLocation
+                            ? '位置回報失敗，暫時收不到派單'
+                            : (online ? '等待派單中' : '目前不會收到派單'),
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
