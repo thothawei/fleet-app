@@ -1542,6 +1542,23 @@ main() → createXxxPushService() → initialize() → getInitialMessage() → _
 - 驗收：`flutter test` **328 passed**（325 ＋新 3）；反向確認拿掉兩端分流 → 2 案 FAIL
   （乘客那案抓的正是「順手多打了一支行程 API」）。
 
+### 🧪 推播實跑證據（2026-07-30，後端側，**不需 Firebase 憑證**）
+
+> App 這三輪（十一～十三）的證據都是測試層。後端那側**用真服務跑過整條 HTTP 路徑**了，
+> 結果貼在這裡，因為它同時證明了 App 端會收到什麼樣的 data：
+
+沒有憑證時後端走 `LogPusher` stub，log 印得出「推給哪台裝置、什麼標題、什麼 data」。
+以 `DRIVER-FCM-TOKEN`／`CUSTOMER-FCM-TOKEN` 兩個假 token 註冊後跑完整鏈路，
+**10 則推播收件人全部正確**：`ride.assigned`→司機、`ride.accepted`／`driver.arrived`／
+`ride.completed`→乘客、`chat.message`→對方、`lost_item.*` 四步→對方。
+**data 一如 App 端的假設：只有 `type` 與 `ride_id`**（派單邀請除外，它要開接單卡所以帶完整欄位）。
+
+取消那三條另跑一輪：**乘客自己取消 → 完全沒有推播**（負向斷言成立）、
+admin 取消 → `ride.cancelled`、司機放棄 → `ride.redispatched`。
+
+腳本收在 dispatch repo `scripts/push_e2e.sh`／`scripts/push_cancel_e2e.sh`（含四個踩過的坑）。
+**仍未做**：真憑證下手機真的響（A2 的同一個卡點）。
+
 ---
 
 ## 下次任務
@@ -1588,14 +1605,17 @@ main() → createXxxPushService() → initialize() → getInitialMessage() → _
 > 見上方「🐞 2026-07-28 debug」。**六份清單（本檔、admin TODO、IOS_PLAN、gap-analysis-plan、
 > 兩份 UI/UX 執行計畫）的勾選現在全部對得上程式碼現況**，文件層面沒有可清的東西了。
 >
-> **🎯 下次開工第一件事**（2026-07-30 第十二輪後更新）：先跑 `gh pr list`（三個 repo），
-> 再看下面這張「推播整條鏈路現在缺什麼」的表——這是目前唯一一條**三端都動過、卻還沒通**的路：
+> **🎯 下次開工第一件事**（2026-07-30 第十三輪後更新）：先跑 `gh pr list`（三個 repo），
+> 再看下面這張「推播整條鏈路現在缺什麼」的表——**除了憑證，其餘都通了**：
 >
 > | 環節 | 狀態 | 在哪 |
 > |---|---|---|
 > | 乘客 App 註冊 token、收到推播去對帳 | ✅ 第十一輪 | 本 repo |
-> | 後端對乘客送出（5 種事件） | ✅ dispatch [PR #61](https://github.com/thothawei/fleet-dispatch/pull/61)（2026-07-30） | dispatch |
-> | 冷啟動時事件送得到訂閱者 | ✅ 第十二輪（本批） | 本 repo |
+> | 後端對乘客送出（行程狀態 5 種） | ✅ dispatch [#61](https://github.com/thothawei/fleet-dispatch/pull/61) | dispatch |
+> | 冷啟動時事件送得到訂閱者 | ✅ 第十二輪 | 本 repo |
+> | 對話訊息推播（兩端） | ✅ dispatch [#62](https://github.com/thothawei/fleet-dispatch/pull/62)＋App [#80](https://github.com/thothawei/fleet-app/pull/80) | 兩邊 |
+> | 協尋單每一步推播（兩端） | ✅ dispatch [#63](https://github.com/thothawei/fleet-dispatch/pull/63)＋App [#81](https://github.com/thothawei/fleet-app/pull/81) | 兩邊 |
+> | 後端整條 HTTP 路徑實跑 | ✅ **10 則推播收件人全對**（見上方「推播實跑證據」） | dispatch |
 > | **Firebase 憑證** | ❌ **卡住** | 要你建 Firebase 專案 |
 > | 真裝置端到端驗收 | ❌ 等憑證 | — |
 >
