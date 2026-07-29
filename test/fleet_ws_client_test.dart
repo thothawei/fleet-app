@@ -210,6 +210,32 @@ void main() {
     expect(await received, contains('ride.assigned'));
   });
 
+  test('登出後 ensureConnected() 不會偷偷連回去', () async {
+    // 回前景會呼叫 ensureConnected()。若它漏看 _disposed，已登出的 client 會帶著
+    // **舊 token** 重新連上——上一個帳號的事件就這樣繼續進來。
+    var connectorCalls = 0;
+    final client = FleetWsClient(
+      onEvent: (_) {},
+      connector: (_) {
+        connectorCalls++;
+        return WebSocketChannel.connect(wsUri);
+      },
+    );
+    addTearDown(client.disconnect);
+
+    await client.connect('tok');
+    await Future<void>.delayed(const Duration(seconds: 1));
+    expect(client.isConnected, isTrue, reason: '前置：先真的連上');
+    await client.disconnect();
+    final callsAfterLogout = connectorCalls;
+
+    client.ensureConnected();
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+
+    expect(connectorCalls, callsAfterLogout, reason: '登出後不可再開新連線');
+    expect(client.isConnected, isFalse);
+  });
+
   test('握手成功後退避歸零，下次閃斷仍在 3 秒內重連', () async {
     final states = StreamController<bool>.broadcast();
     final client = FleetWsClient(
