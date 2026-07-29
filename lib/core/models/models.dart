@@ -508,6 +508,10 @@ class CustomerRideSummary {
   bool get canRate =>
       status == RideStatus.completed && hasDriver && !isRated;
 
+  /// 可以申請遺失物協尋的條件：已完成 ＋ 有司機（東西留在誰的車上要有對象可聯絡）。
+  /// 與後端 `CreateByCustomer` 同一組條件（未完成的行程回 409）。
+  bool get canReportLostItem => status == RideStatus.completed && hasDriver;
+
   CustomerRideSummary copyWith({int? ratingScore}) => CustomerRideSummary(
         rideId: rideId,
         status: status,

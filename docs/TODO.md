@@ -1019,6 +1019,44 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
 
 ---
 
+## 🧭 2026-07-29 第七輪 debug：把「WS-only state」整族掃一遍（本批修掉 1 個）
+
+> 這個家族已經咬過三次（O7 司機電話只走 `ride.accepted`、遺失物 banner 只在卡片版、
+> token 過期無人處理），所以這次**不等它再咬**：把兩個 controller 的 `_handleWsEvent`
+> 會寫入的欄位全部列出來，逐一問「錯過這則事件之後，有沒有 REST 路徑把它補回來」。
+
+**乘客端（15 個欄位）**：
+
+| 欄位 | 錯過事件後 | 判定 |
+|---|---|---|
+| `_activeRide`／`_lastActiveRide`／`_driverName`／`_driverInfo`／`_driverArrived` | `_applyActiveRide` 由 `GET active` 全部補齊 | ✅ 有還原 |
+| `_lostItems` | `refreshLostItems()`（登入、init、回前景、下拉） | ✅ 有還原 |
+| `_liveEtaSec`／`_liveDistM`／`_liveDriverLat`／`_liveDriverLng` | 沒有 REST 來源，但司機每 8 秒回報一次位置 → **下一則 `driver.location` 就自癒** | ⚠️ 可接受 |
+| `_cancelReason`／`_rideCancelled`／`_cancelledVehicleType`／`_redispatchNotice` | 都是「一次性通知」，錯過就沒有；行程本身的結局仍看得到（歷史清單） | ⚠️ 可接受 |
+| **`_completedSummary`** | **完全沒有 REST 還原** → 完成卡永遠不再出現 | 🐛 **本批修掉** |
+
+- [x] 🐛 **行程完成後重開 App 就再也報不了遺失物**（app PR #71）。
+      完成卡的「物品遺失？聯絡司機」是**唯一**能建立協尋單的入口
+      （`grep -rn 'CustomerLostItemScreen('` 全 App 只有兩處：完成卡與首頁 banner，
+      而 banner **只顯示已存在的單子**）。`_completedSummary` 只由 WS `ride.completed` 設定，
+      按「再叫一輛」、重開 App、或完成當下 App 在背景／WS 斷線，那顆按鈕就永遠不再出現——
+      **而東西通常是下車以後才發現不見的**，正好都在完成卡消失之後。
+      修法比照 B5 補評分：在「我的行程」給「物品遺失」入口，
+      條件 `canReportLostItem` ＝已完成 ＋ 有司機（與後端 `CreateByCustomer` 同一組）。
+      驗收：`flutter test` **285 passed**（新 4）、反向確認拿掉入口 1 案 FAIL。
+      **未做**：沒有模擬器實跑（該輪 docker／模擬器已關），風險集中在按鈕出現條件，
+      已由 widget 測試釘住。
+
+**司機端（3 個欄位）**：`_activeRide`（`GET driver/rides/active` ✅）、
+`_pendingOffer`（**WS-only，但後端沒有「目前 offer」端點**——錯過就等下一輪派單，
+App 端補不了；已記在 dispatch TODO 的 T2）、`_loading`（純 UI 旗標）。
+
+**兩端共通的小缺口（不修，記著）**：`_unreadChat` 是 WS-only 計數器，
+重開 App 一律歸零——即使真的有未讀。訊息本身由 REST 歷史載得回來，
+少的只是角標數字。要修得靠後端提供「未讀數」或 last-read 游標，**代價高於症狀**。
+
+---
+
 ## 下次任務
 
 > **✅ 維護項 5「清開發殘留」已完成（2026-07-28）**，詳見上方。
