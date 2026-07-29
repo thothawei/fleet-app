@@ -66,6 +66,35 @@ class SearchingContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 8),
+        // 司機放棄後會退回這個階段。沒有這塊說明，乘客只會看到司機卡片
+        // 突然變回轉圈圈，不知道發生什麼事（2026-07-28 跨端對帳實測抓到）。
+        if (ctrl.redispatchNotice != null) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  color: Theme.of(context).colorScheme.onSecondaryContainer,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    ctrl.redispatchNotice!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         const Center(child: CircularProgressIndicator()),
         const SizedBox(height: 16),
         Center(

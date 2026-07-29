@@ -7,6 +7,7 @@ import '../../core/models/models.dart';
 import '../../core/util/map_tiles.dart';
 import '../../core/util/route_stops.dart';
 import '../customer_controller.dart';
+import '../widgets/lost_item_banner.dart';
 import '../widgets/ride_phase_content.dart';
 import 'ride_history_screen.dart';
 
@@ -103,6 +104,14 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  // 進行中的遺失物協尋（WS 即時更新狀態）。
+                  // 放在階段內容**之前**且不受行程狀態影響——協尋單掛在「已完成的上一趟」，
+                  // 乘客可能同時已經在叫下一趟；而且完成卡一關掉就沒有別的入口了，
+                  // 沒有這塊，司機標記「已尋獲」後乘客根本無處付處理費把東西拿回來。
+                  for (final item in ctrl.lostItems) ...[
+                    LostItemBanner(item: item),
+                    const SizedBox(height: 12),
+                  ],
                   _sheetContent(ctrl),
                 ],
               ),

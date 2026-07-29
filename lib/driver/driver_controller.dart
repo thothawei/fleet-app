@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../core/api/api_error.dart' show sessionExpiredMessage;
 import '../core/api/fleet_api_client.dart';
 import '../core/config/app_config.dart';
 import '../core/location/driver_location_permissions.dart';
@@ -23,7 +24,10 @@ class DriverController extends ChangeNotifier {
         _api = api ?? FleetApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
         _push = push ?? NoOpDriverPushService(),
-        _ws = FleetWsClient(onEvent: (_) {});
+        _ws = FleetWsClient(onEvent: (_) {}) {
+    // token 過期／失效時把司機送回登入頁（見 _handleUnauthorized）。
+    _api.onUnauthorized = _handleUnauthorized;
+  }
 
   final DriverAuthStore _storage;
   final FleetApiClient _api;
@@ -34,6 +38,7 @@ class DriverController extends ChangeNotifier {
   AuthSession? _session;
   bool _loading = false;
   String? _error;
+  bool _errorIsConnectivity = false;
   bool _online = false;
   bool _wsConnected = false;
   RideOffer? _pendingOffer;
@@ -44,6 +49,13 @@ class DriverController extends ChangeNotifier {
   StreamSubscription<String>? _tokenRefreshSub;
   String? _fcmToken;
   bool _busy = false;
+  // session 失效清理中；並發的 401（位置回報＋還原行程同時打）不重入清理。
+  bool _sessionExpiring = false;
+  // 有一筆位置回報在路上（弱網下防止請求疊起來，見 _reportPosition）。
+  bool _reportingPosition = false;
+  // 最後一次**成功**回報位置的時刻；上線後還沒成功過時為 null（改看 _onlineSince）。
+  DateTime? _lastLocationOkAt;
+  DateTime? _onlineSince;
 
   // 聊天：WS chat.message 即時串流 + 未讀計數（聊天室開啟時不累計）。
   final _chatStream = StreamController<RideMessage>.broadcast();
@@ -68,8 +80,38 @@ class DriverController extends ChangeNotifier {
   /// 操作進行中（接單／完成／標記停靠點…）；供按鈕禁用避免重複送出。
   bool get busy => _busy;
   String? get error => _error;
+
+  /// 錯誤一律走這兩個入口設定，才能記住它「是不是連線類」。
+  /// 這個分類只有一個用途：位置回報探針只能清掉連線類錯誤（見 `_reportPosition`）。
+  void _setError(String? message) {
+    _error = message;
+    _errorIsConnectivity = false;
+  }
+
+  /// `statusCode == null` ＝ 沒收到 HTTP 回應（斷線／逾時），才算連線類；
+  /// 4xx／5xx 是後端明確拒絕（如 409「此行程已完成」），屬業務錯誤。
+  void _setApiError(ApiException e) {
+    _error = e.message;
+    _errorIsConnectivity = e.statusCode == null;
+  }
   bool get online => _online;
   bool get wsConnected => _wsConnected;
+
+  /// 位置已經久到後端不再把他當派單候選（＝**上線了卻收不到派單**）。
+  ///
+  /// 門檻取後端的 `DRIVER_OFFLINE_SEC`（預設 60 秒）：`NearbyDriverIDs` 只收
+  /// `driver:<id>:loc` 的 `updated_at` 在這個窗內的司機，超過就直接跳過。
+  /// 弱網最惡劣的地方就在這裡——連線沒斷、WS 看起來也還連著（凍結的後端不會送 FIN），
+  /// 司機畫面上寫「等待派單中」，但他其實早就不在派單池裡了（實跑驗到）。
+  ///
+  /// 上線後還沒成功回報過就從上線時刻起算，否則剛按下上線的那幾秒會誤報。
+  bool get locationStale {
+    if (!_online) return false;
+    final since = _lastLocationOkAt ?? _onlineSince;
+    if (since == null) return false;
+    return DateTime.now().difference(since) >
+        const Duration(seconds: AppConfig.driverOfflineSec);
+  }
   RideOffer? get pendingOffer => _pendingOffer;
   ActiveRide? get activeRide => _activeRide;
   Position? get lastPosition => _lastPosition;
@@ -95,7 +137,7 @@ class DriverController extends ChangeNotifier {
     final ride = _activeRide;
     if (ride == null) return false;
     _busy = true;
-    _error = null;
+    _setError(null);
     notifyListeners();
     try {
       await action(ride.rideId, stopId);
@@ -103,7 +145,7 @@ class DriverController extends ChangeNotifier {
       await _restoreActiveRide();
       return true;
     } on ApiException catch (e) {
-      _error = e.message; // 重複標記／已跳過／已完成（409）的訊息已中文化
+      _setApiError(e); // 重複標記／已跳過／已完成（409）的訊息已中文化
       return false;
     } finally {
       _busy = false;
@@ -150,9 +192,9 @@ class DriverController extends ChangeNotifier {
     try {
       _vehicle = await _api.fetchVehicle();
       _vehicleLoadFailed = false;
-      _error = null;
+      _setError(null);
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
       _vehicleLoadFailed = true;
     }
     notifyListeners();
@@ -165,7 +207,7 @@ class DriverController extends ChangeNotifier {
     required String plateNumber,
   }) async {
     _vehicleSaving = true;
-    _error = null;
+    _setError(null);
     notifyListeners();
     try {
       _vehicle = await _api.updateVehicle(
@@ -174,7 +216,7 @@ class DriverController extends ChangeNotifier {
       );
       return true;
     } on ApiException catch (e) {
-      _error = e.message; // 車牌重複（409）等訊息已由 api_error 中文化
+      _setApiError(e); // 車牌重複（409）等訊息已由 api_error 中文化
       return false;
     } finally {
       _vehicleSaving = false;
@@ -192,14 +234,14 @@ class DriverController extends ChangeNotifier {
   /// 以後端回傳值更新本地狀態（號碼已去分隔符）。
   Future<bool> savePhone(String phone) async {
     _vehicleSaving = true;
-    _error = null;
+    _setError(null);
     notifyListeners();
     try {
       final saved = await _api.updateProfilePhone(phone);
       _vehicle = (_vehicle ?? DriverVehicle.empty).withPhone(saved);
       return true;
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
       return false;
     } finally {
       _vehicleSaving = false;
@@ -251,15 +293,56 @@ class DriverController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 測試用：直接設定 WS 連線旗標（正式路徑由 WS client 回報）。
+  @visibleForTesting
+  void setWsConnectedForTest(bool value) {
+    _wsConnected = value;
+    notifyListeners();
+  }
+
+  /// 測試用：把「上線時刻／最後成功回報時刻」往前挪，驗位置過期的門檻。
+  @visibleForTesting
+  void markOnlineSinceForTest(DateTime since) {
+    _onlineSince = since;
+    _lastLocationOkAt = null;
+    notifyListeners();
+  }
+
+  /// 測試用：模擬一次位置回報（正式路徑由 Geolocator stream 觸發，測試環境沒有 GPS）。
+  @visibleForTesting
+  Future<void> reportPositionForTest(Position pos) => _reportPosition(pos);
+
   /// App 重啟後從後端還原進行中行程（Accepted/PickedUp）。
-  Future<void> _restoreActiveRide() async {
+  ///
+  /// [silent] ＝ 不是司機按出來的（回前景對帳），失敗時不寫 error——
+  /// 他只是把 App 切回來，不該因此看到一則錯誤。
+  Future<void> _restoreActiveRide({bool silent = false}) async {
     try {
       _activeRide = await _api.activeRide();
       notifyListeners();
     } on ApiException catch (e) {
-      _error = e.message;
+      if (silent) return;
+      _setApiError(e);
       notifyListeners();
     }
+  }
+
+  /// App 從背景回到前景（由 `AppLifecycleReactor` 呼叫）。
+  ///
+  /// 司機端**沒有任何輪詢**：`ride.assigned`／`ride.cancelled`／`ride.completed`
+  /// 全靠 WS。背景期間連線被系統關掉的話，漏掉的事件沒有第二條路補回來——
+  /// 畫面會停在背景前的狀態，直到司機自己按下某個操作才被後端 409 打回。
+  /// 所以回前景要做兩件事：**立刻重連 WS**（不等最長 30 秒的退避）
+  /// ＋ **向後端重新對帳一次**進行中行程與協尋清單。
+  ///
+  /// **刻意不重查車輛審核狀態**：`refreshVehicle()` 失敗會打開 `vehicleLoadFailed`，
+  /// 整個畫面換成錯誤頁——等於網路一不穩就把行程中的司機踢出首頁。
+  /// 審核狀態變更本來就有後端 gate 擋著，不需要每次回前景都問一遍。
+  Future<void> onAppResumed() async {
+    if (_session == null) return;
+    _ws.ensureConnected();
+    await _restoreActiveRide(silent: true);
+    await refreshLostItems();
   }
 
   Future<void> login({
@@ -295,13 +378,13 @@ class DriverController extends ChangeNotifier {
       );
       await _storage.save(session);
       await _applySession(session);
-      _error = null;
+      _setError(null);
       // 登入即更新「遺失物協尋」角標與工作清單，不用等進頁下拉（比照 init() 還原 session）。
       await refreshLostItems();
       // 登入後立刻查車輛：沒填的話 _DriverRoot 會直接導去設定頁（O3 gate 的 App 端引導）。
       await refreshVehicle();
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
     } finally {
       _setLoading(false);
     }
@@ -330,21 +413,55 @@ class DriverController extends ChangeNotifier {
       if (token == null || token.isEmpty) return;
       await _api.registerDeviceToken(platform: 'fcm', token: token);
       _fcmToken = token;
-    } on ApiException catch (e) {
-      _error = e.message;
+    } on ApiException {
+      // 靜默降級：這是登入時與 token 輪替時的背景動作，司機沒按任何東西。
+      // 註冊失敗只代表「推播喚醒」這條退路暫時不可用，WS 派單仍照常運作——
+      // 變成首頁上一條紅色橫幅只會讓司機以為自己不能接單，而他也無事可做。
+      // 下一次輪替或重新登入會自動再試。
     }
   }
 
   Future<void> logout() async {
-    await goOffline();
     if (_fcmToken != null) {
       try {
         await _api.unregisterDeviceToken(token: _fcmToken!);
       } catch (_) {}
-      _fcmToken = null;
     }
+    await _clearSession();
+    notifyListeners();
+  }
+
+  /// token 過期／失效（401）：**本地登出**並讓司機知道要重新登入。
+  ///
+  /// 沒有這條路，過期後的畫面會說謊：`isLoggedIn` 仍為 true，司機停在首頁、
+  /// 上線開關看起來是開的，但每一次位置回報都被 401 擋下——他不在派單池裡，
+  /// 卻只看到「等待派單中」。JWT 預設 72 小時（後端 `JWT_EXPIRY_HOURS`），
+  /// 這不是邊角情境，是每個持續使用的司機三天後必然遇到的。
+  ///
+  /// **不打 `unregisterDeviceToken`**：token 已失效，那支 API 只會再回一次 401。
+  void _handleUnauthorized() {
+    if (_session == null || _sessionExpiring) return;
+    _sessionExpiring = true;
+    unawaited(() async {
+      try {
+        await _clearSession();
+        _setError(sessionExpiredMessage);
+      } finally {
+        _sessionExpiring = false;
+      }
+      notifyListeners();
+    }());
+  }
+
+  /// 清掉本機 session 與所有跟著它的狀態（登出與 session 失效共用）。
+  ///
+  /// **車輛狀態一定要一起清**：留著它，下一個登入的司機會在自己的資料載入前
+  /// 先看到上一個人的審核狀態（甚至直接進首頁）。
+  Future<void> _clearSession() async {
+    await goOffline();
     await _ws.disconnect();
     await _storage.clear();
+    _fcmToken = null;
     _session = null;
     _api.setToken(null);
     _pendingOffer = null;
@@ -352,7 +469,8 @@ class DriverController extends ChangeNotifier {
     _unreadChat = 0;
     _chatVisible = false;
     _lostItems = [];
-    notifyListeners();
+    _vehicle = null;
+    _vehicleLoadFailed = false;
   }
 
   Future<void> toggleOnline() async {
@@ -367,18 +485,22 @@ class DriverController extends ChangeNotifier {
     if (_session == null) return;
     final ok = await ensureDriverLocationPermissions();
     if (!ok) {
-      _error = '需要定位權限才能上線';
+      _setError('需要定位權限才能上線');
       notifyListeners();
       return;
     }
     _online = true;
-    _error = null;
+    _onlineSince = DateTime.now();
+    _lastLocationOkAt = null;
+    _setError(null);
     await _startLocationStream();
     notifyListeners();
   }
 
   Future<void> goOffline() async {
     _online = false;
+    _onlineSince = null;
+    _lastLocationOkAt = null;
     await _stopLocationStream();
     notifyListeners();
   }
@@ -419,17 +541,32 @@ class DriverController extends ChangeNotifier {
 
   Future<void> _reportPosition(Position pos) async {
     if (!_online || _session == null) return;
+    // 弱網保護：一次只放一筆位置在路上。
+    // 定位每 8 秒一個 tick，但單筆請求最久可以拖 25 秒（連線 10＋接收 15），
+    // 不擋的話請求會疊起來——實測後端凍結時同時連線數從 1 漲到 3，而且先送的舊座標
+    // 可能後到，把司機在派單池裡的位置往回拉。丟掉這一筆沒有損失：下一個 tick
+    // 送的是**更新**的座標，回報位置本來就只在乎最後一筆。
+    if (_reportingPosition) return;
+    _reportingPosition = true;
     try {
       _lastPosition = pos;
       await _api.reportLocation(lat: pos.latitude, lng: pos.longitude);
+      _lastLocationOkAt = DateTime.now();
       // 位置回報是上線期間每幾秒一次的健康探針：它成功＝後端可達，
-      // 此時還掛著上一輪的錯誤（例如「無法連線到伺服器」）只會誤導司機。
-      _error = null;
-      notifyListeners();
+      // 此時還掛著上一輪的「無法連線到伺服器」只會誤導司機。
+      // **但只能清連線類**：後端明確拒絕的業務錯誤（例如完成行程被 409 擋下）
+      // 是司機唯一的失敗回饋，被 8 秒一次的探針抹掉就等於沒說過。
+      if (_errorIsConnectivity) {
+        _setError(null);
+        notifyListeners();
+      }
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
       notifyListeners();
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _reportingPosition = false;
+    }
   }
 
   Future<void> acceptOffer() async {
@@ -438,7 +575,7 @@ class DriverController extends ChangeNotifier {
     _busy = true;
     notifyListeners();
     try {
-      await _api.acceptRide(offer.rideId);
+      final message = await _api.acceptRide(offer.rideId);
       // 樂觀先以 offer 內容顯示：接單卡立刻消失、行程卡立刻出現，不等網路往返。
       _activeRide = ActiveRide(
         rideId: offer.rideId,
@@ -452,38 +589,89 @@ class DriverController extends ChangeNotifier {
         stops: offer.stops,
       );
       _pendingOffer = null;
-      _error = null;
+      _setError(null);
       // 以後端為權威補齊：**推播喚醒路徑**的 offer 來自 FCM data，data 值全是字串、
       // 不帶結構化的 stops 陣列（見 pitfall-fcm-data-all-strings），所以樂觀行程會缺全程。
       // 重讀 active 讓多停靠點清單／多點地圖一定齊全，不必讓推播 payload 塞 stops。
-      await _refreshActiveAfterAccept(offer.rideId);
+      // 同一次重讀也是**接單到底成不成立**的唯一可靠判準（見下）。
+      await _refreshActiveAfterAccept(offer.rideId, message);
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
+      // 弱網：逾時／連線失敗**不代表後端沒接到**（請求可能已經送達並處理完，
+      // 只是回應沒回來）。這時直接報錯會讓司機再按一次，而後端會回
+      // 「手慢了，這單已被其他司機接走」——他自己搶走了自己的單。
+      // 所以先問後端：這張單現在是不是我的。
+      if (e.statusCode == null) await _adoptRideIfAccepted(offer.rideId);
     } finally {
       _busy = false;
       notifyListeners();
     }
   }
 
-  /// 接單後重讀 active，以後端回傳為權威補齊樂觀 offer 缺的欄位（尤其 stops）。
+  /// 接單後重讀 active：既補齊樂觀 offer 缺的欄位（尤其 stops），也判定接單是否真的成立。
   ///
-  /// **只在後端回傳非 null 且 rideId 相符時覆蓋**——active API 對剛接的單短暫回 null
-  /// 或競態回別的行程時，寧可保留樂觀設定，也不要把剛接到的單清掉。
-  /// 重讀失敗（網路）不算接單失敗：吞掉例外、不覆寫 error。
-  Future<void> _refreshActiveAfterAccept(int rideId) async {
+  /// **後端接單失敗時回的是 HTTP 200**：搶輸別人回 `{"message":"手慢了，這單已被其他司機接走"}`、
+  /// 非待命狀態回 `{"message":"您目前無法接單（非待命狀態）"}`——都不是錯誤碼（已對真後端實測）。
+  /// 只看「有沒有丟例外」的話，沒搶到的司機會拿到一張**完整但假的行程卡**
+  /// （前往上車點、導航、乘客已上車），開去接一個不存在的乘客，直到按下操作被 409 擋下。
+  ///
+  /// 判準用**後端的 active 行程**而不是 parse 那句文案（文案會改，狀態不會）：
+  /// - 回傳同一張單 → 接單成立，以後端資料為準（缺的欄位用樂觀 offer 補，見 `filledFrom`）。
+  /// - 回 null → **沒接到**：清掉樂觀行程與接單卡，把後端那句話顯示出來。
+  ///   接單成功時後端在回應前就已寫入 ride（status/driver_id），這裡讀不到就是真的沒有。
+  /// - 回別張單 → 也是沒接到，但司機手上另有一張進行中的單 → 顯示**那一張**（後端說了算）。
+  /// - 重讀本身失敗（網路）→ **不知道，就不要亂改**：維持樂觀行程，之後回前景／
+  ///   下一次操作會校正（見 `onAppResumed`）。
+  Future<void> _refreshActiveAfterAccept(int rideId, String message) async {
+    final optimistic = _activeRide;
     try {
       final fresh = await _api.activeRide();
       if (fresh != null && fresh.rideId == rideId) {
-        _activeRide = fresh;
+        _activeRide = optimistic == null ? fresh : fresh.filledFrom(optimistic);
+        return;
       }
+      _activeRide = fresh;
+      _pendingOffer = null;
+      _setError(message);
     } on ApiException {
       // 樂觀行程已足以繼續作業；重讀失敗不打斷接單流程。
     }
   }
 
+  /// 接單請求逾時後，向後端確認這張單是不是已經接到手了。
+  ///
+  /// 接到了 → 收掉接單卡、顯示行程卡、清掉那句逾時錯誤（他其實成功了）。
+  /// 沒接到 → 什麼都不動，逾時訊息留著讓他自己決定要不要再按一次。
+  /// 查詢本身也失敗 → 同樣什麼都不動（不知道就不亂改）。
+  Future<void> _adoptRideIfAccepted(int rideId) async {
+    try {
+      final fresh = await _api.activeRide();
+      if (fresh == null || fresh.rideId != rideId) return;
+      _activeRide = fresh;
+      _pendingOffer = null;
+      _setError(null);
+    } on ApiException {
+      // 弱網下這一問也可能逾時；維持原本的錯誤訊息。
+    }
+  }
+
+  /// 略過這張派單。
+  ///
+  /// **要告訴後端**（`POST /rides/:id/decline`）：後端會把司機加進該單的「已拒接」名單，
+  /// 重派時跳過他。只在本地關掉卡片的話，同一張單重新派單時還會再送到他面前。
+  /// 失敗靜默——這是司機按「略過」的附帶動作，卡片該關就關，不能因為網路而卡住。
   void dismissOffer() {
+    final offer = _pendingOffer;
     _pendingOffer = null;
     notifyListeners();
+    if (offer == null) return;
+    unawaited(() async {
+      try {
+        await _api.declineRide(offer.rideId);
+      } on ApiException {
+        // 後端沒收到拒單只會讓他可能再被派到同一張單，不值得打斷畫面。
+      }
+    }());
   }
 
   Future<void> pickUpPassenger() async {
@@ -499,9 +687,9 @@ class DriverController extends ChangeNotifier {
         dropoffLat: dropoff.lat,
         dropoffLng: dropoff.lng,
       );
-      _error = null;
+      _setError(null);
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
     } finally {
       _busy = false;
       notifyListeners();
@@ -516,26 +704,41 @@ class DriverController extends ChangeNotifier {
     try {
       await _api.completeRide(ride.rideId);
       _activeRide = null;
-      _error = null;
+      _setError(null);
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
     } finally {
       _busy = false;
       notifyListeners();
     }
   }
 
+  /// 放棄已接的訂單。
+  ///
+  /// **後端拒絕時同樣回 200**（例如已進行到不能放棄的階段會回「此訂單目前無法放棄」），
+  /// 所以跟接單一樣不能只看有沒有丟例外——否則畫面會把單收掉，司機以為放棄成功了，
+  /// 實際上這張單還掛在他名下（乘客還在等）。判準一樣是後端的 active 行程。
   Future<void> abandonTrip() async {
     final ride = _activeRide;
     if (ride == null || _busy) return;
     _busy = true;
     notifyListeners();
     try {
-      await _api.cancelRide(ride.rideId);
+      final message = await _api.cancelRide(ride.rideId);
       _activeRide = null;
-      _error = null;
+      _setError(null);
+      try {
+        final fresh = await _api.activeRide();
+        if (fresh != null && fresh.rideId == ride.rideId) {
+          // 後端說這張單還是他的 → 沒放棄成功，把行程卡放回去並說明原因。
+          _activeRide = fresh;
+          _setError(message);
+        }
+      } on ApiException {
+        // 查不到就維持樂觀（不知道就不亂改）；回前景時會再對帳一次。
+      }
     } on ApiException catch (e) {
-      _error = e.message;
+      _setApiError(e);
     } finally {
       _busy = false;
       notifyListeners();
@@ -652,6 +855,19 @@ class DriverController extends ChangeNotifier {
           notifyListeners();
         }
       case FleetEventTypes.rideAccepted:
+        // 這張單已經被接走了——**包含被自己的另一台裝置接走**。後端的 Hub 是依
+        // (角色, id) 扇出，同一個帳號的每一條連線都收得到 ride.assigned 與
+        // ride.accepted（已對真後端實測）。少了這一段，另一台裝置的全螢幕接單卡
+        // 會一直蓋在畫面上，按下去只會拿到「非待命狀態」。
+        if (event.rideId != null && _pendingOffer?.rideId == event.rideId) {
+          _pendingOffer = null;
+          notifyListeners();
+          // 這台沒有行程資料（接單的是另一台），只收掉卡片會讓畫面顯示「等待派單中」——
+          // 司機其實正在跑這一趟。跟後端要一次，兩台裝置就看到同一張行程卡。
+          if (_activeRide == null) {
+            unawaited(_restoreActiveRide(silent: true));
+          }
+        }
         if (event.rideId != null && _activeRide?.rideId == event.rideId) {
           // 司機端 ride.accepted 事件帶目的地，先預載供 onTrip 導航（pickup 回應為保底來源）
           final dropoff = event.payload?['dropoff_address'] as String?;
@@ -668,6 +884,18 @@ class DriverController extends ChangeNotifier {
         if (event.rideId != null && _activeRide?.rideId == event.rideId) {
           _activeRide = _activeRide!.copyWith(phase: DriverRidePhase.onTrip);
           notifyListeners();
+        }
+      case FleetEventTypes.rideStopUpdated:
+        // 停靠點在**別處**被標記了（同一司機的另一台裝置、或 LINE 那條路徑）。
+        // 乘客端早就會收這則事件並更新進度，司機端先前完全不處理——兩台裝置會停在
+        // 不同的「下一站」，而「下一站」正是司機端唯一給操作按鈕的那一站，
+        // 於是兩台會對不同的乘客顯示「已上車／已下車／跳過」。
+        //
+        // 事件 payload 帶整趟 stops，但這裡仍以**後端重讀**為準：司機端行程卡還要
+        // 階段（phase）與車資等 payload 沒有的欄位，重讀一次最不容易對不齊。
+        // 失敗靜默——這不是使用者按出來的動作，跳錯誤橫幅只會干擾他開車。
+        if (event.rideId != null && _activeRide?.rideId == event.rideId) {
+          unawaited(_restoreActiveRide(silent: true));
         }
       case FleetEventTypes.rideCompleted:
       case FleetEventTypes.rideCancelled:

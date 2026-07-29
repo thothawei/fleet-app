@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../core/api/api_error.dart' show sessionExpiredMessage;
 import '../core/api/customer_api_client.dart';
 import '../core/api/fleet_api_client.dart' show ApiException;
 import '../core/config/app_config.dart';
@@ -19,7 +20,10 @@ class CustomerController extends ChangeNotifier {
   })  : _storage = storage ?? CustomerTokenStorage(),
         _api = api ?? CustomerApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
-        _ws = FleetWsClient(onEvent: (_) {});
+        _ws = FleetWsClient(onEvent: (_) {}) {
+    // token 過期／失效時把乘客送回登入頁（見 _handleUnauthorized）。
+    _api.onUnauthorized = _handleUnauthorized;
+  }
 
   final CustomerTokenStorage _storage;
   final CustomerApiClient _api;
@@ -48,6 +52,9 @@ class CustomerController extends ChangeNotifier {
   // 是否有待呈現的取消通知（P4）。reason 為 null 也要通知（乘客主動取消／司機放棄
   // 走泛用文案），故需獨立旗標，不能只看 _cancelReason。
   bool _rideCancelled = false;
+  // 司機放棄後「正在重新派車」的說明；與取消通知分開——**行程還在**，
+  // 混用取消通知會讓乘客以為要重新叫車。
+  String? _redispatchNotice;
   // 乘客指定的車種（P2）；null ＝不指定，維持現行行為。
   VehicleType? _requiredVehicleType;
   // 寵物車清潔費率（P5）；null ＝尚未查到（費率不常變，快取一次即可）。
@@ -89,6 +96,8 @@ class CustomerController extends ChangeNotifier {
   List<CustomerRideSummary> _rideHistory = [];
   bool _historyLoading = false;
   String? _historyError;
+  // session 失效清理中；並發的 401（輪詢＋使用者操作同時）不重入清理。
+  bool _sessionExpiring = false;
 
   CustomerSession? get session => _session;
   bool get isLoggedIn => _session != null;
@@ -123,6 +132,17 @@ class CustomerController extends ChangeNotifier {
   /// 是否該給「改用不指定車種重新叫車」快捷（P4：只有指定車種找不到才建議）。
   bool get suggestAnyVehicle =>
       _rideCancelled && shouldSuggestAnyVehicle(_cancelReason);
+
+  /// 司機放棄後的「正在重新派車」說明；null ＝ 沒有要顯示的。
+  /// 與 [cancelNotice] 互斥使用：這個代表**行程還在**，只是換司機。
+  String? get redispatchNotice => _redispatchNotice;
+
+  /// 有新司機接單／新叫車／行程結束時清掉。
+  void dismissRedispatchNotice() {
+    if (_redispatchNotice == null) return;
+    _redispatchNotice = null;
+    notifyListeners();
+  }
 
   /// 關閉取消通知（乘客按「知道了」或採用快捷操作後）。
   void dismissCancelNotice() {
@@ -406,6 +426,21 @@ class CustomerController extends ChangeNotifier {
     }
   }
 
+  /// App 從背景回到前景（由 `AppLifecycleReactor` 呼叫）。
+  ///
+  /// 背景期間 WS 可能已被系統關掉，15 秒的輪詢 timer 在 iOS 也是凍結的——
+  /// 回前景後最壞情況要再等一輪才對得上帳，這段時間畫面顯示的是背景前的舊狀態
+  /// （司機早就接單了卻還寫「配對中」）。所以立刻重連 WS ＋ 主動對帳一次。
+  ///
+  /// **靜默**：使用者只是把 App 切回來，沒按任何東西；失敗不該冒出錯誤
+  /// （同背景輪詢的規則，見 `refreshActive` 的 silent 說明）。
+  Future<void> onAppResumed() async {
+    if (_session == null) return;
+    _ws.ensureConnected();
+    await refreshActive(silent: true);
+    await refreshLostItems();
+  }
+
   Future<void> login({
     required String lineUserId,
     required String password,
@@ -459,6 +494,25 @@ class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// token 過期／失效（401）：**本地登出**並讓乘客知道要重新登入。
+  ///
+  /// 沒有這條路，過期後乘客會停在叫車首頁，每按一次「叫車」只得到一句
+  /// 「token 無效或已過期」——他既不知道那是什麼，也沒有畫面可以重新登入
+  /// （地圖版首頁只有一顆不起眼的登出鈕）。JWT 預設 72 小時，長期使用者必然遇到。
+  void _handleUnauthorized() {
+    if (_session == null || _sessionExpiring) return;
+    _sessionExpiring = true;
+    unawaited(() async {
+      try {
+        await logout();
+        _error = sessionExpiredMessage;
+      } finally {
+        _sessionExpiring = false;
+      }
+      notifyListeners();
+    }());
+  }
+
   Future<void> logout() async {
     _stopPolling();
     await _ws.disconnect();
@@ -471,6 +525,7 @@ class CustomerController extends ChangeNotifier {
     _cancelReason = null;
     _cancelledVehicleType = null;
     _rideCancelled = false;
+    _redispatchNotice = null;
     _requiredVehicleType = null;
     _passengers.clear();
     _estimate = null;
@@ -486,6 +541,12 @@ class CustomerController extends ChangeNotifier {
     _unreadChat = 0;
     _chatVisible = false;
     _lostItems = [];
+    // 歷史行程是**上一個帳號的個人資料**：不清的話，換人登入後一進「我的行程」
+    // 就會在自己的資料載入前先看到前一位乘客的行程與車資。
+    _rideHistory = [];
+    _historyError = null;
+    _completedRatingScore = null;
+    _completedRatingRideId = null;
     _api.setToken(null);
     notifyListeners();
   }
@@ -581,7 +642,8 @@ class CustomerController extends ChangeNotifier {
         // O6：只有乘客指定寵物車的行程才有；後端未加收時**不帶這個鍵** → null。
         cleaningFeeCents: (event.payload?['cleaning_fee_cents'] as num?)?.toInt(),
       );
-      refreshActive();
+      // WS 事件觸發，不是使用者按的 → 失敗靜默，交給輪詢補
+      refreshActive(silent: true);
       return;
     }
     final active = _activeRide;
@@ -600,7 +662,23 @@ class CustomerController extends ChangeNotifier {
         // O4／O7：車種車牌供路邊對車，電話供直接聯絡（明碼，僅該趟乘客收得到此事件）。
         _driverInfo = RideDriverInfo.fromPayload(event.payload ?? const {});
         _driverArrived = false;
-        refreshActive();
+        // 新司機接單＝「重新派車中」已經結束，通知留著會與畫面上的司機卡片矛盾。
+        _redispatchNotice = null;
+        refreshActive(silent: true);
+      // 司機放棄，行程回到派單中——**不是取消**，訂單還在，只是重新找司機。
+      // 這裡必須把上一位司機的所有痕跡清乾淨：車牌／撥號按鈕若留著，
+      // 乘客會打給一個已經不來的司機；ETA 與地圖上的車也是舊的。
+      case FleetEventTypes.rideRedispatched:
+        _driverName = null;
+        _driverInfo = null;
+        _driverArrived = false;
+        _liveEtaSec = null;
+        _liveDistM = null;
+        _liveDriverLat = null;
+        _liveDriverLng = null;
+        _redispatchNotice = '司機取消了行程，正在為您重新派車';
+        notifyListeners();
+        refreshActive(silent: true);
       case FleetEventTypes.driverLocation:
         _liveEtaSec = (event.payload?['eta_sec'] as num?)?.toInt();
         _liveDistM = (event.payload?['dist_m'] as num?)?.toInt();
@@ -615,7 +693,7 @@ class CustomerController extends ChangeNotifier {
         _liveDriverLng = null;
         notifyListeners();
       case FleetEventTypes.ridePickedUp:
-        refreshActive();
+        refreshActive(silent: true);
       case FleetEventTypes.rideCancelled:
         // P4：以機器可讀的 cancel_reason 判斷，不 parse 後端文案（文案會改）。
         // 只有逾時取消會帶這兩個鍵；乘客主動取消／司機放棄不帶 → 解析為 null，
@@ -623,7 +701,9 @@ class CustomerController extends ChangeNotifier {
         _cancelReason = CancelReason.fromCode(event.payload?['cancel_reason'] as String?);
         _cancelledVehicleType = event.payload?['required_vehicle_type'] as String?;
         _rideCancelled = true;
-        refreshActive();
+        // 行程真的結束了，「正在重新派車」不能再留著（重派沒成功才會走到這裡）。
+        _redispatchNotice = null;
+        refreshActive(silent: true);
       default:
         break;
     }
@@ -776,43 +856,103 @@ class CustomerController extends ChangeNotifier {
         // P2：null ＝不指定，client 端不會帶這個鍵。
         requiredVehicleType: _requiredVehicleType?.code,
       );
-      _activeRide = ride;
-      _lastActiveRide = ride;
-      // 這趟已送出，編輯狀態不該留到下一趟。
-      _passengers.clear();
-      // 預估屬於「建單前」的輔助資訊，送出後就該收掉，不留到下一趟。
-      _estimate = null;
-      _estimating = false;
-      _estDropoffLat = null;
-      _estDropoffLng = null;
-      _driverName = null;
-      _driverInfo = null;
-      // 新的一趟開始 → 上一趟的取消原因不該還掛著。
-      _cancelReason = null;
-      _cancelledVehicleType = null;
-      _rideCancelled = false;
-      _liveEtaSec = null;
-      _liveDistM = null;
-      _liveDriverLat = null;
-      _liveDriverLng = null;
-      _driverArrived = false;
-      _completedSummary = null;
-      _error = null;
-      _startPolling();
+      _applyCreatedRide(ride);
     } on ApiException catch (e) {
-      _error = e.message;
+      await _handleCreateFailure(e);
     } finally {
       _setBusy(false);
     }
   }
 
-  Future<void> refreshActive() async {
+  /// 建單失敗的處理（`placeOrder` 的 catch 全部走這裡）。
+  ///
+  /// 弱網：逾時／連線失敗**不代表後端沒建單**——請求可能已經送達、訂單已經成立，
+  /// 只是回應沒回來。什麼都不做的話乘客會停在叫車畫面（沒有進行中訂單就不會輪詢），
+  /// 車已經在派了他卻看不到；再按一次則會拿到「已有進行中的訂單」這條死路。
+  /// 所以先問後端：我現在到底有沒有訂單。
+  ///
+  /// **只有連線類（`statusCode == null`）才對帳**：後端明確拒絕（車種不合、限流…）
+  /// 時它本來就沒建單，再問一次只是白跑。
+  ///
+  /// 直接可測：正式入口 `placeOrder` 一定會先經過 geolocator 的 platform channel，
+  /// 單元測試環境沒有它（既有測試也只驗得到 placeOrder 送出前那一段）。
+  @visibleForTesting
+  Future<void> handleCreateFailure(ApiException e) => _handleCreateFailure(e);
+
+  Future<void> _handleCreateFailure(ApiException e) async {
+    _error = e.message;
+    // **409 也要對帳**：那句話是後端在明說「你已經有一張進行中的訂單」，
+    // 而畫面上一張都沒有——多半就是上一次逾時其實建成了（或訂單來自 LINE／另一台裝置）。
+    // 只把這句話原樣丟給乘客，他無事可做：再按一次還是 409，唯一出路是重開 App。
+    if (e.statusCode == null || e.statusCode == 409) {
+      await _adoptRideIfCreated();
+    }
+  }
+
+  /// 建單失敗後向後端確認訂單到底有沒有成立。
+  ///
+  /// 有 → 套用它（畫面直接進入追蹤）並清掉那句錯誤（他其實叫到車了）。
+  /// 沒有 → 什麼都不動，錯誤訊息留著讓他重試。
+  /// 查詢本身也失敗 → 同樣什麼都不動（不知道就不亂改）。
+  Future<void> _adoptRideIfCreated() async {
+    try {
+      final ride = await _api.activeRide();
+      if (ride == null || RideStatus.isTerminal(ride.status)) return;
+      // 這趟其實成立了 → 走**與建單成功同一套**狀態切換。
+      // 只做 `_applyActiveRide` 是不夠的：編輯中的多乘客清單、預估車資、
+      // 上一趟的取消通知都會留著，下一次叫車就帶著別趟的殘骸。
+      _applyCreatedRide(ride);
+      // 這段空窗可能已經被司機接走了：把司機姓名／車牌／電話補回來，
+      // 不必等下一個輪詢週期才顯示。
+      _applyActiveRide(ride);
+      _error = null;
+    } on ApiException {
+      // 弱網下這一問也可能逾時；維持原本的錯誤訊息。
+    }
+  }
+
+  /// 一趟新訂單成立後的狀態切換（建單成功與「其實已經建好了」共用）。
+  ///
+  /// 兩條路徑必須共用同一份清單：漏掉其中一項，就會把上一趟的司機、取消通知或
+  /// 完成卡帶進這一趟。
+  void _applyCreatedRide(CustomerRide ride) {
+    _activeRide = ride;
+    _lastActiveRide = ride;
+    // 這趟已送出，編輯狀態不該留到下一趟。
+    _passengers.clear();
+    // 預估屬於「建單前」的輔助資訊，送出後就該收掉，不留到下一趟。
+    _estimate = null;
+    _estimating = false;
+    _estDropoffLat = null;
+    _estDropoffLng = null;
+    _driverName = null;
+    _driverInfo = null;
+    // 新的一趟開始 → 上一趟的取消原因不該還掛著。
+    _cancelReason = null;
+    _cancelledVehicleType = null;
+    _rideCancelled = false;
+    _liveEtaSec = null;
+    _liveDistM = null;
+    _liveDriverLat = null;
+    _liveDriverLng = null;
+    _driverArrived = false;
+    _completedSummary = null;
+    _error = null;
+    _startPolling();
+  }
+
+  /// [silent] ＝ 這次刷新不是使用者按出來的（背景輪詢），失敗時**不寫全域 error**。
+  /// 15 秒一次的輪詢若把失敗丟給畫面層，後端一斷線就變成每 15 秒彈一次 SnackBar
+  /// 蓋住 sheet 上的按鈕，而使用者沒有任何辦法讓它停——他根本沒按過什麼。
+  /// 使用者自己觸發的刷新（下拉、登入還原）維持照舊回報。
+  Future<void> refreshActive({bool silent = false}) async {
     if (_session == null) return;
     try {
       final ride = await _api.activeRide();
       _applyActiveRide(ride);
       notifyListeners();
     } on ApiException catch (e) {
+      if (silent) return;
       _error = e.message;
       notifyListeners();
     }
@@ -897,7 +1037,7 @@ class CustomerController extends ChangeNotifier {
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(_pollInterval, (_) => refreshActive());
+    _pollTimer = Timer.periodic(_pollInterval, (_) => refreshActive(silent: true));
   }
 
   void _stopPolling() {

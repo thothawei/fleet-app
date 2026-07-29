@@ -224,7 +224,10 @@ class _FakeFleetApi extends FleetApiClient {
   Future<String> acceptRide(int rideId) async => '接單成功';
 
   @override
-  Future<void> cancelRide(int rideId) async {}
+  Future<String> cancelRide(int rideId) async => '已放棄此訂單';
+
+  @override
+  Future<void> declineRide(int rideId) async {}
 
   @override
   Future<void> registerDeviceToken({

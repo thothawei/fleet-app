@@ -5,6 +5,7 @@ import '../core/config/app_config.dart';
 import '../core/models/models.dart';
 import '../core/push/driver_push_service.dart';
 import '../core/theme/app_theme.dart';
+import '../shared/widgets/app_lifecycle_reactor.dart';
 import 'driver_controller.dart';
 import 'screens/driver_home_screen.dart';
 import 'screens/driver_login_screen.dart';
@@ -19,12 +20,18 @@ class DriverApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => DriverController(push: pushService)..init(),
-      child: MaterialApp(
-        title: 'Fleet 司機',
-        theme: appLightTheme,
-        darkTheme: appDarkTheme,
-        themeMode: ThemeMode.system,
-        home: const _DriverRoot(),
+      // Builder：拿到 provider 底下的 context，回前景才叫得到 controller。
+      child: Builder(
+        builder: (context) => AppLifecycleReactor(
+          onResumed: () => context.read<DriverController>().onAppResumed(),
+          child: MaterialApp(
+            title: 'Fleet 司機',
+            theme: appLightTheme,
+            darkTheme: appDarkTheme,
+            themeMode: ThemeMode.system,
+            home: const _DriverRoot(),
+          ),
+        ),
       ),
     );
   }

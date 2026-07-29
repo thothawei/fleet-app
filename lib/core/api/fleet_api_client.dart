@@ -16,7 +16,7 @@ class ApiException implements Exception {
 
 /// REST API 封裝，自動帶 JWT。
 class FleetApiClient {
-  FleetApiClient({Dio? dio, String? token})
+  FleetApiClient({Dio? dio, String? token, this.onUnauthorized})
       : _dio = dio ??
             Dio(BaseOptions(
               baseUrl: '${AppConfig.apiBase}/api',
@@ -28,6 +28,11 @@ class FleetApiClient {
   }
 
   final Dio _dio;
+
+  /// session 失效時的回呼（帶 token 的請求收到 401）。
+  /// 由 controller 注入，用來把使用者送回登入頁——App 端沒有 refresh token，
+  /// 401 之後不論重試幾次都只會再拿到 401。
+  void Function()? onUnauthorized;
 
   void setToken(String? token) {
     if (token == null) {
@@ -104,9 +109,24 @@ class FleetApiClient {
     }
   }
 
-  Future<void> cancelRide(int rideId) async {
+  /// 放棄已接的訂單。回後端的說明訊息——**成功與失敗都是 200**
+  /// （後端拒絕時回「此訂單目前無法放棄」而不是錯誤碼），呼叫端不可只看有沒有丟例外。
+  Future<String> cancelRide(int rideId) async {
     try {
-      await _dio.post('/rides/$rideId/cancel');
+      final res = await _dio.post<Map<String, dynamic>>('/rides/$rideId/cancel');
+      return res.data?['message'] as String? ?? '已放棄此訂單';
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 略過這張派單（對齊 POST /api/rides/:id/decline）。
+  ///
+  /// 後端把這位司機加進該訂單的「已拒接」名單，重新派單時會跳過他——
+  /// 不呼叫的話，同一張單重派時還會再送到他面前。
+  Future<void> declineRide(int rideId) async {
+    try {
+      await _dio.post('/rides/$rideId/decline');
     } on DioException catch (e) {
       throw _wrap(e);
     }
@@ -321,6 +341,15 @@ class FleetApiClient {
     }
   }
 
-  ApiException _wrap(DioException e) =>
-      ApiException(apiErrorMessage(e), statusCode: e.response?.statusCode);
+  /// 401（登入／註冊以外）＝ 這個 session 已經不能用了：通知 controller 清掉它，
+  /// 並把訊息換成使用者看得懂的一句話。後端原文「token 無效或已過期」
+  /// 只會讓司機盯著一個他無法處理的錯誤，而畫面仍停在首頁假裝一切正常。
+  ApiException _wrap(DioException e) {
+    final code = e.response?.statusCode;
+    if (code == 401 && !isAuthPath(e.requestOptions.path)) {
+      onUnauthorized?.call();
+      return ApiException(sessionExpiredMessage, statusCode: code);
+    }
+    return ApiException(apiErrorMessage(e), statusCode: code);
+  }
 }
