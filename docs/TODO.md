@@ -882,8 +882,8 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
 | 同一個 driver id 的多條 WS 連線 | **全部都收到** `ride.assigned` 與 `ride.accepted`（`events.Hub` 依 (角色, id) 扇出，沒有踢舊 session 的機制） |
 | 一張單派給幾位司機 | **同一輪同時派給半徑內每一位待命司機**（`dispatchRound` 迴圈 `pushOffer`）——搶單是常態，不是邊角 |
 | 沒搶到的司機收到什麼事件 | **零**。`ride.accepted` 只送給接到的那位；逾時取消（`giveUpIfUnaccepted`）也只通知乘客 |
-| 沒搶到的司機打 accept | **HTTP 200** `{"message":"手慢了，這單已被其他司機接走"}`——後端用 200＋文案表示失敗 |
-| 非待命狀態打 accept | 同樣是 200 `{"message":"您目前無法接單（非待命狀態）"}` |
+| 沒搶到的司機打 accept | **HTTP 200** `{"message":"手慢了，這單已被其他司機接走"}`——後端用 200＋文案表示失敗（**2026-07-30 後端已改成 409**，見下方回填） |
+| 非待命狀態打 accept | 同樣是 200 `{"message":"您目前無法接單（非待命狀態）"}`（同上，已改 409） |
 | 放棄非「已接」狀態的單 | 同樣是 200 `{"message":"此訂單目前無法放棄"}` |
 
 **因此 App 有一個一直都在的謊**（`acceptOffer` 只看有沒有丟例外）：
@@ -920,8 +920,15 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
   | 略過（ride #14） | 後端 log `司機拒單 driver_id=7 ride_id=14`＋Redis 出現 `ride:14:rejected`（修正前後端完全不知情） |
 
 **➡️ 留給後端的（跨 repo，不在本批）**：
-1. **接單／放棄失敗回 200＋文案**是 API 設計缺陷——App 只能靠再查一次狀態來判成敗。
-   正解是回 409（`ErrRideTaken`／`ErrRideNotAbandonable`）。
+1. ~~**接單／放棄失敗回 200＋文案**是 API 設計缺陷~~ ✅ **後端已修（2026-07-30，
+   dispatch [PR #64](https://github.com/thothawei/fleet-dispatch/pull/64)）**：
+   新增 `ErrRideTaken`／`ErrDriverNotIdle`／`ErrRideStarted`／`ErrRideStateChanged`
+   四個 sentinel error，一律回 **409**，**文案一字未改**。
+   實跑量到：重複接單 `409 {"error":"手慢了，這單已被其他司機接走"}`、
+   已上車後乘客取消 `409 {"error":"行程已開始，無法取消"}`。
+   **App 這端不需要改**：司機端 `acceptOffer` 會顯示後端文案、接單卡由 `ride.taken` 收掉；
+   乘客端 `cancelOrder` 本來就把 `ApiException.message` 顯示出來——先前 200 時它反而什麼都不說。
+   **既有的「逾時才對帳」退路留著仍然無害**（弱網逾時是 `statusCode == null`，與 409 不同條路）。
 2. **沒搶到的司機收不到任何事件**：後端可對「本輪收到 offer 但沒接到」的司機補送
    `ride.taken`（或把 `ride.assigned` 的 payload 加上 `offer_expires_at`），
    App 才能在司機**完全沒動作**時也把卡片收掉。目前只有他按下接單、或
