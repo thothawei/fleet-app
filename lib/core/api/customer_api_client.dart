@@ -311,6 +311,38 @@ class CustomerApiClient {
     }
   }
 
+  /// 註冊推播 token（對齊 `POST /api/customer/device-token`）。
+  ///
+  /// 這支端點後端**早就在路由上**（`RegisterByCustomer`），App 卻從沒呼叫過——
+  /// 於是乘客 App 被系統殺掉後沒有任何管道叫得動他：WS 沒了、15 秒輪詢也停了，
+  /// 「司機接單」「司機已抵達」全部收不到，只有他自己再打開 App 才由 REST 還原。
+  Future<void> registerDeviceToken({
+    required String platform,
+    required String token,
+  }) async {
+    try {
+      await _dio.post('/customer/device-token', data: {
+        'platform': platform,
+        'token': token,
+      });
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 登出時註銷推播 token；不註銷的話，下一個在這台裝置登入的人
+  /// 會收到上一位乘客的行程通知。
+  Future<void> unregisterDeviceToken({required String token}) async {
+    try {
+      await _dio.delete(
+        '/customer/device-token',
+        data: {'platform': 'fcm', 'token': token},
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 401（登入／註冊以外）＝ session 失效：通知 controller 清掉它。
   /// 詳見 `FleetApiClient._wrap`——兩端同一條規則。
   ApiException _wrap(DioException e) {

@@ -120,6 +120,23 @@ FCM data 的值一律是字串，App 端 `fleetEventFromPushData()` 會把座標
 訂單未指定目的地時省略 dropoff 三鍵。**`stops` 不放進推播**（結構化陣列不塞 FCM data）——
 多停靠點行程的全程由 App 接單後重讀 `rides/active` 補齊（`acceptOffer` → refreshActive）。
 
+### 乘客端推播（App 端接線已完成，2026-07-29）
+
+乘客 flavor 的套件名是 **`dev.linefleet.line_fleet_app.customer`**，同樣需要一份
+`google-services.json`（Firebase Console 可在同一個專案下新增第二個 Android App）。
+登入後會自動 `POST /api/customer/device-token`、登出時 `DELETE` 註銷。
+
+**乘客端的推播只當「去跟後端對一次帳」的訊號**，payload 不直接套用到畫面：
+收到 `ride.accepted`／`driver.arrived`／`ride.completed`／`ride.cancelled`／`ride.redispatched`
+任一則，App 就重讀 `GET /api/customer/rides/active` 與協尋清單。
+理由是 FCM data 的值全是字串且欄位稀疏，直接灌進事件處理會把司機姓名／車牌／ETA 洗成空的——
+REST 一定完整，而推播要傳達的資訊只有「有事發生了」。
+所以**這一側沒有額外的 payload 契約**，後端只要帶 `type`（＋ `ride_id`）即可。
+
+⚠️ **後端目前還不會推播給乘客**：`notify.Dispatcher` 只有 `NotifyDriverRideOffer`
+（`grep -rn "RoleCustomer" internal/` 只命中 device-token 的存取層）。
+所以乘客 token 現在只是「存起來備用」——真正的喚醒要等後端補送出路徑（已記在 dispatch TODO）。
+
 ## 功能進度
 
 詳見 [`docs/TODO.md`](docs/TODO.md)。

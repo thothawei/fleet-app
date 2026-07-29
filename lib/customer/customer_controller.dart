@@ -8,6 +8,7 @@ import '../core/api/customer_api_client.dart';
 import '../core/api/fleet_api_client.dart' show ApiException;
 import '../core/config/app_config.dart';
 import '../core/models/models.dart';
+import '../core/push/fleet_push_service.dart';
 import '../core/storage/customer_token_storage.dart';
 import '../core/ws/fleet_ws_client.dart';
 
@@ -17,9 +18,11 @@ class CustomerController extends ChangeNotifier {
     CustomerTokenStorage? storage,
     CustomerApiClient? api,
     FleetWsClientFactory? wsFactory,
+    FleetPushService? push,
   })  : _storage = storage ?? CustomerTokenStorage(),
         _api = api ?? CustomerApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
+        _push = push ?? NoOpFleetPushService(),
         _ws = FleetWsClient(onEvent: (_) {}) {
     // token 過期／失效時把乘客送回登入頁（見 _handleUnauthorized）。
     _api.onUnauthorized = _handleUnauthorized;
@@ -28,7 +31,13 @@ class CustomerController extends ChangeNotifier {
   final CustomerTokenStorage _storage;
   final CustomerApiClient _api;
   final FleetWsClientFactory _wsFactory;
+  final FleetPushService _push;
   FleetWsClient _ws;
+
+  /// 已向後端註冊的推播 token；登出時要拿它去註銷。
+  String? _fcmToken;
+  StreamSubscription<FleetWsEvent>? _pushSub;
+  StreamSubscription<String>? _tokenRefreshSub;
 
   // WS 即時到手後只做保底對帳，輪詢間隔放寬。
   static const _pollInterval = Duration(seconds: 15);
@@ -424,6 +433,47 @@ class CustomerController extends ChangeNotifier {
       await refreshActive();
       await refreshLostItems();
     }
+    await _bindPushListener();
+  }
+
+  /// 訂閱推播：事件本身只當**對帳訊號**，token 輪替則重新註冊。
+  Future<void> _bindPushListener() async {
+    await _pushSub?.cancel();
+    _pushSub = _push.rideEvents.listen((_) => unawaited(_handlePushEvent()));
+    await _tokenRefreshSub?.cancel();
+    _tokenRefreshSub =
+        _push.tokenRefresh.listen((_) => unawaited(_syncDeviceToken()));
+  }
+
+  /// 收到推播（前景或點通知喚醒）→ **跟後端對一次帳**。
+  ///
+  /// **刻意不把 payload 套進畫面**：FCM data 的值一律是字串、欄位又稀疏
+  /// （見 pitfall-fcm-data-all-strings），直接餵進 `_handleWsEvent` 會把
+  /// 司機姓名／車牌／ETA 洗成空的——推播喚醒的畫面反而比不開還糟。
+  /// REST 是權威且一定完整，推播只需要告訴我們「有事發生了，去問一次」。
+  ///
+  /// **靜默**：乘客可能只是點了通知，沒按 App 裡的任何東西，失敗不該冒錯誤橫幅。
+  Future<void> _handlePushEvent() async {
+    if (_session == null) return;
+    await refreshActive(silent: true);
+    await refreshLostItems();
+  }
+
+  /// 登入後向後端註冊推播 token；token 輪替時亦會重註冊。
+  ///
+  /// **靜默降級**：這是登入與輪替時的背景動作，乘客沒按任何東西。註冊失敗只代表
+  /// 「推播喚醒」這條退路暫時不可用，WS 與輪詢照常運作——為此在首頁掛一條紅色橫幅
+  /// 只會讓乘客以為叫不到車（同司機端 `_syncDeviceToken` 的規則）。
+  Future<void> _syncDeviceToken() async {
+    if (!_push.isAvailable || _session == null) return;
+    try {
+      final token = await _push.getToken();
+      if (token == null || token.isEmpty) return;
+      await _api.registerDeviceToken(platform: 'fcm', token: token);
+      _fcmToken = token;
+    } on ApiException {
+      // 下一次輪替或重新登入會自動再試。
+    }
   }
 
   /// App 從背景回到前景（由 `AppLifecycleReactor` 呼叫）。
@@ -491,6 +541,7 @@ class CustomerController extends ChangeNotifier {
     _session = session;
     _api.setToken(session.token);
     await _ws.connect(session.token);
+    await _syncDeviceToken();
     notifyListeners();
   }
 
@@ -504,7 +555,9 @@ class CustomerController extends ChangeNotifier {
     _sessionExpiring = true;
     unawaited(() async {
       try {
-        await logout();
+        // **不打 `unregisterDeviceToken`**：token 已經失效，那支 API 只會再回一次 401
+        // （並再觸發一次這裡）。所以走 `_clearSession()` 而不是 `logout()`。
+        await _clearSession();
         _error = sessionExpiredMessage;
       } finally {
         _sessionExpiring = false;
@@ -514,6 +567,19 @@ class CustomerController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // 註銷推播 token：不註銷的話，下一個在這台裝置登入的人會收到上一位乘客的行程通知。
+    // 失敗只吞掉——登出不能因為網路而卡住。
+    final token = _fcmToken;
+    if (token != null) {
+      try {
+        await _api.unregisterDeviceToken(token: token);
+      } catch (_) {}
+    }
+    await _clearSession();
+  }
+
+  /// 清掉本機 session 與所有跟著它的狀態（登出與 session 失效共用）。
+  Future<void> _clearSession() async {
     _stopPolling();
     await _ws.disconnect();
     await _storage.clear();
@@ -547,6 +613,7 @@ class CustomerController extends ChangeNotifier {
     _historyError = null;
     _completedRatingScore = null;
     _completedRatingRideId = null;
+    _fcmToken = null;
     _api.setToken(null);
     notifyListeners();
   }
@@ -1058,6 +1125,8 @@ class CustomerController extends ChangeNotifier {
   @override
   void dispose() {
     _stopPolling();
+    _pushSub?.cancel();
+    _tokenRefreshSub?.cancel();
     _chatStream.close();
     _ws.disconnect();
     super.dispose();

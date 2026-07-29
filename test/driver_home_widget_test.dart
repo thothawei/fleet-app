@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:line_fleet_app/core/api/fleet_api_client.dart';
 import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/models/models.dart';
-import 'package:line_fleet_app/core/push/driver_push_service.dart';
+import 'package:line_fleet_app/core/push/fleet_push_service.dart';
 import 'package:line_fleet_app/core/storage/token_storage.dart';
 import 'package:line_fleet_app/core/theme/app_theme.dart';
 import 'package:line_fleet_app/core/util/maps.dart';
@@ -239,7 +239,7 @@ class _FakeFleetApi extends FleetApiClient {
   Future<void> unregisterDeviceToken({required String token}) async {}
 }
 
-class _FakePush implements DriverPushService {
+class _FakePush implements FleetPushService {
   final _controller = StreamController<FleetWsEvent>.broadcast();
   final _tokenRefresh = StreamController<String>.broadcast();
 

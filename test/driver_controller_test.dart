@@ -6,7 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:line_fleet_app/core/api/fleet_api_client.dart';
 import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/models/models.dart';
-import 'package:line_fleet_app/core/push/driver_push_service.dart';
+import 'package:line_fleet_app/core/push/fleet_push_service.dart';
 import 'package:line_fleet_app/core/storage/token_storage.dart';
 import 'package:line_fleet_app/core/ws/fleet_ws_client.dart';
 import 'package:line_fleet_app/driver/driver_controller.dart';
@@ -632,7 +632,7 @@ class _FakeFleetApi extends FleetApiClient {
   }
 }
 
-class _FakePush implements DriverPushService {
+class _FakePush implements FleetPushService {
   final _controller = StreamController<FleetWsEvent>.broadcast();
   final _tokenRefresh = StreamController<String>.broadcast();
 

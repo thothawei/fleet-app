@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../core/config/app_config.dart';
 import '../core/models/models.dart';
-import '../core/push/driver_push_service.dart';
+import '../core/push/fleet_push_service.dart';
 import '../core/theme/app_theme.dart';
 import '../shared/widgets/app_lifecycle_reactor.dart';
 import 'driver_controller.dart';
@@ -14,7 +14,7 @@ import 'screens/driver_vehicle_screen.dart';
 class DriverApp extends StatelessWidget {
   const DriverApp({this.pushService, super.key});
 
-  final DriverPushService? pushService;
+  final FleetPushService? pushService;
 
   @override
   Widget build(BuildContext context) {

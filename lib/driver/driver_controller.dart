@@ -9,7 +9,7 @@ import '../core/config/app_config.dart';
 import '../core/location/driver_location_permissions.dart';
 import '../core/location/driver_location_settings.dart';
 import '../core/models/models.dart';
-import '../core/push/driver_push_service.dart';
+import '../core/push/fleet_push_service.dart';
 import '../core/storage/token_storage.dart';
 import '../core/ws/fleet_ws_client.dart';
 
@@ -19,11 +19,11 @@ class DriverController extends ChangeNotifier {
     DriverAuthStore? storage,
     FleetApiClient? api,
     FleetWsClientFactory? wsFactory,
-    DriverPushService? push,
+    FleetPushService? push,
   })  : _storage = storage ?? TokenStorage(),
         _api = api ?? FleetApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
-        _push = push ?? NoOpDriverPushService(),
+        _push = push ?? NoOpFleetPushService(),
         _ws = FleetWsClient(onEvent: (_) {}) {
     // token 過期／失效時把司機送回登入頁（見 _handleUnauthorized）。
     _api.onUnauthorized = _handleUnauthorized;
@@ -32,7 +32,7 @@ class DriverController extends ChangeNotifier {
   final DriverAuthStore _storage;
   final FleetApiClient _api;
   final FleetWsClientFactory _wsFactory;
-  final DriverPushService _push;
+  final FleetPushService _push;
   FleetWsClient _ws;
 
   AuthSession? _session;
