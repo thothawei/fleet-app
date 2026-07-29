@@ -744,6 +744,62 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
 
 ---
 
+## 🔁 2026-07-29 第四輪 debug：App 生命週期（背景→前景）——本批修掉
+
+> 「下一輪 debug 角落 1」。起點是一句可查證的事實：`grep -rn "AppLifecycle\|WidgetsBindingObserver" lib/`
+> **全 App 零命中**——切到背景再回前景，App 什麼都不做。
+
+**兩個機制（都在真裝置上取證，不是讀程式碼猜）**：
+
+1. **司機端沒有任何輪詢**：`ride.assigned`／`ride.cancelled`／`ride.completed` 全靠 WS。
+   背景期間連線被系統關掉的話，漏掉的事件**沒有第二條路補回來**——畫面會停在背景前的狀態，
+   直到司機自己按下某個操作才被後端 409 打回。乘客端有 15 秒輪詢，但那個 timer 在
+   Android 的 app freezer／iOS 的 suspend 下同樣不會跑。
+2. **回前景時 WS 只能等退避**：離線久了退避已經長到 30 秒上限，而背景期間 timer 是凍結的，
+   回前景那一刻它可能才開始倒數。使用者已經在看畫面了，卻還要等最多 30 秒才連得上。
+
+**改了什麼**：
+- `FleetWsClient.ensureConnected()`：沒連上就立刻開新連線（取消待定的退避 timer、退避歸零）；
+  **已連上或正在連線時什麼都不做**——把好的連線砍掉重開只會製造更長的空窗。
+  以 `_opening` 旗標擋重入，否則兩條 `_open()` 會互相蓋掉 `_channel` 並留下沒人取消的訂閱。
+- 🐛 **順手修掉一個既有的說謊旗標**：`isConnected` 原本是 `_channel != null`，但斷線時
+  （onDone／onError）只排重連，`_channel` 要等下一次 `_open()` 才清得掉——中間那段它指著
+  一條已死的 channel。這個洞先前沒人踩到（外部沒人讀 `isConnected`），
+  但 `ensureConnected()` 一讀它就會**永遠早退、永遠不重連**。
+  是新測試（實測 3.016 秒＝走了退避 timer，不是立刻重連）抓到的，不是想出來的。
+  改成與 `onConnectionChanged` 同步翻的 `_connected` 旗標，兩邊永遠說同一件事。
+- `AppLifecycleReactor`（`lib/shared/widgets/`）：兩端 app root 各包一層，
+  **只有真的離開過前景（paused／hidden／detached）再回來才通知**——inactive 是通知列下拉、
+  來電橫幅、權限對話框這類短暫失焦，連線不會斷，把它當回前景等於每點一次通知就多打兩支 API。
+- 兩端 controller 的 `onAppResumed()`：`ensureConnected()` ＋ 向後端**重新對帳**
+  （司機：`rides/active`＋協尋清單；乘客：`refreshActive`＋協尋清單）。
+  **一律靜默**：使用者只是把 App 切回來、沒按任何東西，失敗不該冒錯誤（同 2026-07-28 修掉的那一類）。
+  **刻意不重查車輛審核狀態**：`refreshVehicle()` 失敗會打開 `vehicleLoadFailed`、整個畫面換成錯誤頁，
+  等於網路一抖就把行程中的司機踢出首頁；審核狀態本來就有後端 gate 擋著。
+
+**驗收**：
+- 靜態：`flutter analyze` 無 issue、`flutter test` **249 passed**（原 240＋新 9）。
+  新增 `test/app_lifecycle_test.dart`：WS 2 案（斷線後立刻重連／已連上時不砍掉重開，
+  且不疊出第二條連線）、司機端 3 案（背景期間被取消的行程回前景後消失／對帳失敗靜默且不誤登出／
+  未登入不打 API）、乘客端 3 案、reactor 1 案（inactive 不算回前景）。
+  **反向確認**：拿掉兩端的對帳與 `_leftForeground` 判斷後，3 案 FAIL。
+- **✅ 模擬器實跑閉環（2026-07-29，`m6_pixel` driver flavor ＋ dispatch docker compose）**，
+  兩個機制各自用一組決定性時序取證：
+  - **回前景立刻重連**：App 在背景時停掉後端 150 秒（退避長到 30 秒上限）→ 後端恢復並確認可服務
+    → **等 20 秒，後端零 WS 連線**（證明背景中的重連鏈確實沒動）→ 回前景 `08:58:27`
+    → **`08:58:28` WebSocket 已連線**（約 1 秒），同秒帶出 `rides/active` 與協尋清單查詢。
+  - **漏掉的事件由 REST 補回**：司機上線→乘客叫車→App 接單（ride #10 行程卡）→按 HOME →
+    重啟後端切斷 WS → **`09:01:02` 乘客取消訂單（當下司機 WS 不存在，事件送給沒有人）** →
+    `09:01:04` App 在背景重連上 WS（**重連不會補送漏掉的事件**）→ `09:01:08` 回前景 →
+    `SELECT rides WHERE driver_id=7 AND status IN (2,3)` **rows:0** →
+    **行程卡消失、回到「等待派單中」**。修正前這張卡會一直留著，直到司機按下操作被 409 打回。
+- **旁見（不是本批引入，記著別下次又追一遍）**：後端在那次「離線 3 分鐘＋process freeze」的極端情境
+  留下 **3 筆 WebSocket 已連線**，但同時間裝置端 `/proc/net/tcp` 只有 **1 條 ESTABLISHED**——
+  多的是握手在凍結期間才完成、之後就死掉的殭屍 socket（`_closeQuietly` 逾時 2 秒後就放手，
+  既有行為）。客戶端沒有連線 churn。
+
+---
+
 ## 下次任務
 
 > **✅ 維護項 5「清開發殘留」已完成（2026-07-28）**，詳見上方。
@@ -787,8 +843,9 @@ admin 的全域 query 錯誤處理有去重 key 且整個 repo 沒有 `refetchIn
 > **第三輪（2026-07-28）修掉 token 過期後 App 說謊**，見上方「🔑 第三輪 debug」。
 >
 > **➡️ 下一輪 debug 還沒碰過的角落**（依價值排序，都不需外部資源）：
-> 1. **App 生命週期**：切到背景數分鐘再回前景，WS 是否確實重連、進行中行程是否對得上
->    （目前只驗過「後端斷線→復原」，沒驗過「App 被系統凍結→回前景」）。
+> 1. ~~**App 生命週期**~~ ✅ **已完成（2026-07-29）**，見上方「🔁 第四輪 debug」——
+>    原本兩件事都沒做：回前景不重連 WS、也不跟後端對帳（司機端連輪詢都沒有）。
+>    順手修掉 `isConnected` 在斷線後仍回 true 的說謊旗標。
 > 2. **多裝置／同帳號重複登入**：同一司機在兩台裝置上線，後端沒有踢舊 session 的機制，
 >    兩邊都會收派單——先確認後端行為，再決定 App 該不該處理。
 > 3. **弱網**（非全斷）：`adb shell svc data` 或模擬器限速下的逾時分支，

@@ -277,14 +277,36 @@ class DriverController extends ChangeNotifier {
   Future<void> reportPositionForTest(Position pos) => _reportPosition(pos);
 
   /// App 重啟後從後端還原進行中行程（Accepted/PickedUp）。
-  Future<void> _restoreActiveRide() async {
+  ///
+  /// [silent] ＝ 不是司機按出來的（回前景對帳），失敗時不寫 error——
+  /// 他只是把 App 切回來，不該因此看到一則錯誤。
+  Future<void> _restoreActiveRide({bool silent = false}) async {
     try {
       _activeRide = await _api.activeRide();
       notifyListeners();
     } on ApiException catch (e) {
+      if (silent) return;
       _setApiError(e);
       notifyListeners();
     }
+  }
+
+  /// App 從背景回到前景（由 `AppLifecycleReactor` 呼叫）。
+  ///
+  /// 司機端**沒有任何輪詢**：`ride.assigned`／`ride.cancelled`／`ride.completed`
+  /// 全靠 WS。背景期間連線被系統關掉的話，漏掉的事件沒有第二條路補回來——
+  /// 畫面會停在背景前的狀態，直到司機自己按下某個操作才被後端 409 打回。
+  /// 所以回前景要做兩件事：**立刻重連 WS**（不等最長 30 秒的退避）
+  /// ＋ **向後端重新對帳一次**進行中行程與協尋清單。
+  ///
+  /// **刻意不重查車輛審核狀態**：`refreshVehicle()` 失敗會打開 `vehicleLoadFailed`，
+  /// 整個畫面換成錯誤頁——等於網路一不穩就把行程中的司機踢出首頁。
+  /// 審核狀態變更本來就有後端 gate 擋著，不需要每次回前景都問一遍。
+  Future<void> onAppResumed() async {
+    if (_session == null) return;
+    _ws.ensureConnected();
+    await _restoreActiveRide(silent: true);
+    await refreshLostItems();
   }
 
   Future<void> login({
