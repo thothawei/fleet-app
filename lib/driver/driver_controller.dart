@@ -146,6 +146,15 @@ class DriverController extends ChangeNotifier {
       return true;
     } on ApiException catch (e) {
       _setApiError(e); // 重複標記／已跳過／已完成（409）的訊息已中文化
+      // 逾時不代表後端沒標到（見 `_reconcileAfterTimeout`）；沒對帳的話下一站不會前移，
+      // 司機再按一次會被 409 擋下。生效的判準是**那一站已經不是待處理**。
+      if (e.statusCode == null) {
+        return _reconcileAfterTimeout(
+          ride.rideId,
+          applied: (fresh) =>
+              fresh.stops.any((s) => s.id == stopId && !s.pending),
+        );
+      }
       return false;
     } finally {
       _busy = false;
@@ -655,6 +664,45 @@ class DriverController extends ChangeNotifier {
     }
   }
 
+  /// **行程中的寫入請求逾時後**，跟後端要一次進行中行程當作權威狀態。
+  ///
+  /// 逾時 ＝ 沒收到回應，**不等於後端沒收到請求**——上車／完成／停靠點標記都可能已經生效，
+  /// 只是回應在半路不見了。畫面停在舊階段的話，司機再按一次會被後端 409 擋下，
+  /// 等於他自己擋自己（第六輪已對接單與乘客建單做過同一件事，這裡補完剩下三條）。
+  ///
+  /// - **後端沒有進行中行程** → 這張單已經不在他手上（完成／被取消都算）：清掉行程卡與錯誤。
+  /// - **回同一張單** → 以後端為準（缺的欄位用手上這張補，見 `filledFrom`）；
+  ///   [applied] 說寫入生效了才清掉逾時訊息，否則留著讓他自己決定要不要再按一次。
+  /// - **回別張單** → 也以後端為準；他要操作的那張已經不在了，訊息留著沒有意義。
+  /// - **這一問也失敗**（弱網下很可能）→ **不知道就不亂改**：畫面與訊息都維持原狀，
+  ///   之後回前景的 `onAppResumed` 還會再對帳一次。
+  ///
+  /// 回傳「寫入是否確定生效」。
+  Future<bool> _reconcileAfterTimeout(
+    int rideId, {
+    bool Function(ActiveRide fresh)? applied,
+  }) async {
+    final before = _activeRide;
+    try {
+      final fresh = await _api.activeRide();
+      if (fresh == null) {
+        _activeRide = null;
+        _setError(null);
+        return true;
+      }
+      _activeRide = before == null ? fresh : fresh.filledFrom(before);
+      if (fresh.rideId != rideId) {
+        _setError(null);
+        return false;
+      }
+      final ok = applied?.call(fresh) ?? false;
+      if (ok) _setError(null);
+      return ok;
+    } on ApiException {
+      return false;
+    }
+  }
+
   /// 略過這張派單。
   ///
   /// **要告訴後端**（`POST /rides/:id/decline`）：後端會把司機加進該單的「已拒接」名單，
@@ -690,6 +738,14 @@ class DriverController extends ChangeNotifier {
       _setError(null);
     } on ApiException catch (e) {
       _setApiError(e);
+      // 逾時後後端可能已經是 picked_up 了；不對帳的話畫面停在「前往上車點」，
+      // 他再按一次「乘客已上車」只會被後端擋下（生效的判準是階段已進到行程中）。
+      if (e.statusCode == null) {
+        await _reconcileAfterTimeout(
+          ride.rideId,
+          applied: (fresh) => fresh.phase == DriverRidePhase.onTrip,
+        );
+      }
     } finally {
       _busy = false;
       notifyListeners();
@@ -707,6 +763,11 @@ class DriverController extends ChangeNotifier {
       _setError(null);
     } on ApiException catch (e) {
       _setApiError(e);
+      // 三條逾時對帳裡**這條最嚴重**：完成請求送到了、回應沒回來，行程卡會一直留著，
+      // 司機以為這趟沒結束（後端那邊車資早就定格了），而他再按一次會被 409 擋下。
+      // 「完成」生效的表現就是後端不再有進行中行程 → `_reconcileAfterTimeout` 的
+      // fresh == null 分支會清掉行程卡與那句逾時訊息，不需要額外的 applied 判準。
+      if (e.statusCode == null) await _reconcileAfterTimeout(ride.rideId);
     } finally {
       _busy = false;
       notifyListeners();
