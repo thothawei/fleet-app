@@ -885,6 +885,18 @@ class DriverController extends ChangeNotifier {
           _activeRide = _activeRide!.copyWith(phase: DriverRidePhase.onTrip);
           notifyListeners();
         }
+      case FleetEventTypes.rideStopUpdated:
+        // 停靠點在**別處**被標記了（同一司機的另一台裝置、或 LINE 那條路徑）。
+        // 乘客端早就會收這則事件並更新進度，司機端先前完全不處理——兩台裝置會停在
+        // 不同的「下一站」，而「下一站」正是司機端唯一給操作按鈕的那一站，
+        // 於是兩台會對不同的乘客顯示「已上車／已下車／跳過」。
+        //
+        // 事件 payload 帶整趟 stops，但這裡仍以**後端重讀**為準：司機端行程卡還要
+        // 階段（phase）與車資等 payload 沒有的欄位，重讀一次最不容易對不齊。
+        // 失敗靜默——這不是使用者按出來的動作，跳錯誤橫幅只會干擾他開車。
+        if (event.rideId != null && _activeRide?.rideId == event.rideId) {
+          unawaited(_restoreActiveRide(silent: true));
+        }
       case FleetEventTypes.rideCompleted:
       case FleetEventTypes.rideCancelled:
         if (event.rideId != null &&
