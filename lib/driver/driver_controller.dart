@@ -524,7 +524,7 @@ class DriverController extends ChangeNotifier {
     _busy = true;
     notifyListeners();
     try {
-      await _api.acceptRide(offer.rideId);
+      final message = await _api.acceptRide(offer.rideId);
       // 樂觀先以 offer 內容顯示：接單卡立刻消失、行程卡立刻出現，不等網路往返。
       _activeRide = ActiveRide(
         rideId: offer.rideId,
@@ -542,7 +542,8 @@ class DriverController extends ChangeNotifier {
       // 以後端為權威補齊：**推播喚醒路徑**的 offer 來自 FCM data，data 值全是字串、
       // 不帶結構化的 stops 陣列（見 pitfall-fcm-data-all-strings），所以樂觀行程會缺全程。
       // 重讀 active 讓多停靠點清單／多點地圖一定齊全，不必讓推播 payload 塞 stops。
-      await _refreshActiveAfterAccept(offer.rideId);
+      // 同一次重讀也是**接單到底成不成立**的唯一可靠判準（見下）。
+      await _refreshActiveAfterAccept(offer.rideId, message);
     } on ApiException catch (e) {
       _setApiError(e);
     } finally {
@@ -551,25 +552,53 @@ class DriverController extends ChangeNotifier {
     }
   }
 
-  /// 接單後重讀 active，以後端回傳為權威補齊樂觀 offer 缺的欄位（尤其 stops）。
+  /// 接單後重讀 active：既補齊樂觀 offer 缺的欄位（尤其 stops），也判定接單是否真的成立。
   ///
-  /// **只在後端回傳非 null 且 rideId 相符時覆蓋**——active API 對剛接的單短暫回 null
-  /// 或競態回別的行程時，寧可保留樂觀設定，也不要把剛接到的單清掉。
-  /// 重讀失敗（網路）不算接單失敗：吞掉例外、不覆寫 error。
-  Future<void> _refreshActiveAfterAccept(int rideId) async {
+  /// **後端接單失敗時回的是 HTTP 200**：搶輸別人回 `{"message":"手慢了，這單已被其他司機接走"}`、
+  /// 非待命狀態回 `{"message":"您目前無法接單（非待命狀態）"}`——都不是錯誤碼（已對真後端實測）。
+  /// 只看「有沒有丟例外」的話，沒搶到的司機會拿到一張**完整但假的行程卡**
+  /// （前往上車點、導航、乘客已上車），開去接一個不存在的乘客，直到按下操作被 409 擋下。
+  ///
+  /// 判準用**後端的 active 行程**而不是 parse 那句文案（文案會改，狀態不會）：
+  /// - 回傳同一張單 → 接單成立，以後端資料為準（缺的欄位用樂觀 offer 補，見 `filledFrom`）。
+  /// - 回 null → **沒接到**：清掉樂觀行程與接單卡，把後端那句話顯示出來。
+  ///   接單成功時後端在回應前就已寫入 ride（status/driver_id），這裡讀不到就是真的沒有。
+  /// - 回別張單 → 也是沒接到，但司機手上另有一張進行中的單 → 顯示**那一張**（後端說了算）。
+  /// - 重讀本身失敗（網路）→ **不知道，就不要亂改**：維持樂觀行程，之後回前景／
+  ///   下一次操作會校正（見 `onAppResumed`）。
+  Future<void> _refreshActiveAfterAccept(int rideId, String message) async {
+    final optimistic = _activeRide;
     try {
       final fresh = await _api.activeRide();
       if (fresh != null && fresh.rideId == rideId) {
-        _activeRide = fresh;
+        _activeRide = optimistic == null ? fresh : fresh.filledFrom(optimistic);
+        return;
       }
+      _activeRide = fresh;
+      _pendingOffer = null;
+      _setError(message);
     } on ApiException {
       // 樂觀行程已足以繼續作業；重讀失敗不打斷接單流程。
     }
   }
 
+  /// 略過這張派單。
+  ///
+  /// **要告訴後端**（`POST /rides/:id/decline`）：後端會把司機加進該單的「已拒接」名單，
+  /// 重派時跳過他。只在本地關掉卡片的話，同一張單重新派單時還會再送到他面前。
+  /// 失敗靜默——這是司機按「略過」的附帶動作，卡片該關就關，不能因為網路而卡住。
   void dismissOffer() {
+    final offer = _pendingOffer;
     _pendingOffer = null;
     notifyListeners();
+    if (offer == null) return;
+    unawaited(() async {
+      try {
+        await _api.declineRide(offer.rideId);
+      } on ApiException {
+        // 後端沒收到拒單只會讓他可能再被派到同一張單，不值得打斷畫面。
+      }
+    }());
   }
 
   Future<void> pickUpPassenger() async {
@@ -611,15 +640,30 @@ class DriverController extends ChangeNotifier {
     }
   }
 
+  /// 放棄已接的訂單。
+  ///
+  /// **後端拒絕時同樣回 200**（例如已進行到不能放棄的階段會回「此訂單目前無法放棄」），
+  /// 所以跟接單一樣不能只看有沒有丟例外——否則畫面會把單收掉，司機以為放棄成功了，
+  /// 實際上這張單還掛在他名下（乘客還在等）。判準一樣是後端的 active 行程。
   Future<void> abandonTrip() async {
     final ride = _activeRide;
     if (ride == null || _busy) return;
     _busy = true;
     notifyListeners();
     try {
-      await _api.cancelRide(ride.rideId);
+      final message = await _api.cancelRide(ride.rideId);
       _activeRide = null;
       _setError(null);
+      try {
+        final fresh = await _api.activeRide();
+        if (fresh != null && fresh.rideId == ride.rideId) {
+          // 後端說這張單還是他的 → 沒放棄成功，把行程卡放回去並說明原因。
+          _activeRide = fresh;
+          _setError(message);
+        }
+      } on ApiException {
+        // 查不到就維持樂觀（不知道就不亂改）；回前景時會再對帳一次。
+      }
     } on ApiException catch (e) {
       _setApiError(e);
     } finally {
@@ -738,6 +782,19 @@ class DriverController extends ChangeNotifier {
           notifyListeners();
         }
       case FleetEventTypes.rideAccepted:
+        // 這張單已經被接走了——**包含被自己的另一台裝置接走**。後端的 Hub 是依
+        // (角色, id) 扇出，同一個帳號的每一條連線都收得到 ride.assigned 與
+        // ride.accepted（已對真後端實測）。少了這一段，另一台裝置的全螢幕接單卡
+        // 會一直蓋在畫面上，按下去只會拿到「非待命狀態」。
+        if (event.rideId != null && _pendingOffer?.rideId == event.rideId) {
+          _pendingOffer = null;
+          notifyListeners();
+          // 這台沒有行程資料（接單的是另一台），只收掉卡片會讓畫面顯示「等待派單中」——
+          // 司機其實正在跑這一趟。跟後端要一次，兩台裝置就看到同一張行程卡。
+          if (_activeRide == null) {
+            unawaited(_restoreActiveRide(silent: true));
+          }
+        }
         if (event.rideId != null && _activeRide?.rideId == event.rideId) {
           // 司機端 ride.accepted 事件帶目的地，先預載供 onTrip 導航（pickup 回應為保底來源）
           final dropoff = event.payload?['dropoff_address'] as String?;
