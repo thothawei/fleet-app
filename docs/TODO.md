@@ -1576,6 +1576,36 @@ admin 取消 → `ride.cancelled`、司機放棄 → `ride.redispatched`。
 
 ## 下次任務
 
+> **🎯 2026-07-30 這一輪做完了什麼（開工先看這段）**
+>
+> 主題是「**推播這條通道從頭到尾打通**」。本 repo 合併了 6 支 PR：
+>
+> | PR | 內容 |
+> |---|---|
+> | [#79](https://github.com/thothawei/fleet-app/pull/79) | **冷啟動推播補送**（第十二輪）——`getInitialMessage()` 早於 `runApp`，事件在沒人訂閱時被丟掉，兩端的「點推播喚醒」都是死路徑 |
+> | [#80](https://github.com/thothawei/fleet-app/pull/80) | 對話訊息推播（第十三輪）：兩端白名單＋只點亮未讀角標 |
+> | [#81](https://github.com/thothawei/fleet-app/pull/81) | 協尋單推播：兩端白名單＋只重讀協尋清單 |
+> | [#82](https://github.com/thothawei/fleet-app/pull/82) | 回填推播鏈路的實跑證據與現況表 |
+> | [#83](https://github.com/thothawei/fleet-app/pull/83) | 回填「接單失敗回 200」已由後端改 409 |
+> | [#84](https://github.com/thothawei/fleet-app/pull/84) | 標注「401 不註銷 token」留下的洞已由後端補上 |
+>
+> 後端同批：dispatch #61（乘客行程狀態送出路徑）／#62（對話）／#63（協尋）／
+> #64（接單失敗改 409）／#65（一支 token 只能有一位主人，**隱私外洩**）。
+>
+> **➡️ 推播只剩一個外部卡點：Firebase 憑證**（`android/app/google-services.json`，
+> 乘客 flavor 另需一份）。憑證放進來後**不需要再改任何程式碼**——後端送出路徑已用真服務
+> 逐則驗過（10 則全部推對人）。憑證到位那天要驗：
+> 司機端「App 被殺 → 點推播 → 接單卡」、乘客端「App 被殺 → 點推播 → 冷啟動後畫面已是最新」。
+>
+> **仍然沒有模擬器實跑的三批**（都不需憑證，下次起模擬器時順手做掉）：
+> 第十輪（聊天室回前景補讀／三條寫入路徑逾時對帳）、第十二輪（冷啟動補送的串流層修正）、
+> 第十三輪（對話與協尋推播的分流）。**本機後端可用**——
+> `docker compose up -d postgis redis` ＋ `go run ./cmd/server`
+> （dispatch repo；Docker registry 拉不到映像，別用 `--build`）。
+>
+> **這一輪學到的一條**：`StreamController.broadcast()` 在沒有訂閱者時 `add` 的事件會**靜默消失**。
+> 只要「發送點」與「訂閱點」不在同一個生命週期階段，就要問「**發送比訂閱早的那一次去哪了**」。
+
 > **✅ 維護項 5「清開發殘留」已完成（2026-07-28）**，詳見上方。
 > 清理過程又撈到一份未合併的測試（dispatch PR #50）——
 > **「從未開過 PR」的分支是最危險的一種殘留**：它不在任何 PR 列表裡，
