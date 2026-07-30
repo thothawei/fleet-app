@@ -22,6 +22,7 @@ void main() {
 
   _minLeadTests();
   _sectionTests();
+  _parseResilienceTests();
 
   group('預約行程', () {
     test('載入清單後 upcoming 只留 pending，已轉單／取消／失敗都不算', () async {
@@ -379,6 +380,34 @@ void _sectionTests() {
       expect(find.text('即將到來'), findsNothing);
       expect(find.text('車已在路上'), findsNothing);
       expect(find.text('過往預約'), findsNothing);
+    });
+  });
+}
+
+/// 清單解析的容錯：一筆壞掉不該讓整份清單消失。
+void _parseResilienceTests() {
+  group('清單解析容錯', () {
+    test('某筆 scheduled_at 格式壞掉 → 只跳過那筆，其餘照常', () {
+      final list = ScheduledRide.listFrom([
+        _scheduleJson(1, ScheduledRideStatus.pending, hours: 3),
+        {
+          'id': 2,
+          'scheduled_at': '不是時間',
+          'pickup_point': {'lat': 25.0, 'lng': 121.5},
+          'pickup_address': '某處',
+          'status': 'pending',
+        },
+        _scheduleJson(3, ScheduledRideStatus.pending, hours: 5),
+      ]);
+      expect(list.map((s) => s.id), [1, 3]);
+    });
+
+    test('缺 id 這種必填欄位也跳過，不整份炸掉', () {
+      final list = ScheduledRide.listFrom([
+        {'scheduled_at': '2026-08-01T02:30:00Z', 'status': 'pending'},
+        _scheduleJson(9, ScheduledRideStatus.pending, hours: 2),
+      ]);
+      expect(list.map((s) => s.id), [9]);
     });
   });
 }

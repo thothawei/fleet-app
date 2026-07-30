@@ -85,7 +85,7 @@
 - **UI/UX 翻新（2026-07-10）**：LINE 綠亮暗雙主題；司機駕駛情境 UI；乘客地圖為底＋卡片降級。靜態驗收 49 tests 通過；模擬器主鏈路待後端 docker 可起後補跑。
   **登入／註冊頁 2026-07-23 補齊翻新**（先前是唯一漏網畫面），詳見下方「🔐 登入頁 UI/UX 翻新＋驗證」。
 - **座標導航（2026-07-10）**：司機端目的地導航改吃後端 `dropoff_point` 座標，地址僅供顯示與退路。
-- 單元測試：**52 個測試檔、`flutter test` 402 passed**（2026-07-31 預約司機那批實跑；`flutter analyze` 無 issue）。
+- 單元測試：**52 個測試檔、`flutter test` 404 passed**（2026-07-31 預約司機那批實跑；`flutter analyze` 無 issue）。
   ~~（54 項）~~ 是 2026-07-10 的數字，長期沒更新，已更正——**本節的數字請跟著最後盤點日一起改**。
 - 遠端：`github.com/thothawei/fleet-app`。**2026-07-29 實查**：`git ls-remote --heads origin` 只有 `main`、
   `gh pr list` 三個 repo 的 open PR 皆為 0（開工前請自己再跑一次，見「下次任務」第 1 點）。
@@ -2151,7 +2151,7 @@ App 這邊畫面還停在 open → 按「已找到」→ proxy log
     拔掉樂觀鎖連跑三次都綠。改成直接餵兩份 `attempt_count=0` 的相同快照進 `dispatchOne`
     才造得出真重疊——這版拔掉樂觀鎖會建出兩張訂單，連跑兩次都紅 ✅
 - **App**：`flutter analyze` 無 issue、`flutter test` **400 passed**；
-  新增 `test/scheduled_ride_test.dart`（13 支，含兩支 widget 分區測試）與 `test/saved_places_test.dart`（12 支）。
+  新增 `test/scheduled_ride_test.dart`（15 支，含兩支 widget 分區測試）與 `test/saved_places_test.dart`（12 支）。
   同樣做了反向驗證：拔掉 409 的狀態合併、拔掉 `sameSlot` 判斷、拔掉登出清理，三支各自轉紅。
   其中 `sameSlot` 那次**第一版測試也沒守住**（兩條測試都沒走到那個分支），
   補了「別台裝置改過住家、後端回不同 id」才真正覆蓋到。

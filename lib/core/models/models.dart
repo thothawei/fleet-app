@@ -982,11 +982,25 @@ class ScheduledRide {
     );
   }
 
+  /// 解析清單。**單筆解析失敗就跳過那一筆**，不讓整份清單連帶炸掉。
+  ///
+  /// `scheduled_at` 是 non-nullable，所以 `fromJson` 用的是會丟例外的 `DateTime.parse`
+  /// （其他 model 的日期都是 nullable、用 `tryParse`）。而 controller 只接 `ApiException`
+  /// ——一筆格式異常的 `FormatException` 會直接逸出，整個預約頁掛掉。
+  /// 後端目前不可能送出壞格式（欄位 NOT NULL、Go 一律序列化成 RFC3339），
+  /// 這是**防禦性的**：少一筆總比整頁看不到好。
   static List<ScheduledRide> listFrom(Object? raw) {
     if (raw is! List) return <ScheduledRide>[];
-    return raw
-        .whereType<Map>()
-        .map((m) => ScheduledRide.fromJson(Map<String, dynamic>.from(m)))
-        .toList();
+    final out = <ScheduledRide>[];
+    for (final m in raw.whereType<Map>()) {
+      try {
+        out.add(ScheduledRide.fromJson(Map<String, dynamic>.from(m)));
+      } on FormatException {
+        continue;
+      } on TypeError {
+        continue;
+      }
+    }
+    return out;
   }
 }
