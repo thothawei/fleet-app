@@ -85,7 +85,7 @@
 - **UI/UX 翻新（2026-07-10）**：LINE 綠亮暗雙主題；司機駕駛情境 UI；乘客地圖為底＋卡片降級。靜態驗收 49 tests 通過；模擬器主鏈路待後端 docker 可起後補跑。
   **登入／註冊頁 2026-07-23 補齊翻新**（先前是唯一漏網畫面），詳見下方「🔐 登入頁 UI/UX 翻新＋驗證」。
 - **座標導航（2026-07-10）**：司機端目的地導航改吃後端 `dropoff_point` 座標，地址僅供顯示與退路。
-- 單元測試：**52 個測試檔、`flutter test` 408 passed**（2026-07-31 預約司機那批實跑；`flutter analyze` 無 issue）。
+- 單元測試：**53 個測試檔、`flutter test` 408 passed**（2026-07-31 預約司機那批實跑；`flutter analyze` 無 issue）。
   ~~（54 項）~~ 是 2026-07-10 的數字，長期沒更新，已更正——**本節的數字請跟著最後盤點日一起改**。
 - 遠端：`github.com/thothawei/fleet-app`。**2026-07-29 實查**：`git ls-remote --heads origin` 只有 `main`、
   `gh pr list` 三個 repo 的 open PR 皆為 0（開工前請自己再跑一次，見「下次任務」第 1 點）。
