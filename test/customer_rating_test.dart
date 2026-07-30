@@ -20,9 +20,21 @@ class _FakeApi extends CustomerApiClient {
   int? lastScore;
   String? lastComment;
 
+  /// 對帳查詢（`GET /customer/rides/:id` 的 rating.score）：null ＝後端說沒評過。
+  int? existingScore;
+  ApiException? ratingQueryError;
+  int ratingQueryCalls = 0;
+
   @override
   Future<List<CustomerRideSummary>> fetchRideHistory({int limit = 20}) async =>
       history;
+
+  @override
+  Future<int?> fetchRideRatingScore(int rideId) async {
+    ratingQueryCalls++;
+    if (ratingQueryError != null) throw ratingQueryError!;
+    return existingScore;
+  }
 
   @override
   Future<RideRating> rateRide(
@@ -153,6 +165,68 @@ void main() {
       addTearDown(anon.dispose);
       expect(await anon.submitRating(42, score: 5), isNotNull);
       expect(api.rateCalls, 0);
+    });
+
+    // 2026-07-30 第十七輪：評分送出逾時後不對帳的話，一次其實已經記到的評分
+    // 會被報成「評分失敗」，而乘客再按一次只會撞後端的一趟一評唯一索引（409）。
+    test('逾時後後端其實記到了 → 當成成功，畫面直接顯示星等', () async {
+      ctrl.markCompletedForTest(rideId: 42);
+      api.history = [_summary(rideId: 42)];
+      await ctrl.loadRideHistory();
+      api.rateError = ApiException('請求逾時，請稍後再試');
+      api.existingScore = 4;
+
+      final err = await ctrl.submitRating(42, score: 4);
+
+      expect(err, isNull, reason: '評到了卻回錯誤＝畫面在說謊，而重評只會拿到 409');
+      expect(ctrl.completedRatingScore, 4);
+      expect(ctrl.rideHistory.single.ratingScore, 4);
+    });
+
+    test('409「已評分過」＋後端查得到星等 → 也算成功（上一次其實評到了）', () async {
+      ctrl.markCompletedForTest(rideId: 42);
+      api.rateError = ApiException('此行程已評分過', statusCode: 409);
+      api.existingScore = 5;
+
+      final err = await ctrl.submitRating(42, score: 3);
+
+      expect(err, isNull);
+      expect(ctrl.completedRatingScore, 5,
+          reason: '要顯示後端記到的那個分數，不是這次送出的');
+    });
+
+    test('逾時後後端說沒評過 → 維持錯誤訊息讓他重評', () async {
+      ctrl.markCompletedForTest(rideId: 42);
+      api.rateError = ApiException('請求逾時，請稍後再試');
+      api.existingScore = null;
+
+      final err = await ctrl.submitRating(42, score: 4);
+
+      expect(err, '請求逾時，請稍後再試');
+      expect(ctrl.completedRatingScore, isNull);
+    });
+
+    test('後端明確拒絕（其他狀態碼）時不對帳——白問一次也沒用', () async {
+      ctrl.markCompletedForTest(rideId: 42);
+      api.rateError = ApiException('這趟不能評分', statusCode: 400);
+      api.existingScore = 5;
+
+      final err = await ctrl.submitRating(42, score: 4);
+
+      expect(err, '這趟不能評分');
+      expect(api.ratingQueryCalls, 0);
+      expect(ctrl.completedRatingScore, isNull);
+    });
+
+    test('對帳查詢自己也失敗 → 丟回原本那句逾時訊息', () async {
+      ctrl.markCompletedForTest(rideId: 42);
+      api.rateError = ApiException('請求逾時，請稍後再試');
+      api.ratingQueryError = ApiException('連線中斷');
+
+      final err = await ctrl.submitRating(42, score: 4);
+
+      expect(err, '請求逾時，請稍後再試');
+      expect(ctrl.completedRatingScore, isNull);
     });
 
     test('星等綁 rideId：換一趟完成卡不會顯示上一趟的星等', () async {
