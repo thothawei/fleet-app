@@ -67,11 +67,70 @@ class _CustomerRideHistoryScreenState extends State<CustomerRideHistoryScreen> {
         ],
       );
     }
+    // 尾巴那一格：還有更舊的行程時放「載入中」，載入更多失敗時放重試。
+    final hasFooter = ctrl.historyHasMore || ctrl.historyMoreError != null;
     return ListView.builder(
       padding: const EdgeInsets.all(12),
-      itemCount: ctrl.rideHistory.length,
-      itemBuilder: (context, i) =>
-          _RideHistoryCard(ctrl: ctrl, ride: ctrl.rideHistory[i]),
+      itemCount: ctrl.rideHistory.length + (hasFooter ? 1 : 0),
+      itemBuilder: (context, i) {
+        if (i == ctrl.rideHistory.length) return _HistoryFooter(ctrl: ctrl);
+        return _RideHistoryCard(ctrl: ctrl, ride: ctrl.rideHistory[i]);
+      },
+    );
+  }
+}
+
+/// 清單尾巴：被建出來就代表使用者已經捲到底，直接去要下一頁。
+///
+/// **不是按鈕**——舊行程是「想起有東西掉在車上」時才會去翻的，
+/// 多一次點擊就多一個放棄點；失敗時才退化成看得懂的重試按鈕。
+class _HistoryFooter extends StatefulWidget {
+  const _HistoryFooter({required this.ctrl});
+
+  final CustomerController ctrl;
+
+  @override
+  State<_HistoryFooter> createState() => _HistoryFooterState();
+}
+
+class _HistoryFooterState extends State<_HistoryFooter> {
+  @override
+  void initState() {
+    super.initState();
+    // build 期間不可改 provider 狀態，排到下一影格（同畫面 initState 的作法）。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  void _load() {
+    if (!mounted) return;
+    // 重入由 controller 擋（有請求在飛就直接 return）。
+    widget.ctrl.loadMoreRideHistory();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final err = widget.ctrl.historyMoreError;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Center(
+        child: err == null
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            : Column(
+                children: [
+                  Text(err, textAlign: TextAlign.center),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('載入更多'),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }
