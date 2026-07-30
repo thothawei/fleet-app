@@ -28,7 +28,10 @@ class RideChatScreen extends StatefulWidget {
   final String title;
   final Future<List<RideMessage>> Function(int rideId, {int afterId})
       loadHistory;
-  final Future<RideMessage> Function(int rideId, String body) send;
+  /// 送出一則訊息。[clientMsgId] 是冪等鍵——同一則訊息的重試沿用同一個鍵，
+  /// 後端據此去重（dispatch #68），所以重送不會讓對方看到同一句話兩次。
+  final Future<RideMessage> Function(int rideId, String body,
+      {String? clientMsgId}) send;
   final Stream<RideMessage> incoming;
 
   /// 進出聊天室通知 controller（清未讀／暫停未讀累計）。
@@ -47,6 +50,12 @@ class _RideChatScreenState extends State<RideChatScreen> {
   bool _loading = true;
   bool _sending = false;
   String? _error;
+
+  // 目前這一則「還沒確認落地」的訊息用的冪等鍵。
+  // 送出成功（或對帳確認其實成功）就清掉，讓下一則拿新的鍵；
+  // **失敗時要留著**——重試沿用同一個鍵才不會在後端變成兩則。
+  String? _pendingClientMsgId;
+  var _clientMsgSeq = 0;
 
   @override
   void initState() {
@@ -124,23 +133,75 @@ class _RideChatScreenState extends State<RideChatScreen> {
   Future<void> _send() async {
     final body = _input.text.trim();
     if (body.isEmpty || _sending) return;
+    // 這一則的鍵：第一次送出時產生，重試時**沿用**（後端據此去重）。
+    final clientMsgId = _pendingClientMsgId ??= _newClientMsgId();
     setState(() => _sending = true);
     try {
-      final msg = await widget.send(widget.rideId, body);
+      final msg =
+          await widget.send(widget.rideId, body, clientMsgId: clientMsgId);
       if (!mounted) return;
-      setState(() {
-        _append(msg);
-        _input.clear();
-        _error = null;
-      });
-      _jumpToBottom();
+      _acceptSent(msg);
     } on ApiException catch (e) {
       if (!mounted) return;
+      // **逾時不代表沒送出**：後端可能已經寫入，只是回應遺失。
+      // 訊息沒有唯一狀態可查（「同內容再送一次」本來就合法），所以補讀回來
+      // 用**冪等鍵**比對——找到就是上一次其實送出了。
+      final recovered = e.statusCode == null
+          ? await _findSentByClientMsgId(clientMsgId)
+          : null;
+      if (!mounted) return;
+      if (recovered != null) {
+        _acceptSent(recovered);
+        return;
+      }
+      // 沒找到（或這一問也失敗）→ 留著錯誤、輸入內容與同一個鍵，讓他重試。
+      // 重試是安全的：後端帶同鍵不會多一則。
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
   }
+
+  /// 訊息確認落地：附加到畫面、清空輸入框與錯誤，並讓下一則取得新的鍵。
+  void _acceptSent(RideMessage msg) {
+    setState(() {
+      _append(msg);
+      _input.clear();
+      _error = null;
+      _pendingClientMsgId = null;
+    });
+    _jumpToBottom();
+  }
+
+  /// 逾時後的對帳：補讀最後一則之後的訊息，看有沒有帶著這個鍵的那一則。
+  ///
+  /// 補讀到的其他訊息（對方同時說的話）也一併顯示——既然問了就別浪費。
+  /// 這一問本身失敗時回 null（不知道就不亂改，維持原本的錯誤）。
+  Future<RideMessage?> _findSentByClientMsgId(String clientMsgId) async {
+    try {
+      final afterId = _messages.isEmpty ? 0 : _messages.last.id;
+      final fresh = await widget.loadHistory(widget.rideId, afterId: afterId);
+      RideMessage? mine;
+      for (final m in fresh) {
+        if (m.clientMsgId == clientMsgId) {
+          mine = m;
+        } else {
+          setState(() => _append(m));
+        }
+      }
+      return mine;
+    } on ApiException {
+      return null;
+    }
+  }
+
+  /// 產生這一則訊息的冪等鍵。
+  ///
+  /// 不需要全域唯一——後端的去重範圍是「同一趟行程的同一位發話者」，
+  /// 所以「同一個聊天室內、同一支 App 執行期間不重複」就夠了。
+  /// 時間戳（毫秒）＋序號可避開同一毫秒連送兩則的碰撞。
+  String _newClientMsgId() =>
+      '${widget.selfRole}-${DateTime.now().millisecondsSinceEpoch}-${_clientMsgSeq++}';
 
   @override
   Widget build(BuildContext context) {

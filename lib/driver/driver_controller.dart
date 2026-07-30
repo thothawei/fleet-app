@@ -852,8 +852,9 @@ class DriverController extends ChangeNotifier {
   Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) =>
       _api.fetchMessages(rideId, afterId: afterId);
 
-  Future<RideMessage> sendMessage(int rideId, String body) =>
-      _api.sendMessage(rideId, body);
+  Future<RideMessage> sendMessage(int rideId, String body,
+          {String? clientMsgId}) =>
+      _api.sendMessage(rideId, body, clientMsgId: clientMsgId);
 
   /// 重新拉未結案協尋工作清單（登入後、遺失物頁下拉）。
   Future<void> refreshLostItems() async {
