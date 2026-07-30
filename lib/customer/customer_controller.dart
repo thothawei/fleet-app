@@ -443,6 +443,267 @@ class CustomerController extends ChangeNotifier {
     }
   }
 
+  // ---------- 常用地點（住家／公司／自訂）----------
+
+  List<SavedPlace> _savedPlaces = const [];
+  bool _placesLoading = false;
+  String? _placesError;
+
+  /// 我的常用地點；後端已排好序（住家 → 公司 → 其他）。
+  List<SavedPlace> get savedPlaces => List.unmodifiable(_savedPlaces);
+  bool get placesLoading => _placesLoading;
+  String? get placesError => _placesError;
+
+  /// 住家／公司這兩個插槽；沒設過就是 null（UI 據此顯示「設定住家」而不是空白）。
+  SavedPlace? get homePlace => _placeOfKind(SavedPlaceKind.home);
+  SavedPlace? get workPlace => _placeOfKind(SavedPlaceKind.work);
+
+  SavedPlace? _placeOfKind(String kind) {
+    for (final p in _savedPlaces) {
+      if (p.kind == kind) return p;
+    }
+    return null;
+  }
+
+  /// 載入常用地點。
+  ///
+  /// [silent] 供背景刷新用：叫車頁那排快捷鈕是輔助功能，載不出來就不顯示即可，
+  /// 不該讓乘客因為它失敗而看到錯誤橫幅、以為叫不了車。
+  Future<void> loadSavedPlaces({bool silent = false}) async {
+    if (_session == null) return;
+    if (!silent) {
+      _placesLoading = true;
+      _placesError = null;
+      notifyListeners();
+    }
+    try {
+      _savedPlaces = await _api.fetchSavedPlaces();
+      _placesError = null;
+    } on ApiException catch (e) {
+      if (!silent) _placesError = e.message;
+    } finally {
+      _placesLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// 新增／設定常用地點；成功回 null，失敗回訊息給表單顯示。
+  ///
+  /// kind 為 home／work 時後端是覆蓋語意，所以「設定住家」可以直接送。
+  Future<String?> savePlace({
+    required String kind,
+    required String label,
+    required String address,
+    required double lat,
+    required double lng,
+  }) async {
+    if (_session == null) return '請先登入';
+    try {
+      final saved = await _api.createSavedPlace(
+        kind: kind,
+        label: label,
+        address: address,
+        lat: lat,
+        lng: lng,
+      );
+      _mergeSavedPlace(saved);
+      notifyListeners();
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// 更新既有地點（kind 不變）。
+  Future<String?> updateSavedPlace(
+    int id, {
+    required String label,
+    required String address,
+    required double lat,
+    required double lng,
+  }) async {
+    if (_session == null) return '請先登入';
+    try {
+      final saved = await _api.updateSavedPlace(
+        id,
+        label: label,
+        address: address,
+        lat: lat,
+        lng: lng,
+      );
+      _mergeSavedPlace(saved);
+      notifyListeners();
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// 刪除常用地點。
+  Future<String?> deleteSavedPlace(int id) async {
+    if (_session == null) return '請先登入';
+    try {
+      await _api.deleteSavedPlace(id);
+      _savedPlaces = [
+        for (final p in _savedPlaces)
+          if (p.id != id) p,
+      ];
+      notifyListeners();
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// 把一筆新鮮的地點合併進清單（同 id 覆蓋，否則插入）。
+  ///
+  /// **插槽類要另外比對 kind**：住家從無到有時後端給的是新 id，但語意上是取代
+  /// 原本那個空插槽；只比 id 的話清單會同時出現兩筆 kind=home。
+  void _mergeSavedPlace(SavedPlace saved) {
+    final next = <SavedPlace>[];
+    var replaced = false;
+    for (final p in _savedPlaces) {
+      final sameRow = p.id == saved.id;
+      final sameSlot = saved.isSlot && p.kind == saved.kind;
+      if (sameRow || sameSlot) {
+        if (!replaced) {
+          next.add(saved);
+          replaced = true;
+        }
+        continue;
+      }
+      next.add(p);
+    }
+    if (!replaced) next.add(saved);
+    // 維持後端的排序約定：住家 → 公司 → 其他。
+    next.sort((a, b) => _placeRank(a).compareTo(_placeRank(b)));
+    _savedPlaces = next;
+  }
+
+  static int _placeRank(SavedPlace p) {
+    if (p.isHome) return 0;
+    if (p.isWork) return 1;
+    return 2;
+  }
+
+  // ---------- 預約行程 ----------
+
+  List<ScheduledRide> _scheduledRides = const [];
+  bool _schedulesLoading = false;
+  String? _schedulesError;
+  int _scheduleLeadMinutes = 0;
+
+  /// 我的預約（近的在前）。
+  List<ScheduledRide> get scheduledRides => List.unmodifiable(_scheduledRides);
+  bool get schedulesLoading => _schedulesLoading;
+  String? get schedulesError => _schedulesError;
+
+  /// 後端會提前這麼多分鐘開始派單；0 ＝還沒問過後端。
+  /// **不要在 UI 寫死這個數字**——後端改了 App 就會說謊。
+  int get scheduleLeadMinutes => _scheduleLeadMinutes;
+
+  /// 還沒轉單的預約，供首頁那張「即將到來」的卡。
+  List<ScheduledRide> get upcomingSchedules =>
+      List.unmodifiable(_scheduledRides.where((s) => s.isUpcoming));
+
+  /// 載入預約清單。[silent] 同 [loadSavedPlaces]。
+  Future<void> loadScheduledRides({bool silent = false}) async {
+    if (_session == null) return;
+    if (!silent) {
+      _schedulesLoading = true;
+      _schedulesError = null;
+      notifyListeners();
+    }
+    try {
+      final res = await _api.fetchScheduledRides();
+      _scheduledRides = res.rides;
+      if (res.leadMinutes > 0) _scheduleLeadMinutes = res.leadMinutes;
+      _schedulesError = null;
+    } on ApiException catch (e) {
+      if (!silent) _schedulesError = e.message;
+    } finally {
+      _schedulesLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// 建立預約；成功回 null，失敗回訊息。
+  Future<String?> createScheduledRide({
+    required DateTime scheduledAt,
+    required double pickupLat,
+    required double pickupLng,
+    required String pickupAddress,
+    String? dropoffAddress,
+    double? dropoffLat,
+    double? dropoffLng,
+    String? requiredVehicleType,
+    String note = '',
+  }) async {
+    if (_session == null) return '請先登入';
+    try {
+      final created = await _api.createScheduledRide(
+        scheduledAt: scheduledAt,
+        pickupLat: pickupLat,
+        pickupLng: pickupLng,
+        pickupAddress: pickupAddress,
+        dropoffAddress: dropoffAddress,
+        dropoffLat: dropoffLat,
+        dropoffLng: dropoffLng,
+        requiredVehicleType: requiredVehicleType,
+        note: note,
+      );
+      _mergeScheduledRide(created);
+      notifyListeners();
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
+  }
+
+  /// 取消預約；成功回 null，失敗回訊息。
+  ///
+  /// **撞上「已被轉成真訂單」時不算失敗的一種**：後端會把該筆預約的現況一起回來，
+  /// 這裡直接把它併進清單，畫面立刻變成「已為你派車」。若只丟一句「取消失敗，請稍後再試」，
+  /// 乘客會一直按取消，而那張訂單照樣派出去、司機照樣開過來
+  /// （同一個病在第二十輪的 admin 端抓過一次）。
+  Future<String?> cancelScheduledRide(int id) async {
+    if (_session == null) return '請先登入';
+    try {
+      final cancelled = await _api.cancelScheduledRide(id);
+      _mergeScheduledRide(cancelled);
+      notifyListeners();
+      return null;
+    } on ScheduledRideConflict catch (e) {
+      _mergeScheduledRide(e.current);
+      notifyListeners();
+      return '這筆預約已經為你派車了，要取消請到行程頁取消該趟訂單。';
+    } on ApiException catch (e) {
+      // 逾時／連線類失敗：不宣稱取消成功，但重讀一次對帳——
+      // 後端可能其實已經取消了，只是回應在路上掉了。
+      await loadScheduledRides(silent: true);
+      for (final s in _scheduledRides) {
+        if (s.id == id && !s.isPending) return null;
+      }
+      return e.message;
+    }
+  }
+
+  void _mergeScheduledRide(ScheduledRide row) {
+    final next = <ScheduledRide>[];
+    var replaced = false;
+    for (final s in _scheduledRides) {
+      if (s.id == row.id) {
+        next.add(row);
+        replaced = true;
+        continue;
+      }
+      next.add(s);
+    }
+    if (!replaced) next.add(row);
+    next.sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
+    _scheduledRides = next;
+  }
+
   /// 聊天室開啟/關閉；開啟時清未讀並停止累計。
   void setChatVisible(bool visible) {
     _chatVisible = visible;
@@ -465,6 +726,10 @@ class CustomerController extends ChangeNotifier {
       await _applySession(saved);
       await refreshActive();
       await refreshLostItems();
+      // 常用地點與預約都走 silent：它們是輔助功能，載不出來就先不顯示，
+      // 不該讓叫車主流程因為它們失敗而冒錯誤橫幅。
+      await loadSavedPlaces(silent: true);
+      await loadScheduledRides(silent: true);
     }
     await _bindPushListener();
   }
@@ -666,6 +931,14 @@ class CustomerController extends ChangeNotifier {
     // 就會在自己的資料載入前先看到前一位乘客的行程與車資。
     _rideHistory = [];
     _historyError = null;
+    // 常用地點與預約同一個道理，而且更敏感——住家與公司是**實體位置**，
+    // 預約則是「這個人什麼時候會不在家」。不清的話，下一位在這台裝置登入的人
+    // 一打開叫車頁，快捷列上就是上一位乘客的住家地址。
+    _savedPlaces = const [];
+    _placesError = null;
+    _scheduledRides = const [];
+    _schedulesError = null;
+    _scheduleLeadMinutes = 0;
     _completedRatingScore = null;
     _completedRatingRideId = null;
     _fcmToken = null;

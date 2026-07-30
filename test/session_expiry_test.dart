@@ -333,6 +333,16 @@ Position _fakePosition() => Position(
 /// 還原 session 時就撞上 401 的 fake：複製真 client 在 401 的兩個動作
 /// （通知 controller ＋ 換成可行動的訊息）。
 class _ExpiredCustomerApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _ExpiredCustomerApi()
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
@@ -350,6 +360,16 @@ class _ExpiredCustomerApi extends CustomerApiClient {
 }
 
 class _HistoryApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _HistoryApi() : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
   @override

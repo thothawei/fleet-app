@@ -102,6 +102,16 @@ const Map<String, dynamic> _acceptedRideJson = {
 };
 
 class _AcceptedActiveApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _AcceptedActiveApi()
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
@@ -112,6 +122,16 @@ class _AcceptedActiveApi extends CustomerApiClient {
 
 /// 已派單但司機還沒接：後端不帶任何 driver_* 鍵。
 class _AssignedActiveApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _AssignedActiveApi()
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 

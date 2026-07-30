@@ -9,6 +9,16 @@ import 'package:line_fleet_app/customer/screens/ride_history_screen.dart';
 import 'package:provider/provider.dart';
 
 class _FakeApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _FakeApi() : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
   List<CustomerRideSummary> history = const [];
