@@ -124,7 +124,10 @@ class _LostItemCard extends StatelessWidget {
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: () =>
-                          _run(context, () => ctrl.markLostItemFound(item.id)),
+                          _run(context, () => ctrl.markLostItemFound(
+                                item.id,
+                                rideId: item.rideId,
+                              )),
                       icon: const Icon(Icons.check),
                       label: const Text('已找到'),
                     ),
@@ -133,7 +136,11 @@ class _LostItemCard extends StatelessWidget {
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: () => _run(
-                          context, () => ctrl.markLostItemReturned(item.id)),
+                          context,
+                          () => ctrl.markLostItemReturned(
+                                item.id,
+                                rideId: item.rideId,
+                              )),
                       icon: const Icon(Icons.done_all),
                       label: const Text('已歸還'),
                     ),
@@ -170,7 +177,12 @@ class _LostItemCard extends StatelessWidget {
                     ),
                   );
                   if (confirmed == true && context.mounted) {
-                    await _run(context, () => ctrl.closeLostItem(item.id));
+                    await _run(
+                        context,
+                        () => ctrl.closeLostItem(
+                              item.id,
+                              rideId: item.rideId,
+                            ));
                   }
                 },
                 child: const Text('未尋獲，結案'),

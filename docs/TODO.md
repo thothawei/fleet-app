@@ -1724,6 +1724,64 @@ DB 裡那位乘客只有一筆新訂單，證明 App 沒有重送。
 
 ---
 
+## 💸 2026-07-30 第十六輪：協尋單的六個寫入都沒有逾時對帳（本批全補上）
+
+> 第十五輪盤點出的候選：`reportLostItem`／`payLostItem`／`closeLostItem` 把例外原樣丟給畫面，
+> `lost_item_screen.dart` 的 `_run` 只 `setState(_error)`，**不會再查一次那張單**。
+> 查下去發現司機端那三個（`markLostItemFound`／`markLostItemReturned`／`closeLostItem`）
+> 一模一樣，所以這一輪把**兩端六條**一起補完（同一族一次掃完，與第七輪同一個做法）。
+
+### 為什麼 `payLostItem` 是六條裡最該修的
+
+那是**付款**。逾時後乘客只看到「請求逾時，請稍後再試」，而處理費可能已經收了——
+「付了沒有」是有金額後果的狀態，再按一次只會撞後端的狀態衝突。
+
+### 修法
+
+兩端各一支 `_writeLostItem` helper（乘客端 `CustomerController`、司機端 `DriverController`）：
+動作失敗且是連線類（`statusCode == null`）或 409 時，查一次
+`GET /api/rides/:id/lost-items`，用各自的判準認定「其實已經生效」：
+
+| 動作 | 判準 |
+|---|---|
+| `reportLostItem` | 這趟出現了一張**未結案**的單（進畫面時已確認過沒有） |
+| `payLostItem` | 後端記到了 `paid_at` |
+| `closeLostItem`（兩端） | `status == closed` |
+| `markLostItemFound` | 已越過 `open`（`found`／`paid`／`returned`）——**不能只寫 `!= open`**，`closed` 也符合那個條件 |
+| `markLostItemReturned` | `status == returned` |
+
+**為什麼判準不用未結案清單**：`returned` 與 `closed` 都不在清單裡，分不出是哪一個生效了。
+司機端因此新增 `FleetApiClient.fetchLostItemByRide`（端點是 MultiAuth，司機讀得到自己那趟）。
+
+**一個容易寫錯的地方**：對帳查詢**不能**就地寫在 catch 裡再 `rethrow`——
+那樣重擲的會是「對帳查詢的錯誤」而不是原本那個動作的錯誤。
+查詢包成獨立方法（失敗回 null），catch 裡的 `rethrow` 才仍然是原本的例外。
+這條有測試釘住（「對帳查詢自己也失敗 → 丟回原本那個錯誤」）。
+
+### 驗收
+
+- `flutter analyze` 無 issue、`flutter test` **351 passed**（339 ＋新 12）。
+- **反向確認**：把兩端的對帳分支關掉 → 12 案裡 **6 案 FAIL**（正是「對帳應該成功」的那六案），
+  另外 6 案（不該對帳／應丟原錯誤）照過。
+- **模擬器實跑（`m6_pixel` ＋ 本機 dispatch，blackhole `POST:/api/lost-items/\d+/pay` ＋ `ws_block`）**：
+  - 代理 log `上游回 HTTP/1.1 200 OK，不交還 App` ＝ 後端真的收款了。
+  - 逾時 15 秒後代理 log 出現對帳那一次 `GET /api/rides/26/lost-items`。
+  - 畫面自己變成「**已付款，等待歸還**／已付款，請與司機約定歸還方式。」，**沒有**錯誤訊息。
+  - DB `lost_item_requests#4`：`status=paid`、`paid_at` 與 `updated_at` 同一個時間戳
+    ＝**只收了一次款**，App 沒有重送。
+  - 實跑資料是用 API 造的（admin/admin 登入 → 核准新司機的車輛 → 司機接單／上車／完成 →
+    乘客建協尋單 → 司機標尋獲），沒有直接寫 DB。
+
+### 同批查證掉一個「看起來像 bug 但不是」的疑慮
+
+寫測試時撞到 `Cannot add to an unmodifiable list`——`fetchLostItems` 在回應格式異常時
+`return const []`，而 controller 把那份結果當成可變的清單狀態（之後會 insert／removeAt）。
+**推論是「空清單就會當機」，但實測否定了它**：後端空清單回的是 `{"lost_items":[]}`
+（不是 `null`），所以那條分支平常走不到。仍把兩處改成回 `<LostItemRequest>[]`——
+改的是形狀不是行為（成本一行，消掉一個真實存在的崩潰形狀）。
+
+---
+
 ## 下次任務
 
 > **🎯 2026-07-30 這一輪做完了什麼（開工先看這段）**
@@ -1824,13 +1882,21 @@ DB 裡那位乘客只有一筆新訂單，證明 App 沒有重送。
 > ✅ **已於第十五輪做掉**（見上方專段）：乘客端建單逾時對帳補上了實跑證據，
 > 並抓到「取消成功卻報成逾時」——`cancelOrder` 是這三端唯一沒有對帳的寫入路徑。
 >
-> **➡️ 第十五輪盤點出的下一輪候選（讀碼查到，不需外部資源）**：
-> **遺失物協尋的三個寫入沒有逾時對帳**——`reportLostItem`／`payLostItem`／`closeLostItem`
-> 把例外原樣丟給畫面，`lost_item_screen.dart` 的 `_run` 只 `setState(_error)`，
-> **不會再查一次那張單**。最值得先修的是 `payLostItem`：那是**付款**，
-> 逾時後乘客不知道自己付了沒有，而「處理費付了沒有」是有金額後果的狀態
-> （建單／取消那兩條已經有對帳可以照抄）。
-> 驗法與本輪相同：blackhole `POST:/api/lost-items/\d+/pay` ＋ `ws_block`。
+> ~~**➡️ 第十五輪盤點出的下一輪候選**：遺失物協尋的三個寫入沒有逾時對帳~~
+> ✅ **已於第十六輪做掉**（見上方專段），而且**兩端六條**一起補完
+> （司機端的 `markLostItemFound`／`markLostItemReturned`／`closeLostItem` 同一個病）。
+> `payLostItem` 已在模擬器上驗到：付款回應被吃掉、WS 被擋，畫面仍自己變成「已付款，等待歸還」。
+>
+> **➡️ 第十六輪盤點出的下一輪候選（讀碼查到，不需外部資源）——逾時對帳只剩這兩條**：
+> 1. **`submitRating`（乘客評分）**：`on ApiException → return e.message`，不對帳。
+>    後端「一趟一評」有唯一索引，所以逾時後其實記到了、乘客再送只會拿到 409。
+>    對帳可查 `GET /customer/rides` 那一列的 `rating_score`。
+>    影響比付款輕（不是金額），但一樣是「其實成功卻報成失敗」。
+> 2. **聊天送出（`ride_chat_screen._send`）**：訊息可能其實送出了，畫面只顯示錯誤、
+>    輸入框內容留著，乘客重送 → **後端多一筆重複訊息**（沒有冪等鍵）。
+>    這條要先決定判準：用 `afterId` 補讀比對內容（App 端可做，但同內容重送本來也合法），
+>    還是請後端加冪等鍵（跨端決策）。**別直接照抄協尋那套判準**——
+>    協尋單的狀態是唯一的，訊息不是。
 >
 > 也就是說：**憑證一到位，推播就該直接會動**，不需要再寫程式碼。
 > 憑證到位那天要跑的驗收：司機端「App 被殺 → 點推播 → 接單卡」、

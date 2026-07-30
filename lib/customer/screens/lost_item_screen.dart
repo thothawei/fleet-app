@@ -151,7 +151,10 @@ class _CustomerLostItemScreenState extends State<CustomerLostItemScreen> {
                     onChat: _openChat,
                     onPay: () {
                       final ctrl = context.read<CustomerController>();
-                      _run(() => ctrl.payLostItem(current.id));
+                      _run(() => ctrl.payLostItem(
+                            current.id,
+                            rideId: current.rideId,
+                          ));
                     },
                     onClose: () async {
                       final confirmed = await showDialog<bool>(
@@ -175,7 +178,10 @@ class _CustomerLostItemScreenState extends State<CustomerLostItemScreen> {
                       );
                       if (confirmed == true && context.mounted) {
                         final ctrl = context.read<CustomerController>();
-                        await _run(() => ctrl.closeLostItem(current.id));
+                        await _run(() => ctrl.closeLostItem(
+                              current.id,
+                              rideId: current.rideId,
+                            ));
                       }
                     },
                   ),

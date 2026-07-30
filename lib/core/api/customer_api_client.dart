@@ -280,7 +280,11 @@ class CustomerApiClient {
       final res =
           await _dio.get<Map<String, dynamic>>('/customer/lost-items');
       final raw = res.data?['lost_items'];
-      if (raw is! List) return const [];
+      // **回可變空 list**：controller 把這份結果當成清單狀態，之後會 insert／removeAt
+      // 進去（`_applyLostItem`）。回 `const []` 的話那一步會丟
+      // `Cannot add to an unmodifiable list`。後端目前空清單回的是 `[]`
+      // （2026-07-30 實測），所以這條分支只在回應格式異常時才走到——但形狀要是安全的。
+      if (raw is! List) return <LostItemRequest>[];
       return raw
           .whereType<Map>()
           .map((m) => LostItemRequest.fromJson(Map<String, dynamic>.from(m)))

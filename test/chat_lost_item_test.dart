@@ -173,7 +173,7 @@ void main() {
     test('payLostItem→狀態變 paid；WS 通知結案即從清單移除', () async {
       await ctrl.reportLostItem(5, '黑色錢包');
       api.status = 'paid';
-      await ctrl.payLostItem(3);
+      await ctrl.payLostItem(3, rideId: 5);
       expect(ctrl.lostItems.single.status, 'paid');
 
       ctrl.handleWsEventForTest(

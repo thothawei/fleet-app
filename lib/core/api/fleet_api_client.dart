@@ -281,11 +281,32 @@ class FleetApiClient {
     try {
       final res = await _dio.get<Map<String, dynamic>>('/driver/lost-items');
       final raw = res.data?['lost_items'];
-      if (raw is! List) return const [];
+      // **回可變空 list**：controller 把這份結果當成清單狀態，之後會 insert／removeAt
+      // 進去（`_applyLostItem`）。回 `const []` 的話那一步會丟
+      // `Cannot add to an unmodifiable list`。後端目前空清單回的是 `[]`
+      // （2026-07-30 實測），所以這條分支只在回應格式異常時才走到——但形狀要是安全的。
+      if (raw is! List) return <LostItemRequest>[];
       return raw
           .whereType<Map>()
           .map((m) => LostItemRequest.fromJson(Map<String, dynamic>.from(m)))
           .toList();
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 查該行程最新協尋單（含已結案的）；從未建立過時回 null。
+  ///
+  /// 端點是 MultiAuth，司機也讀得到自己那趟的單子。**逾時對帳靠它**——
+  /// 未結案清單分不出「已歸還」與「被結案」（兩者都不在清單裡），
+  /// 而 markReturned 與 close 需要區分是哪一個生效了。
+  Future<LostItemRequest?> fetchLostItemByRide(int rideId) async {
+    try {
+      final res =
+          await _dio.get<Map<String, dynamic>>('/rides/$rideId/lost-items');
+      final raw = res.data?['lost_item'];
+      if (raw is! Map) return null;
+      return LostItemRequest.fromJson(Map<String, dynamic>.from(raw));
     } on DioException catch (e) {
       throw _wrap(e);
     }

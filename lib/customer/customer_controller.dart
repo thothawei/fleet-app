@@ -855,27 +855,75 @@ class CustomerController extends ChangeNotifier {
   }
 
   /// 對已完成行程建立遺失物協尋單；回傳含處理費快照的協尋單。
-  Future<LostItemRequest> reportLostItem(int rideId, String description) async {
-    final item = await _api.createLostItem(rideId, description);
-    _applyLostItem(item);
-    notifyListeners();
-    return item;
-  }
+  ///
+  /// 逾時對帳的判準是「這趟出現了一張未結案的單」——進這個畫面時已經確認過沒有
+  /// （`_load` 查到 null 才顯示回報表單），所以查到 active 單就是這次建的。
+  Future<LostItemRequest> reportLostItem(int rideId, String description) =>
+      _writeLostItem(
+        () => _api.createLostItem(rideId, description),
+        rideId: rideId,
+        applied: (fresh) => fresh.isActive,
+      );
 
   /// 支付處理費（司機尋獲後）。
-  Future<LostItemRequest> payLostItem(int itemId) async {
-    final item = await _api.payLostItem(itemId);
-    _applyLostItem(item);
-    notifyListeners();
-    return item;
+  ///
+  /// **這是三條裡最不能沉默的一條**：逾時後乘客不知道自己付了沒有，
+  /// 而處理費是有金額後果的狀態。判準是後端記到了 `paid_at`。
+  Future<LostItemRequest> payLostItem(int itemId, {required int rideId}) =>
+      _writeLostItem(
+        () => _api.payLostItem(itemId),
+        rideId: rideId,
+        applied: (fresh) => fresh.id == itemId && fresh.paidAt != null,
+      );
+
+  /// 取消協尋（open/found）。判準是這張單已經不在未結案狀態。
+  Future<LostItemRequest> closeLostItem(int itemId, {required int rideId}) =>
+      _writeLostItem(
+        () => _api.closeLostItem(itemId),
+        rideId: rideId,
+        applied: (fresh) =>
+            fresh.id == itemId && fresh.status == LostItemStatus.closed,
+      );
+
+  /// 協尋單的寫入 ＋ 逾時對帳（三條寫入路徑共用）。
+  ///
+  /// 失敗且是**連線類**（`statusCode == null`）或 **409**（後端在說「這張單當下不能這樣做」，
+  /// 多半就是上一次逾時其實生效了）時，向後端問一次這趟的最新協尋單：
+  /// [applied] 判定那個動作其實已經生效 → 套用後端現況、當成成功回傳；
+  /// 否則把原本的例外丟回畫面（`lost_item_screen` 的 `_run` 會顯示它）。
+  ///
+  /// 不對帳的話，一次其實成功的付款會被報成「請求逾時，請稍後再試」，
+  /// 乘客再按一次只會撞 409——與建單／取消同一個病（見 docs/TODO.md 第十五、十六輪）。
+  Future<LostItemRequest> _writeLostItem(
+    Future<LostItemRequest> Function() action, {
+    required int rideId,
+    required bool Function(LostItemRequest fresh) applied,
+  }) async {
+    try {
+      final item = await action();
+      _applyLostItem(item);
+      notifyListeners();
+      return item;
+    } on ApiException catch (e) {
+      if (e.statusCode != null && e.statusCode != 409) rethrow;
+      final fresh = await _lostItemForReconcile(rideId);
+      // 這裡重擲的必須是**原本那個動作的例外**，不能是對帳查詢的失敗——
+      // 對帳的 try/catch 收在 `_lostItemForReconcile` 裡（失敗回 null），
+      // 所以這個 rethrow 擲的仍然是 e。**別把那個 catch 搬進來**。
+      if (fresh == null || !applied(fresh)) rethrow;
+      _applyLostItem(fresh);
+      notifyListeners();
+      return fresh;
+    }
   }
 
-  /// 取消協尋（open/found）。
-  Future<LostItemRequest> closeLostItem(int itemId) async {
-    final item = await _api.closeLostItem(itemId);
-    _applyLostItem(item);
-    notifyListeners();
-    return item;
+  /// 對帳用查詢：這一問本身失敗就回 null（不知道就不亂改，維持原本的錯誤）。
+  Future<LostItemRequest?> _lostItemForReconcile(int rideId) async {
+    try {
+      return await _api.fetchLostItemByRide(rideId);
+    } on ApiException {
+      return null;
+    }
   }
 
   /// 查該行程最新協尋單（完成卡進入遺失物頁時用）。
