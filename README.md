@@ -215,8 +215,8 @@ REST 一定完整，而推播要傳達的資訊只有「有事發生了」。
   至此三端齊備：**乘客評 → 司機看得到自己的平均分 → 營運看得出誰評價低**。
   詳見 [`docs/TODO.md`](docs/TODO.md)「⭐ 乘客評分司機」。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **361 passed**（48 個測試檔，2026-07-30 實跑）。
-~~356 passed~~／~~351 passed~~／~~339 passed~~ 是漏更新的舊數字——**這一行請跟著最後一次實跑一起改**。
+**目前**：`flutter analyze` 無 issue、`flutter test` **377 passed**（50 個測試檔，2026-07-30 實跑）。
+~~361 passed~~／~~356 passed~~／~~351 passed~~／~~339 passed~~ 是漏更新的舊數字——**這一行請跟著最後一次實跑一起改**。
 
 **2026-07-30 弱網逾時對帳的實跑收尾**（詳見 [`docs/TODO.md`](docs/TODO.md) 第十四～十五輪）：
 先做了一支「請求照送、回應吃掉」的代理 [`tool/lossy_proxy.py`](tool/lossy_proxy.py)——
@@ -286,6 +286,13 @@ SnackBar；FCM token 輪替失敗會冒出司機看不懂也無事可做的紅�
 **司機放棄訂單時 App 乘客收不到任何事件**（後端只推 LINE，跨端對帳抓到）；
 **production 首頁沒有遺失物協尋入口**（banner 只寫在非 production 的卡片版首頁，乘客付不了處理費就拿不回東西）。
 三個「畫面沒人讀」類的修正已於同日在 `m6_pixel` 模擬器上**逐一實機閉環驗證**。
+
+**2026-07-30 定位出口（第二十一～二十二輪，詳見 [`docs/TODO.md`](docs/TODO.md)）**：
+司機端定位串流死掉時 hero 會降級成「位置回報失敗，暫時收不到派單」（`onError` 不再吞，
+權限被撤與定位服務被關**分開講**）；乘客端叫車的三種定位失敗也各自有話講——
+其中「系統定位服務被關」原本是**完全靜默**的（例外穿出 `placeOrder`，畫面一句話都沒有）。
+另外，**多停靠點行程不再需要裝置定位**：pickup／dropoff 由 stops 推導，後端本來就不看那組座標。
+兩端都在 `m6_pixel` 上以 `settings put secure location_mode 0` 實跑驗過。
 
 ## 規劃中（尚未實作）
 
