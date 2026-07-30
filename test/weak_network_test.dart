@@ -411,6 +411,16 @@ class _TimeoutAcceptApi extends FleetApiClient {
 
 /// 建單請求逾時的假後端。
 class _TimeoutCreateApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _TimeoutCreateApi()
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
@@ -443,6 +453,16 @@ class _TimeoutCreateApi extends CustomerApiClient {
 /// 取消「掛在半路」的假後端：`cancelRide` 一律以 [cancelFailure] 失敗，
 /// `activeRide` 回 [activeNow]＝後端此刻的真實現況（對帳問的就是它）。
 class _TimeoutCancelApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _TimeoutCancelApi()
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 

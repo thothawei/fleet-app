@@ -819,3 +819,188 @@ class ActiveRide {
     );
   }
 }
+
+/// 常用地點的種類（對齊後端 constants.SavedPlaceKind*）。
+///
+/// `home`／`work` 是**語意插槽**，每位乘客各只有一筆；`custom` 才是可以有很多筆的自訂地點。
+/// 判斷「這是不是住家」一律看 [SavedPlace.kind]——`label` 是使用者可以改的顯示名稱，
+/// 拿它比對字串會在乘客把住家改名成「家」的那一刻無聲失效。
+abstract final class SavedPlaceKind {
+  static const home = 'home';
+  static const work = 'work';
+  static const custom = 'custom';
+}
+
+/// 乘客的常用地點（住家／公司／自訂），供叫車與預約一鍵帶入起訖點。
+class SavedPlace {
+  const SavedPlace({
+    required this.id,
+    required this.kind,
+    required this.label,
+    required this.address,
+    required this.lat,
+    required this.lng,
+  });
+
+  final int id;
+  final String kind;
+  final String label;
+  final String address;
+  final double lat;
+  final double lng;
+
+  bool get isHome => kind == SavedPlaceKind.home;
+  bool get isWork => kind == SavedPlaceKind.work;
+
+  /// 插槽類（住家／公司）不可刪只能改——UI 上那兩顆是固定位置的快捷鈕，
+  /// 刪掉會讓「設定住家」這件事沒有入口。
+  bool get isSlot => isHome || isWork;
+
+  factory SavedPlace.fromJson(Map<String, dynamic> json) {
+    final point = json['point'];
+    return SavedPlace(
+      id: (json['id'] as num).toInt(),
+      kind: json['kind'] as String? ?? SavedPlaceKind.custom,
+      label: json['label'] as String? ?? '',
+      address: json['address'] as String? ?? '',
+      lat: (point is Map ? (point['lat'] as num?)?.toDouble() : null) ?? 0,
+      lng: (point is Map ? (point['lng'] as num?)?.toDouble() : null) ?? 0,
+    );
+  }
+
+  static List<SavedPlace> listFrom(Object? raw) {
+    if (raw is! List) return <SavedPlace>[];
+    return raw
+        .whereType<Map>()
+        .map((m) => SavedPlace.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
+  }
+}
+
+/// 預約行程的狀態（對齊後端 constants.ScheduledRideStatus*）。
+abstract final class ScheduledRideStatus {
+  /// 等待到點；唯一可取消的狀態。
+  static const pending = 'pending';
+
+  /// 已轉成真訂單（[ScheduledRide.rideId] 指向它）。要取消得去取消那張訂單。
+  static const dispatched = 'dispatched';
+
+  /// 乘客已取消。
+  static const cancelled = 'cancelled';
+
+  /// 到點後重試用盡仍建不出訂單，原因在 [ScheduledRide.lastError]。
+  static const failed = 'failed';
+}
+
+/// 預約行程：乘客先訂好「什麼時候、從哪到哪」，後端在約定時間前轉成真訂單去派車。
+class ScheduledRide {
+  const ScheduledRide({
+    required this.id,
+    required this.scheduledAt,
+    required this.pickupAddress,
+    required this.pickupLat,
+    required this.pickupLng,
+    required this.status,
+    this.dropoffAddress,
+    this.dropoffLat,
+    this.dropoffLng,
+    this.requiredVehicleType = '',
+    this.note = '',
+    this.rideId,
+    this.lastError = '',
+  });
+
+  final int id;
+
+  /// 乘客希望**上車**的時間（本地時區）。後端會比它更早發動派單。
+  final DateTime scheduledAt;
+  final String pickupAddress;
+  final double pickupLat;
+  final double pickupLng;
+  final String? dropoffAddress;
+  final double? dropoffLat;
+  final double? dropoffLng;
+  final String requiredVehicleType;
+  final String note;
+  final String status;
+
+  /// 已轉單後指向的真訂單；其餘狀態為 null。
+  final int? rideId;
+
+  /// 轉單失敗的原因（failed 時給乘客看）。
+  final String lastError;
+
+  bool get isPending => status == ScheduledRideStatus.pending;
+  bool get isDispatched => status == ScheduledRideStatus.dispatched;
+  bool get isCancelled => status == ScheduledRideStatus.cancelled;
+  bool get isFailed => status == ScheduledRideStatus.failed;
+
+  /// 只有還沒轉單的可以取消。已轉單的要取消的是**那張訂單**，不是這筆預約紀錄。
+  bool get cancellable => isPending;
+
+  /// 還會發生的預約（首頁那張卡只顯示這種）。
+  bool get isUpcoming => isPending;
+
+  String get statusLabel {
+    switch (status) {
+      case ScheduledRideStatus.pending:
+        return '已預約';
+      case ScheduledRideStatus.dispatched:
+        return '已為你派車';
+      case ScheduledRideStatus.cancelled:
+        return '已取消';
+      case ScheduledRideStatus.failed:
+        return '預約未能成立';
+      default:
+        return status;
+    }
+  }
+
+  factory ScheduledRide.fromJson(Map<String, dynamic> json) {
+    final pickup = json['pickup_point'];
+    final dropoff = json['dropoff_point'];
+    final dropAddr = json['dropoff_address'] as String?;
+    return ScheduledRide(
+      id: (json['id'] as num).toInt(),
+      // 後端送 RFC3339 帶時區；一律轉本地時間，畫面上顯示的才會是乘客看得懂的鐘面時間。
+      scheduledAt:
+          DateTime.parse(json['scheduled_at'] as String).toLocal(),
+      pickupAddress: json['pickup_address'] as String? ?? '',
+      pickupLat: (pickup is Map ? (pickup['lat'] as num?)?.toDouble() : null) ?? 0,
+      pickupLng: (pickup is Map ? (pickup['lng'] as num?)?.toDouble() : null) ?? 0,
+      dropoffAddress:
+          (dropAddr != null && dropAddr.isNotEmpty) ? dropAddr : null,
+      dropoffLat:
+          dropoff is Map ? (dropoff['lat'] as num?)?.toDouble() : null,
+      dropoffLng:
+          dropoff is Map ? (dropoff['lng'] as num?)?.toDouble() : null,
+      requiredVehicleType: json['required_vehicle_type'] as String? ?? '',
+      note: json['note'] as String? ?? '',
+      status: json['status'] as String? ?? ScheduledRideStatus.pending,
+      rideId: (json['ride_id'] as num?)?.toInt(),
+      lastError: json['last_error'] as String? ?? '',
+    );
+  }
+
+  /// 解析清單。**單筆解析失敗就跳過那一筆**，不讓整份清單連帶炸掉。
+  ///
+  /// `scheduled_at` 是 non-nullable，所以 `fromJson` 用的是會丟例外的 `DateTime.parse`
+  /// （其他 model 的日期都是 nullable、用 `tryParse`）。而 controller 只接 `ApiException`
+  /// ——一筆格式異常的 `FormatException` 會直接逸出，整個預約頁掛掉。
+  /// 後端目前不可能送出壞格式（欄位 NOT NULL、Go 一律序列化成 RFC3339），
+  /// 這是**防禦性的**：少一筆總比整頁看不到好。
+  static List<ScheduledRide> listFrom(Object? raw) {
+    if (raw is! List) return <ScheduledRide>[];
+    final out = <ScheduledRide>[];
+    for (final m in raw.whereType<Map>()) {
+      try {
+        out.add(ScheduledRide.fromJson(Map<String, dynamic>.from(m)));
+      } on FormatException {
+        continue;
+      } on TypeError {
+        continue;
+      }
+    }
+    return out;
+  }
+}

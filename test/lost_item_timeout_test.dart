@@ -222,6 +222,16 @@ Future<DriverController> _driver(FleetApiClient api) async {
 /// 乘客端假後端：協尋寫入一律以 [failWith] 失敗，
 /// 對帳查詢回 [freshItem]（或以 [byRideFailure] 失敗）。
 class _CustomerLostItemApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _CustomerLostItemApi()
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
