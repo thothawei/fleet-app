@@ -396,18 +396,46 @@ class CustomerController extends ChangeNotifier {
     notifyListeners();
     try {
       final rating = await _api.rateRide(rideId, score: score, comment: comment);
-      _completedRatingScore = rating.score;
-      _completedRatingRideId = rideId;
-      _rideHistory = [
-        for (final r in _rideHistory)
-          r.rideId == rideId ? r.copyWith(ratingScore: rating.score) : r,
-      ];
+      _applySubmittedRating(rideId, rating.score);
       return null;
     } on ApiException catch (e) {
+      // 逾時（`statusCode == null`）不代表後端沒記到；**409 更是明說「這趟已經評過」**。
+      // 一趟一評有唯一索引，所以再送一次只會再拿到 409——不對帳的話乘客只剩
+      // 「評分失敗」這條死路，而他其實已經評過了。查一次後端這趟的星等：
+      // 有 → 當成成功（畫面直接顯示星等）；沒有 → 維持原本的錯誤訊息讓他重評。
+      if (e.statusCode == null || e.statusCode == 409) {
+        final existing = await _ratingScoreForReconcile(rideId);
+        if (existing != null) {
+          _applySubmittedRating(rideId, existing);
+          return null;
+        }
+      }
       return e.message;
     } finally {
       _ratingSubmitting = false;
       notifyListeners();
+    }
+  }
+
+  /// 評分成功後的狀態切換（真的送出成功與「其實早就評過了」共用）。
+  ///
+  /// 就地更新歷史清單那一列（`copyWith`），評分入口立刻變成星等——
+  /// 不重打一次 `GET /customer/rides`，避免對話框關閉時整份清單閃一下。
+  void _applySubmittedRating(int rideId, int score) {
+    _completedRatingScore = score;
+    _completedRatingRideId = rideId;
+    _rideHistory = [
+      for (final r in _rideHistory)
+        r.rideId == rideId ? r.copyWith(ratingScore: score) : r,
+    ];
+  }
+
+  /// 對帳用查詢：這一問本身失敗就回 null（不知道就不亂改，維持原本的錯誤）。
+  Future<int?> _ratingScoreForReconcile(int rideId) async {
+    try {
+      return await _api.fetchRideRatingScore(rideId);
+    } on ApiException {
+      return null;
     }
   }
 

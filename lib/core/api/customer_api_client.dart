@@ -189,6 +189,26 @@ class CustomerApiClient {
     }
   }
 
+  /// 查這趟我給過的評分星等；**尚未評分時回 null**（B5）。
+  ///
+  /// 讀的是 `GET /api/customer/rides/:id` 的 `ride.rating.score`——
+  /// 後端這支單筆查詢本來就帶 rating（尚未評分時省略該鍵）。
+  /// **用途是評分逾時後的對帳**：`rateRide` 逾時不代表後端沒記到，而「一趟一評」
+  /// 有唯一索引，再送一次只會拿到 409，乘客沒有出路（見 `submitRating`）。
+  Future<int?> fetchRideRatingScore(int rideId) async {
+    try {
+      final res =
+          await _dio.get<Map<String, dynamic>>('/customer/rides/$rideId');
+      final ride = res.data?['ride'];
+      if (ride is! Map) return null;
+      final rating = ride['rating'];
+      if (rating is! Map) return null;
+      return (rating['score'] as num?)?.toInt();
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
   /// 對已完成行程給司機評分（B5）。**一趟一評、不可重評**——
   /// 已評過的行程後端回 409，UI 不該再給入口（清單以 `ratingScore` 判斷）。
   Future<RideRating> rateRide(
