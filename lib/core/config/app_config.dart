@@ -28,6 +28,10 @@ class AppConfig {
   /// 超過這個時間沒成功回報位置，他就不再是派單候選——App 端據此誠實降級 hero
   /// （見 `DriverController.locationStale`）。後端調整時這裡要跟著改。
   static const driverOfflineSec = 60;
+
+  /// 定位健康度的重評間隔（見 `DriverController._startLocationHealthTimer`）。
+  /// 只在值改變時通知，所以這個週期只影響「多晚看到降級提示」，不影響重畫次數。
+  static const locationHealthCheckSec = 10;
 }
 
 /// WebSocket 事件型別（對齊後端 internal/events/event.go）
