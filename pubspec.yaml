@@ -34,6 +34,9 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
+  # 定位健康度那支 timer 要驗「幾十秒後才會發生的事」，不能真的等
+  # （test/driver_location_health_test.dart）。
+  fake_async: ^1.3.3
 
 flutter:
   uses-material-design: true

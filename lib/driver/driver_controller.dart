@@ -14,6 +14,12 @@ import '../core/push/push_payload.dart';
 import '../core/storage/token_storage.dart';
 import '../core/ws/fleet_ws_client.dart';
 
+/// 定位串流的來源；測試以此換掉真 GPS（比照 `FleetWsClientFactory`）。
+typedef DriverPositionStreamFactory = Stream<Position> Function(LocationSettings);
+
+Stream<Position> _geolocatorPositionStream(LocationSettings settings) =>
+    Geolocator.getPositionStream(locationSettings: settings);
+
 /// 司機端狀態：登入、上線、WS 派單、行程操作。
 class DriverController extends ChangeNotifier {
   DriverController({
@@ -21,10 +27,12 @@ class DriverController extends ChangeNotifier {
     FleetApiClient? api,
     FleetWsClientFactory? wsFactory,
     FleetPushService? push,
+    DriverPositionStreamFactory? positionStream,
   })  : _storage = storage ?? TokenStorage(),
         _api = api ?? FleetApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
         _push = push ?? NoOpFleetPushService(),
+        _positionStream = positionStream ?? _geolocatorPositionStream,
         _ws = FleetWsClient(onEvent: (_) {}) {
     // token 過期／失效時把司機送回登入頁（見 _handleUnauthorized）。
     _api.onUnauthorized = _handleUnauthorized;
@@ -34,6 +42,7 @@ class DriverController extends ChangeNotifier {
   final FleetApiClient _api;
   final FleetWsClientFactory _wsFactory;
   final FleetPushService _push;
+  final DriverPositionStreamFactory _positionStream;
   FleetWsClient _ws;
 
   AuthSession? _session;
@@ -46,6 +55,11 @@ class DriverController extends ChangeNotifier {
   ActiveRide? _activeRide;
   Position? _lastPosition;
   StreamSubscription<Position>? _positionSub;
+  // 定位健康度的定期重評（見 _startLocationHealthTimer）；離線時必須關掉。
+  Timer? _locationHealthTimer;
+  // 定位串流本身死了（權限被撤／定位服務關閉）。與「久沒回報」分開記：
+  // 這個一成立就代表**不會再有位置送出去**，不必等滿鮮度窗才降級。
+  bool _locationStreamFailed = false;
   StreamSubscription<FleetWsEvent>? _pushSub;
   StreamSubscription<String>? _tokenRefreshSub;
   String? _fcmToken;
@@ -106,8 +120,10 @@ class DriverController extends ChangeNotifier {
   /// 司機畫面上寫「等待派單中」，但他其實早就不在派單池裡了（實跑驗到）。
   ///
   /// 上線後還沒成功回報過就從上線時刻起算，否則剛按下上線的那幾秒會誤報。
+  /// 定位串流自己出錯時**不必等滿鮮度窗**：我們已經知道不會再有位置送出去了。
   bool get locationStale {
     if (!_online) return false;
+    if (_locationStreamFailed) return true;
     final since = _lastLocationOkAt ?? _onlineSince;
     if (since == null) return false;
     return DateTime.now().difference(since) >
@@ -302,11 +318,27 @@ class DriverController extends ChangeNotifier {
   void handleWsEventForTest(FleetWsEvent event) => _handleWsEvent(event);
 
   /// 測試用：直接設定上線旗標。正式路徑 `goOnline()` 需要定位權限，widget 測試取不到。
+  ///
+  /// 設 true **不會**起定位串流／健康度 timer（要的話呼叫
+  /// `startLocationStreamForTest()`，走的是正式路徑那支）；
+  /// 設 false 則同步收掉 timer，讓測試不必為了收尾去 await `goOffline()`——
+  /// 那支是 async，在 fakeAsync／testWidgets 裡會在 dispose 之後才 resume。
   @visibleForTesting
   void setOnlineForTest(bool value) {
     _online = value;
+    if (!value) {
+      _locationStreamFailed = false;
+      _locationHealthTimer?.cancel();
+      _locationHealthTimer = null;
+    }
     notifyListeners();
   }
+
+  /// 測試用：起定位串流（正式路徑 `goOnline()` 要平台權限，測試環境給不了）。
+  /// **刻意不是直接呼叫 onError handler**——那樣測不到「串流真的接上 handler」，
+  /// 把 `onError:` 拔掉測試照樣會綠。
+  @visibleForTesting
+  Future<void> startLocationStreamForTest() => _startLocationStream();
 
   /// 測試用：直接設定 WS 連線旗標（正式路徑由 WS client 回報）。
   @visibleForTesting
@@ -536,6 +568,7 @@ class DriverController extends ChangeNotifier {
     _online = true;
     _onlineSince = DateTime.now();
     _lastLocationOkAt = null;
+    _locationStreamFailed = false;
     _setError(null);
     await _startLocationStream();
     notifyListeners();
@@ -545,6 +578,7 @@ class DriverController extends ChangeNotifier {
     _online = false;
     _onlineSince = null;
     _lastLocationOkAt = null;
+    _locationStreamFailed = false;
     await _stopLocationStream();
     notifyListeners();
   }
@@ -554,14 +588,53 @@ class DriverController extends ChangeNotifier {
     await _stopLocationStream();
     if (!_online || _session == null) return;
 
-    final settings = driverLocationSettings();
-    _positionSub = Geolocator.getPositionStream(locationSettings: settings).listen(
+    _positionSub = _positionStream(driverLocationSettings()).listen(
       (pos) => _reportPosition(pos),
-      onError: (_) {},
+      onError: _handlePositionError,
     );
+    _startLocationHealthTimer();
 
     // 立即回報一筆，不必等第一個 stream tick；不 await 以免上線鈕卡在等 GPS fix。
     unawaited(_reportImmediatePosition());
+  }
+
+  /// 定位串流本身出錯（權限被撤、定位服務被關、系統把前景服務收走）。
+  ///
+  /// 這裡原本是 `onError: (_) {}`。吞掉的後果不是少一則訊息而已：
+  /// 串流死掉之後**不會再有任何 tick**，而司機端沒有輪詢，
+  /// 唯一會觸發重畫的就是位置回報——於是 hero 會一直停在「等待派單中」，
+  /// 司機在那邊等一張永遠不會來的單（後端 60 秒後就不再把他當派單候選）。
+  void _handlePositionError(Object error) {
+    if (!_online) return;
+    _locationStreamFailed = true;
+    // 分開講的理由：兩種情況司機的下一步不同——一個要去系統設定給權限，
+    // 一個要把定位服務打開。含糊的「定位失敗」讓他不知道該做什麼。
+    _setError(switch (error) {
+      PermissionDeniedException() => '定位權限已被關閉，請重新開啟才能接單',
+      LocationServiceDisabledException() => '裝置定位服務已關閉，請開啟才能接單',
+      _ => '定位失敗，暫時收不到派單',
+    });
+    notifyListeners();
+  }
+
+  /// 定期把畫面叫醒，讓 `locationStale` 有機會翻面。
+  ///
+  /// `locationStale` 是 build 當下用 `DateTime.now()` 算的，本身不會通知任何人。
+  /// 平常靠位置回報每 8 秒觸發一次重畫，但**串流死掉時那些 tick 正是消失的東西**——
+  /// 沒有這支 timer，第六輪做的降級提示在最需要它的情境反而不會出現。
+  /// 只在值真的改變時通知，避免每個週期都讓整棵樹重畫。
+  void _startLocationHealthTimer() {
+    _locationHealthTimer?.cancel();
+    var lastStale = locationStale;
+    _locationHealthTimer = Timer.periodic(
+      const Duration(seconds: AppConfig.locationHealthCheckSec),
+      (_) {
+        final stale = locationStale;
+        if (stale == lastStale) return;
+        lastStale = stale;
+        notifyListeners();
+      },
+    );
   }
 
   /// 上線後立即回報一筆位置。高精度定位在模擬器／室內可能長時間無 fix，
@@ -581,6 +654,8 @@ class DriverController extends ChangeNotifier {
   Future<void> _stopLocationStream() async {
     await _positionSub?.cancel();
     _positionSub = null;
+    _locationHealthTimer?.cancel();
+    _locationHealthTimer = null;
   }
 
   Future<void> _reportPosition(Position pos) async {
@@ -596,6 +671,8 @@ class DriverController extends ChangeNotifier {
       _lastPosition = pos;
       await _api.reportLocation(lat: pos.latitude, lng: pos.longitude);
       _lastLocationOkAt = DateTime.now();
+      // 位置真的送出去了 ＝ 串流活著（權限／定位服務都恢復了）。
+      _locationStreamFailed = false;
       // 位置回報是上線期間每幾秒一次的健康探針：它成功＝後端可達，
       // 此時還掛著上一輪的「無法連線到伺服器」只會誤導司機。
       // **但只能清連線類**：後端明確拒絕的業務錯誤（例如完成行程被 409 擋下）
@@ -1082,6 +1159,7 @@ class DriverController extends ChangeNotifier {
   @override
   void dispose() {
     _positionSub?.cancel();
+    _locationHealthTimer?.cancel();
     _pushSub?.cancel();
     _tokenRefreshSub?.cancel();
     _chatStream.close();
