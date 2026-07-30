@@ -2090,6 +2090,9 @@ App 這邊畫面還停在 open → 按「已找到」→ proxy log
 > 需求：乘客可以**預約未來的用車**（不是現在叫車），以及把**住家／公司等常去的地點存起來**，
 > 叫車與預約時一鍵帶入。後端對應 dispatch 的 `scheduled_rides` 與 `customer_saved_places`
 > 兩張新表（migration 000025／000026）。
+>
+> PR：本 repo [#95](https://github.com/thothawei/fleet-app/pull/95)、
+> dispatch [#70](https://github.com/thothawei/fleet-dispatch/pull/70)。
 
 ### 為什麼預約是獨立一張表，不是 rides 加一個狀態
 
