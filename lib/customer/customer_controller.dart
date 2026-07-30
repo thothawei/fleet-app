@@ -862,6 +862,12 @@ class CustomerController extends ChangeNotifier {
       await refreshActive();
       // 登入即帶出「進行中協尋」banner，不用等下拉刷新（比照 init() 還原 session）。
       await refreshLostItems();
+      // 常用地點與預約同理。**漏掉這兩行的症狀是模擬器實跑才看得到的**：
+      // 剛登入完，叫車頁的快捷列是空的、首頁也沒有自己的預約，
+      // 要等下次冷啟動走 init() 才會出現——單元測試都用 setSessionForTest
+      // 再手動呼叫 load，永遠走不到登入這條路徑。
+      await loadSavedPlaces(silent: true);
+      await loadScheduledRides(silent: true);
     } on ApiException catch (e) {
       _error = e.message;
     } finally {

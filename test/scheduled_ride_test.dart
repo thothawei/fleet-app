@@ -23,6 +23,7 @@ void main() {
   _minLeadTests();
   _sectionTests();
   _parseResilienceTests();
+  _vehicleLabelTests();
 
   group('預約行程', () {
     test('載入清單後 upcoming 只留 pending，已轉單／取消／失敗都不算', () async {
@@ -408,6 +409,43 @@ void _parseResilienceTests() {
         _scheduleJson(9, ScheduledRideStatus.pending, hours: 2),
       ]);
       expect(list.map((s) => s.id), [9]);
+    });
+  });
+}
+
+/// 車種要顯示中文名，不是後端 code。
+///
+/// 既有約定寫在 `VehicleType` 的註解上：後端 API／WS 一律只送 code，顯示名由前端對應。
+/// 直接把 `pet` 印在畫面上，乘客看不懂那是什麼。
+void _vehicleLabelTests() {
+  group('預約卡的車種顯示', () {
+    testWidgets('pet → 顯示「寵物用車」，畫面上不出現原始 code', (tester) async {
+      final s = ScheduledRide.fromJson({
+        ..._scheduleJson(1, ScheduledRideStatus.pending, hours: 3),
+        'required_vehicle_type': 'pet',
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: ScheduledRideCard(schedule: s))),
+      );
+
+      expect(find.textContaining('寵物用車'), findsOneWidget);
+      expect(find.textContaining('pet'), findsNothing);
+    });
+
+    testWidgets('後端出現 App 不認得的車種 → 整行不顯示，不印 code 也不印「—」',
+        (tester) async {
+      final s = ScheduledRide.fromJson({
+        ..._scheduleJson(2, ScheduledRideStatus.pending, hours: 3),
+        'required_vehicle_type': 'hovercraft',
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: ScheduledRideCard(schedule: s))),
+      );
+
+      expect(find.textContaining('指定車種'), findsNothing);
+      expect(find.textContaining('hovercraft'), findsNothing);
     });
   });
 }

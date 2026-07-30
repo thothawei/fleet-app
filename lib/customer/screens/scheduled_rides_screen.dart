@@ -196,11 +196,15 @@ class ScheduledRideCard extends StatelessWidget {
               const SizedBox(height: 4),
               _Line(icon: Icons.place, text: schedule.dropoffAddress!),
             ],
-            if (schedule.requiredVehicleType.isNotEmpty) ...[
+            // 車種顯示名由前端對應（見 VehicleType 的說明：後端一律只送 code）。
+            // 未知 code 整行不顯示——顯示原始 code 對乘客沒有意義，
+            // 顯示「—」也只是把空洞畫出來。
+            if (VehicleType.fromCode(schedule.requiredVehicleType) != null) ...[
               const SizedBox(height: 4),
               _Line(
                 icon: Icons.directions_car,
-                text: '指定車種：${schedule.requiredVehicleType}',
+                text: '指定車種：'
+                    '${VehicleType.fromCode(schedule.requiredVehicleType)!.label}',
               ),
             ],
             if (schedule.note.isNotEmpty) ...[

@@ -18,6 +18,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   _logoutLeakTests();
+  _loginLoadsTests();
 
   group('常用地點', () {
     test('homePlace／workPlace 依 kind 取，不依 label', () async {
@@ -295,6 +296,13 @@ class _PlacesApi extends CustomerApiClient {
 
   @override
   Future<void> deleteSavedPlace(int id) async {}
+
+  @override
+  Future<CustomerLoginResult> login({
+    required String lineUserId,
+    required String password,
+  }) async =>
+      const CustomerLoginResult(customerId: 1, token: 'tok', name: '示範乘客');
 }
 
 /// 登出後的殘留檢查。
@@ -344,6 +352,50 @@ void _logoutLeakTests() {
       expect(ctrl.workPlace, isNull);
       expect(ctrl.scheduledRides, isEmpty);
       expect(ctrl.upcomingSchedules, isEmpty);
+    });
+  });
+}
+
+/// 登入之後也要把常用地點與預約帶出來。
+///
+/// `init()`（冷啟動還原 session）有載，登入路徑卻沒有——乘客剛登入完，
+/// 叫車頁的快捷列是空的、首頁也看不到自己的預約，要等下次冷啟動才會出現。
+/// **這是模擬器實跑才抓到的**：單元測試都用 setSessionForTest 再手動呼叫 load，
+/// 永遠走不到登入那條路徑。
+void _loginLoadsTests() {
+  group('登入後的載入', () {
+    setUp(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+        (call) async => null,
+      );
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+        null,
+      );
+    });
+
+    test('登入成功 → 常用地點與預約都帶出來（比照 init()）', () async {
+      final api = _PlacesApi(places: [
+        _place(1, SavedPlaceKind.home, '住家'),
+        _place(2, SavedPlaceKind.work, '公司'),
+      ]);
+      final ctrl = CustomerController(api: api);
+
+      await ctrl.login(lineUserId: 'demo-customer-1', password: 'demo123456');
+
+      expect(ctrl.isLoggedIn, isTrue, reason: '前置條件：登入要成功');
+      expect(
+        ctrl.savedPlaces,
+        isNotEmpty,
+        reason: '登入完叫車頁的快捷列就該有東西，不該等下次冷啟動',
+      );
+      expect(ctrl.homePlace, isNotNull);
     });
   });
 }

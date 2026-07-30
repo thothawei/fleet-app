@@ -10,6 +10,7 @@ import '../customer_controller.dart';
 import '../widgets/lost_item_banner.dart';
 import '../widgets/ride_phase_content.dart';
 import 'ride_history_screen.dart';
+import 'scheduled_rides_screen.dart';
 
 /// 地圖為底＋Bottom Sheet 主畫面（spec §2.1）。
 /// 圖磚走 OpenStreetMap（flutter_map），不需任何 API key。
@@ -68,6 +69,17 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
                 ),
                 const SizedBox(height: 12),
                 FloatingActionButton.small(
+                  heroTag: 'schedules',
+                  tooltip: '預約司機',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ScheduledRidesScreen(),
+                    ),
+                  ),
+                  child: const Icon(Icons.event),
+                ),
+                const SizedBox(height: 12),
+                FloatingActionButton.small(
                   heroTag: 'logout',
                   tooltip: '登出',
                   onPressed: ctrl.loading ? null : () => ctrl.logout(),
@@ -110,6 +122,14 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
                   // 沒有這塊，司機標記「已尋獲」後乘客根本無處付處理費把東西拿回來。
                   for (final item in ctrl.lostItems) ...[
                     LostItemBanner(item: item),
+                    const SizedBox(height: 12),
+                  ],
+                  // 即將到來的預約（只顯示最近一筆）。放在協尋之後、階段內容之前：
+                  // 它是「等一下會發生的事」，比正在編輯的叫車表單優先度低，
+                  // 但乘客一拉開 sheet 就該看得到。
+                  if (ctrl.upcomingSchedules.isNotEmpty) ...[
+                    _UpcomingScheduleTile(
+                        schedule: ctrl.upcomingSchedules.first),
                     const SizedBox(height: 12),
                   ],
                   _sheetContent(ctrl),
@@ -284,5 +304,39 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
   void dispose() {
     _map.dispose();
     super.dispose();
+  }
+}
+
+
+/// Bottom Sheet 裡的「即將到來的預約」列。
+///
+/// 只提醒下一趟是什麼時候，詳細操作在預約頁——sheet 的空間要留給正在進行的事。
+class _UpcomingScheduleTile extends StatelessWidget {
+  const _UpcomingScheduleTile({required this.schedule});
+
+  final ScheduledRide schedule;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ListTile(
+        leading: const Icon(Icons.event),
+        title: Text('已預約 ${formatScheduleTime(schedule.scheduledAt)}'),
+        subtitle: Text(
+          schedule.dropoffAddress == null
+              ? schedule.pickupAddress
+              : '${schedule.pickupAddress} → ${schedule.dropoffAddress}',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall,
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const ScheduledRidesScreen()),
+        ),
+      ),
+    );
   }
 }
