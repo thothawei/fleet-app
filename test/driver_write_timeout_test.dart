@@ -119,6 +119,27 @@ void main() {
       expect(ctrl.error, isNull);
     });
 
+    test('對帳把訊息清掉之後，畫面要收到通知（否則橫幅是幽靈）', () async {
+      // 2026-07-30 模擬器實跑抓到：狀態早就乾淨了（log 證明 `_setError(null)` 有跑），
+      // 螢幕上那張「請求逾時」卻留著好幾分鐘——`return _reconcileAfterTimeout(...)`
+      // 讓 finally 的 notifyListeners 在對帳完成**之前**就跑掉，之後沒有人通知重畫。
+      // 釘的是「最後一次通知時看到的錯誤」，不是「結束後的錯誤」——後者兩種寫法都會過。
+      final api = _TimeoutApi(
+        active: _ride(43, RideStatus.pickedUp, stops: _stops(arrivedFirst: false)),
+      )..failStopWith = ApiException('請求逾時，請稍後再試');
+      final ctrl = await _driver(api);
+      addTearDown(ctrl.dispose);
+      final seen = <String?>[];
+      ctrl.addListener(() => seen.add(ctrl.error));
+
+      api.active =
+          _ride(43, RideStatus.pickedUp, stops: _stops(arrivedFirst: true));
+      await ctrl.markStopArrived(71);
+
+      expect(seen.last, isNull,
+          reason: '最後一次通知還帶著逾時訊息＝畫面停在那張橫幅上，狀態卻說沒事');
+    });
+
     test('後端說那一站還沒處理 → 維持原狀並保留訊息', () async {
       final api = _TimeoutApi(
         active: _ride(43, RideStatus.pickedUp, stops: _stops(arrivedFirst: false)),

@@ -150,7 +150,12 @@ class DriverController extends ChangeNotifier {
       // 逾時不代表後端沒標到（見 `_reconcileAfterTimeout`）；沒對帳的話下一站不會前移，
       // 司機再按一次會被 409 擋下。生效的判準是**那一站已經不是待處理**。
       if (e.statusCode == null) {
-        return _reconcileAfterTimeout(
+        // **必須 `return await`**：`return future;` 在 try/finally 裡會讓 finally
+        // （也就是唯一的 notifyListeners）在對帳**完成之前**就跑掉，對帳後
+        // `_setError(null)` 便沒有任何人通知畫面重畫——狀態早就乾淨了，
+        // 螢幕上卻留著一張「請求逾時」的幽靈橫幅（2026-07-30 模擬器實跑抓到）。
+        // 另外兩條路徑（pickUpPassenger／completeTrip）用的是 `await`，所以沒這個症狀。
+        return await _reconcileAfterTimeout(
           ride.rideId,
           applied: (fresh) =>
               fresh.stops.any((s) => s.id == stopId && !s.pending),
