@@ -3,7 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:line_fleet_app/core/api/customer_api_client.dart';
 import 'package:line_fleet_app/core/api/fleet_api_client.dart' show ApiException;
 import 'package:line_fleet_app/core/models/models.dart';
+import 'package:flutter/material.dart';
 import 'package:line_fleet_app/customer/customer_controller.dart';
+import 'package:line_fleet_app/customer/screens/scheduled_rides_screen.dart';
+import 'package:provider/provider.dart';
 
 /// 建一個已登入的 controller（沿用既有測試的 setSessionForTest 慣例）。
 CustomerController loggedInController(CustomerApiClient api) {
@@ -18,6 +21,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   _minLeadTests();
+  _sectionTests();
 
   group('預約行程', () {
     test('載入清單後 upcoming 只留 pending，已轉單／取消／失敗都不算', () async {
@@ -321,6 +325,60 @@ void _minLeadTests() {
       expect(ctrl.scheduleMinLeadMinutes,
           CustomerController.fallbackMinLeadMinutes);
       expect(ctrl.scheduleMinLeadMinutes, greaterThan(0));
+    });
+  });
+}
+
+/// 預約頁的分區：已轉單的**不能**掉進「過往預約」。
+///
+/// 車正在來的路上，跟已取消／未成立混在同一區，乘客會以為那筆已經結束了。
+void _sectionTests() {
+  group('預約頁分區', () {
+    testWidgets('已轉單的歸在「已為你派車」，不在「過往預約」', (tester) async {
+      final api = _ScheduleApi(rides: [
+        _schedule(1, ScheduledRideStatus.pending, hours: 3),
+        _schedule(2, ScheduledRideStatus.dispatched, hours: 1, rideId: 42),
+        _schedule(3, ScheduledRideStatus.cancelled, hours: 5),
+      ]);
+      final ctrl = loggedInController(api);
+      await ctrl.loadScheduledRides();
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<CustomerController>.value(
+          value: ctrl,
+          child: const MaterialApp(home: ScheduledRidesScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('即將到來'), findsOneWidget);
+      // 區塊標題刻意不叫「已為你派車」——那句話是卡片上的狀態標籤，
+      // 兩者同名會讓 finder 抓到兩個節點，也會讓畫面上同一句話重複出現。
+      expect(find.text('車已在路上'), findsOneWidget);
+      expect(find.text('過往預約'), findsOneWidget);
+
+      // 進行中的區塊必須排在已結束的上面——順序本身就是訊息。
+      final dispatchedY = tester.getTopLeft(find.text('車已在路上')).dy;
+      final pastY = tester.getTopLeft(find.text('過往預約')).dy;
+      expect(dispatchedY, lessThan(pastY));
+    });
+
+    testWidgets('沒有任何預約時給空狀態，不是三個空標題', (tester) async {
+      final ctrl = loggedInController(_ScheduleApi(rides: []));
+      await ctrl.loadScheduledRides();
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<CustomerController>.value(
+          value: ctrl,
+          child: const MaterialApp(home: ScheduledRidesScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('還沒有任何預約。'), findsOneWidget);
+      expect(find.text('即將到來'), findsNothing);
+      expect(find.text('車已在路上'), findsNothing);
+      expect(find.text('過往預約'), findsNothing);
     });
   });
 }

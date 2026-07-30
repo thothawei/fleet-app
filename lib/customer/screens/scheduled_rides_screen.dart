@@ -32,9 +32,15 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen> {
   Widget build(BuildContext context) {
     final ctrl = context.watch<CustomerController>();
     final upcoming = ctrl.upcomingSchedules;
+    // 已轉單的**不算過往**——車正在來的路上。把它跟已取消／未成立混在同一區，
+    // 乘客會以為那筆預約已經結束了。
+    final dispatched = [
+      for (final s in ctrl.scheduledRides)
+        if (s.isDispatched) s,
+    ];
     final past = [
       for (final s in ctrl.scheduledRides)
-        if (!s.isUpcoming) s,
+        if (!s.isUpcoming && !s.isDispatched) s,
     ];
 
     return Scaffold(
@@ -65,7 +71,7 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   const SizedBox(height: 16),
-                  if (upcoming.isEmpty && past.isEmpty)
+                  if (upcoming.isEmpty && dispatched.isEmpty && past.isEmpty)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 32),
                       child: Center(child: Text('還沒有任何預約。')),
@@ -78,6 +84,13 @@ class _ScheduledRidesScreenState extends State<ScheduledRidesScreen> {
                         schedule: s,
                         onCancel: () => _cancel(context, s),
                       ),
+                    const SizedBox(height: 24),
+                  ],
+                  if (dispatched.isNotEmpty) ...[
+                    Text('車已在路上',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    for (final s in dispatched) ScheduledRideCard(schedule: s),
                     const SizedBox(height: 24),
                   ],
                   if (past.isNotEmpty) ...[
