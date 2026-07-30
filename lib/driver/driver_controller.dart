@@ -578,6 +578,11 @@ class DriverController extends ChangeNotifier {
     _online = false;
     _onlineSince = null;
     _lastLocationOkAt = null;
+    // 定位串流的錯誤跟著離線一起收掉：那句話講的是「還想接單就得去開定位」，
+    // 司機自己按了離線之後它就不再成立，留著會讓已離線的畫面繼續喊
+    // 「請開啟才能接單」（2026-07-30 模擬器實跑看到）。
+    // **只清這一類**——後端明確拒絕的業務錯誤是司機唯一的失敗回饋，不可一起抹掉。
+    if (_locationStreamFailed) _setError(null);
     _locationStreamFailed = false;
     await _stopLocationStream();
     notifyListeners();

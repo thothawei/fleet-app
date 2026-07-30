@@ -93,6 +93,43 @@ void main() {
       expect(ctrl.locationStale, isFalse, reason: '一筆成功回報就代表串流活過來了');
       ctrl.setOnlineForTest(false);
     });
+
+    test('司機自己按離線 → 定位那句話要收掉（已離線還喊「才能接單」沒有意義）', () async {
+      final (ctrl, gps) = await _driverWithGps();
+      addTearDown(ctrl.dispose);
+      ctrl.setOnlineForTest(true);
+      await ctrl.startLocationStreamForTest();
+
+      gps.addError(const LocationServiceDisabledException());
+      await Future<void>.delayed(Duration.zero);
+      expect(ctrl.error, isNotNull, reason: '前置：紅字已經掛上去了');
+
+      await ctrl.goOffline();
+
+      expect(ctrl.error, isNull,
+          reason: '2026-07-30 模擬器實跑：離線後畫面仍寫「請開啟才能接單」');
+    });
+
+    test('離線不可以順手抹掉後端明確拒絕的錯誤（那是司機唯一的失敗回饋）', () async {
+      final api = _SilentApi()
+        ..reportError = ApiException('此帳號已被停權', statusCode: 403);
+      final ctrl = DriverController(
+        storage: MemoryDriverAuthStore()
+          ..save(const AuthSession(driverId: 7, token: 'tok')),
+        api: api,
+        wsFactory: FleetWsClient.silent,
+        positionStream: (_) => const Stream<Position>.empty(),
+      );
+      await ctrl.init();
+      addTearDown(ctrl.dispose);
+      ctrl.setOnlineForTest(true);
+      await ctrl.reportPositionForTest(_pos(25.03));
+      expect(ctrl.error, '此帳號已被停權');
+
+      await ctrl.goOffline();
+
+      expect(ctrl.error, '此帳號已被停權');
+    });
   });
 
   group('沒有 tick 的時候誰來把畫面叫醒', () {
@@ -207,8 +244,12 @@ class _SilentApi extends FleetApiClient {
   @override
   void setToken(String? token) {}
 
+  ApiException? reportError;
+
   @override
-  Future<void> reportLocation({required double lat, required double lng}) async {}
+  Future<void> reportLocation({required double lat, required double lng}) async {
+    if (reportError != null) throw reportError!;
+  }
 
   @override
   Future<ActiveRide?> activeRide() async => null;

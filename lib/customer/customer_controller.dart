@@ -7,6 +7,7 @@ import '../core/api/api_error.dart' show sessionExpiredMessage;
 import '../core/api/customer_api_client.dart';
 import '../core/api/fleet_api_client.dart' show ApiException;
 import '../core/config/app_config.dart';
+import '../core/location/customer_locator.dart';
 import '../core/models/models.dart';
 import '../core/push/fleet_push_service.dart';
 import '../core/push/push_payload.dart';
@@ -20,10 +21,12 @@ class CustomerController extends ChangeNotifier {
     CustomerApiClient? api,
     FleetWsClientFactory? wsFactory,
     FleetPushService? push,
+    CustomerLocator? locator,
   })  : _storage = storage ?? CustomerTokenStorage(),
         _api = api ?? CustomerApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
         _push = push ?? NoOpFleetPushService(),
+        _locator = locator ?? const GeolocatorCustomerLocator(),
         _ws = FleetWsClient(onEvent: (_) {}) {
     // token 過期／失效時把乘客送回登入頁（見 _handleUnauthorized）。
     _api.onUnauthorized = _handleUnauthorized;
@@ -33,6 +36,7 @@ class CustomerController extends ChangeNotifier {
   final CustomerApiClient _api;
   final FleetWsClientFactory _wsFactory;
   final FleetPushService _push;
+  final CustomerLocator _locator;
   FleetWsClient _ws;
 
   /// 已向後端註冊的推播 token；登出時要拿它去註銷。
@@ -995,24 +999,35 @@ class CustomerController extends ChangeNotifier {
     }
     _setBusy(true);
     try {
-      final ok = await _ensureLocationPermission();
-      if (!ok) {
-        _error = '需要定位權限才能叫車';
-        return;
+      final double pickupLat;
+      final double pickupLng;
+      final String pickup;
+      if (stops.isNotEmpty) {
+        // N3：多停靠點行程的上車點就是第一個 pickup（後端 prepareStops 也是這樣推導，
+        // 並且會忽略下面這幾個欄位）——**這條路徑不需要裝置定位**。
+        // 原本卻照樣先要權限再等 GPS fix，於是定位服務關著、或室內拿不到 fix 時，
+        // 連根本不看座標的多停靠點行程都叫不了車。
+        // `buildStops` 保證 pickup 全排在 dropoff 之前，故 first 就是第一個上車點。
+        final firstPickup = stops.first;
+        pickupLat = firstPickup.lat;
+        pickupLng = firstPickup.lng;
+        pickup = firstPickup.address.isNotEmpty
+            ? firstPickup.address
+            : pickupAddress.trim();
+      } else {
+        final pos = await _resolvePickupPosition();
+        if (pos == null) return; // 失敗原因已寫進 _error
+        _lastPosition = pos;
+        pickupLat = pos.latitude;
+        pickupLng = pos.longitude;
+        pickup = pickupAddress.trim().isNotEmpty
+            ? pickupAddress.trim()
+            : '目前位置 (${pos.latitude.toStringAsFixed(5)}, '
+                '${pos.longitude.toStringAsFixed(5)})';
       }
-      final pos = await _acquirePosition();
-      if (pos == null) {
-        _error = '目前無法取得定位，請確認 GPS 已開啟後再試';
-        return;
-      }
-      _lastPosition = pos;
-      final pickup = pickupAddress.trim().isNotEmpty
-          ? pickupAddress.trim()
-          : '目前位置 (${pos.latitude.toStringAsFixed(5)}, '
-              '${pos.longitude.toStringAsFixed(5)})';
       final ride = await _api.createRide(
-        pickupLat: pos.latitude,
-        pickupLng: pos.longitude,
+        pickupLat: pickupLat,
+        pickupLng: pickupLng,
         pickupAddress: pickup,
         dropoffAddress: dropoffAddress.trim(),
         dropoffLat: dropoffLat,
@@ -1217,26 +1232,62 @@ class CustomerController extends ChangeNotifier {
 
   /// 取得目前位置：高精度定位在模擬器／室內可能長時間拿不到 fix，
   /// 故設 8 秒逾時；逾時後退回最後已知位置，避免叫車一直卡在載入轉圈。
+  ///
+  /// **只攔逾時**：定位服務被關、權限被撤都要往上丟，由 `_resolvePickupPosition`
+  /// 翻成乘客看得懂的下一步（原本沒人攔，整個例外穿出 `placeOrder`，
+  /// 畫面一句話都沒有）。
   Future<Position?> _acquirePosition() async {
     try {
-      return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
+      return await _locator.getCurrentPosition(
+        const LocationSettings(
           accuracy: LocationAccuracy.high,
           timeLimit: Duration(seconds: 8),
         ),
       );
     } on TimeoutException {
-      return Geolocator.getLastKnownPosition();
+      return _locator.getLastKnownPosition();
     }
   }
 
-  Future<bool> _ensureLocationPermission() async {
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
+  /// 單點模式的上車座標。回傳 null ＝ 已設好 `_error`，呼叫端放棄這次建單。
+  ///
+  /// **三種失敗要分開講**（比照司機端第二十一輪）：乘客的下一步完全不同——
+  /// 去系統設定給權限／把定位服務打開／換個位置再試。含糊的「定位失敗」等於沒說。
+  Future<Position?> _resolvePickupPosition() async {
+    final perm = await _ensureLocationPermission();
+    if (perm != LocationPermission.always &&
+        perm != LocationPermission.whileInUse) {
+      // deniedForever 之後 `requestPermission` 不會再彈任何視窗——
+      // 只說「需要定位權限」的話，乘客會一直重按叫車，App 裡永遠按不出結果。
+      _error = perm == LocationPermission.deniedForever
+          ? '定位權限已被永久拒絕，請到系統設定開啟才能叫車'
+          : '需要定位權限才能叫車';
+      return null;
     }
-    return perm == LocationPermission.always ||
-        perm == LocationPermission.whileInUse;
+    try {
+      final pos = await _acquirePosition();
+      if (pos == null) {
+        _error = '目前無法取得定位，請確認 GPS 已開啟後再試';
+      }
+      return pos;
+    } on LocationServiceDisabledException {
+      // 權限給了、系統定位服務關著（Android 快捷設定一鍵就關掉）。
+      _error = '裝置定位服務已關閉，請開啟後再叫車';
+      return null;
+    } on PermissionDeniedException {
+      // 檢查通過到取座標之間權限被撤（例如在通知欄操作）。
+      _error = '定位權限已被關閉，請到系統設定開啟才能叫車';
+      return null;
+    }
+  }
+
+  /// 回傳**目前的權限狀態**而不是 bool：deniedForever 與 denied 的出路不一樣。
+  Future<LocationPermission> _ensureLocationPermission() async {
+    var perm = await _locator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await _locator.requestPermission();
+    }
+    return perm;
   }
 
   void _startPolling() {
