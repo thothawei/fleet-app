@@ -203,7 +203,91 @@ void main() {
       expect(ctrl.error, '請求逾時，請稍後再試');
     });
   });
+
+  // 2026-07-30 模擬器實跑（blackhole cancel ＋ ws_block）抓到的缺口：取消成功卻被報成失敗。
+  // 後端真的取消了、回應遺失，App 唯一的回饋是「請求逾時，請稍後再試」——
+  // 而 WS 斷線時連「行程已取消」都沒有，乘客無從判斷到底取消了沒有。
+  group('乘客端取消逾時：後端可能其實取消了', () {
+    test('逾時後後端說這張單沒了 → 清掉逾時訊息，並給「行程已取消」的確認', () async {
+      final api = _TimeoutCancelApi()..activeNow = _ride(41);
+      final ctrl = await _customer(api);
+      addTearDown(ctrl.dispose);
+      expect(ctrl.activeRide?.rideId, 41, reason: '前置：畫面上要先有這張進行中訂單');
+      // 取消其實成立了，只是回應沒回來。
+      api.activeNow = null;
+
+      await ctrl.cancelOrder();
+
+      expect(ctrl.activeRide, isNull);
+      expect(ctrl.error, isNull, reason: '取消成功卻說「請求逾時」＝畫面在說謊');
+      expect(ctrl.cancelNotice, '行程已取消。',
+          reason: 'WS 斷線時沒有 ride.cancelled 事件，這條通知是乘客唯一的確認');
+    });
+
+    test('逾時後這張單還在 → 保留逾時訊息，訂單卡留著讓他重試', () async {
+      final api = _TimeoutCancelApi()..activeNow = _ride(41);
+      final ctrl = await _customer(api);
+      addTearDown(ctrl.dispose);
+
+      await ctrl.cancelOrder();
+
+      expect(ctrl.activeRide?.rideId, 41);
+      expect(ctrl.error, '請求逾時，請稍後再試');
+      expect(ctrl.cancelNotice, isNull, reason: '沒取消成功就不能說「行程已取消」');
+    });
+
+    test('409「當下不能取消」多半是上一次逾時其實生效了 → 也要對帳', () async {
+      final api = _TimeoutCancelApi()
+        ..activeNow = _ride(41)
+        ..cancelFailure = ApiException('這張訂單目前無法取消', statusCode: 409);
+      final ctrl = await _customer(api);
+      addTearDown(ctrl.dispose);
+      api.activeNow = null;
+
+      await ctrl.cancelOrder();
+
+      expect(ctrl.activeRide, isNull);
+      expect(ctrl.error, isNull);
+      expect(ctrl.cancelNotice, '行程已取消。');
+    });
+
+    test('後端明確拒絕（其他狀態碼）時不對帳——白問一次也沒用', () async {
+      final api = _TimeoutCancelApi()
+        ..activeNow = _ride(41)
+        ..cancelFailure = ApiException('請重新登入', statusCode: 401);
+      final ctrl = await _customer(api);
+      addTearDown(ctrl.dispose);
+      final callsBefore = api.activeCalls;
+
+      await ctrl.cancelOrder();
+
+      expect(api.activeCalls, callsBefore, reason: '401 不是「不知道成不成功」，不必再問');
+      expect(ctrl.error, '請重新登入');
+      expect(ctrl.activeRide?.rideId, 41);
+    });
+
+    test('對帳時後端換成另一張單 → 套用它，但不掛取消通知', () async {
+      final api = _TimeoutCancelApi()..activeNow = _ride(41);
+      final ctrl = await _customer(api);
+      addTearDown(ctrl.dispose);
+      // 這張是來自 LINE／另一台裝置的新單：眼前那張確實取消了，但新單還在進行。
+      api.activeNow = _ride(42);
+
+      await ctrl.cancelOrder();
+
+      expect(ctrl.activeRide?.rideId, 42);
+      expect(ctrl.error, isNull);
+      expect(ctrl.cancelNotice, isNull,
+          reason: '掛上取消通知會讓乘客以為這張新單也被取消了');
+    });
+  });
 }
+
+CustomerRide _ride(int id) => CustomerRide.fromJson({
+      'id': id,
+      'status': RideStatus.requested,
+      'pickup_address': '台北車站',
+    });
 
 Future<DriverController> _driver(FleetApiClient api) async {
   final ctrl = DriverController(
@@ -351,6 +435,32 @@ class _TimeoutCreateApi extends CustomerApiClient {
 
   @override
   Future<CustomerRide?> activeRide() async => activeAfterTimeout;
+
+  @override
+  Future<List<LostItemRequest>> fetchLostItems() async => const [];
+}
+
+/// 取消「掛在半路」的假後端：`cancelRide` 一律以 [cancelFailure] 失敗，
+/// `activeRide` 回 [activeNow]＝後端此刻的真實現況（對帳問的就是它）。
+class _TimeoutCancelApi extends CustomerApiClient {
+  _TimeoutCancelApi()
+      : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
+
+  CustomerRide? activeNow;
+  ApiException cancelFailure = ApiException('請求逾時，請稍後再試');
+  int activeCalls = 0;
+
+  @override
+  void setToken(String? token) {}
+
+  @override
+  Future<void> cancelRide(int rideId) async => throw cancelFailure;
+
+  @override
+  Future<CustomerRide?> activeRide() async {
+    activeCalls++;
+    return activeNow;
+  }
 
   @override
   Future<List<LostItemRequest>> fetchLostItems() async => const [];

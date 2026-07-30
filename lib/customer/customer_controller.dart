@@ -1096,8 +1096,45 @@ class CustomerController extends ChangeNotifier {
       _error = null;
     } on ApiException catch (e) {
       _error = e.message;
+      // 逾時／連線失敗（statusCode == null）**不代表後端沒取消**——請求可能已經送達、
+      // 訂單已經取消，只是回應沒回來。不對帳的話乘客得到的唯一回饋是
+      // 「請求逾時，請稍後再試」，而他其實已經取消成功了
+      // （2026-07-30 模擬器實跑：blackhole cancel ＋ ws_block 下，
+      // 訂單卡被輪詢收掉、螢幕上卻只留這句謊，乘客無從判斷到底取消了沒有）。
+      //
+      // **409 也要對帳**：那是後端在說「這張單當下不能取消」，
+      // 多半就是上一次逾時其實已經生效了（與建單的 `_handleCreateFailure` 同一個道理）。
+      if (e.statusCode == null || e.statusCode == 409) {
+        await _reconcileAfterCancel(ride.rideId);
+      }
     } finally {
       _setBusy(false);
+    }
+  }
+
+  /// 取消失敗後向後端確認這張單到底還在不在。
+  ///
+  /// 已經不在（沒有進行中訂單／已是終態）→ 取消其實成功了：套用後端現況、
+  /// 補上與 WS `ride.cancelled` 同一條「行程已取消」通知，並清掉那句錯誤。
+  /// **WS 斷線時沒有那個事件，這條通知就是乘客唯一的確認**。
+  /// 還在 → 什麼都不動，錯誤留著讓他重試。
+  /// 這一問本身也失敗 → 同樣什麼都不動（不知道就不亂改）。
+  Future<void> _reconcileAfterCancel(int rideId) async {
+    try {
+      final fresh = await _api.activeRide();
+      if (fresh != null && fresh.rideId != rideId) {
+        // 已經換成另一張進行中訂單（來自 LINE／另一台裝置）：套用它，
+        // 但不掛取消通知——那會讓乘客以為眼前這張單也被取消了。
+        _applyActiveRide(fresh);
+        _error = null;
+        return;
+      }
+      if (fresh != null && !RideStatus.isTerminal(fresh.status)) return;
+      _applyActiveRide(fresh);
+      _rideCancelled = true;
+      _error = null;
+    } on ApiException {
+      // 弱網下這一問也可能逾時；維持原本的錯誤訊息。
     }
   }
 
