@@ -867,27 +867,74 @@ class DriverController extends ChangeNotifier {
   }
 
   /// 標記已尋獲（open → found）。
-  Future<LostItemRequest> markLostItemFound(int itemId) async {
-    final item = await _api.markLostItemFound(itemId);
-    _applyLostItem(item);
-    notifyListeners();
-    return item;
-  }
+  Future<LostItemRequest> markLostItemFound(int itemId, {required int rideId}) =>
+      _writeLostItem(
+        () => _api.markLostItemFound(itemId),
+        rideId: rideId,
+        // 「已經越過 open」＝這次標記生效了（乘客可能已接著付款）。
+        // 不能只寫 `!= open`：被結案（closed）也符合那個條件，但那不是標尋獲。
+        applied: (fresh) =>
+            fresh.id == itemId &&
+            (fresh.status == LostItemStatus.found ||
+                fresh.status == LostItemStatus.paid ||
+                fresh.status == LostItemStatus.returned),
+      );
 
   /// 付訖後標記已歸還（paid → returned）。
-  Future<LostItemRequest> markLostItemReturned(int itemId) async {
-    final item = await _api.markLostItemReturned(itemId);
-    _applyLostItem(item);
-    notifyListeners();
-    return item;
-  }
+  Future<LostItemRequest> markLostItemReturned(int itemId,
+          {required int rideId}) =>
+      _writeLostItem(
+        () => _api.markLostItemReturned(itemId),
+        rideId: rideId,
+        applied: (fresh) =>
+            fresh.id == itemId && fresh.status == LostItemStatus.returned,
+      );
 
   /// 未尋獲結案（open/found → closed）。
-  Future<LostItemRequest> closeLostItem(int itemId) async {
-    final item = await _api.closeLostItem(itemId);
-    _applyLostItem(item);
-    notifyListeners();
-    return item;
+  Future<LostItemRequest> closeLostItem(int itemId, {required int rideId}) =>
+      _writeLostItem(
+        () => _api.closeLostItem(itemId),
+        rideId: rideId,
+        applied: (fresh) =>
+            fresh.id == itemId && fresh.status == LostItemStatus.closed,
+      );
+
+  /// 協尋單的寫入 ＋ 逾時對帳（司機端三條寫入路徑共用）。
+  ///
+  /// 與乘客端 `CustomerController._writeLostItem` 同一套判斷：連線類逾時或 409 時
+  /// 問一次這趟的最新協尋單，[applied] 成立就當成成功、套用後端現況；
+  /// 否則把**原本那個例外**丟回畫面。
+  ///
+  /// 為什麼判準不能用未結案清單：`returned` 與 `closed` 都不在清單裡，
+  /// 分不出「已歸還」還是「被結案」——而這兩個動作要分得出來。
+  Future<LostItemRequest> _writeLostItem(
+    Future<LostItemRequest> Function() action, {
+    required int rideId,
+    required bool Function(LostItemRequest fresh) applied,
+  }) async {
+    try {
+      final item = await action();
+      _applyLostItem(item);
+      notifyListeners();
+      return item;
+    } on ApiException catch (e) {
+      if (e.statusCode != null && e.statusCode != 409) rethrow;
+      final fresh = await _lostItemForReconcile(rideId);
+      // 重擲的必須是原本那個動作的例外。對帳的 try/catch 收在
+      // `_lostItemForReconcile` 裡（失敗回 null），所以這個 rethrow 擲的仍是 e。
+      if (fresh == null || !applied(fresh)) rethrow;
+      _applyLostItem(fresh);
+      notifyListeners();
+      return fresh;
+    }
+  }
+
+  Future<LostItemRequest?> _lostItemForReconcile(int rideId) async {
+    try {
+      return await _api.fetchLostItemByRide(rideId);
+    } on ApiException {
+      return null;
+    }
   }
 
   /// 以單筆最新狀態合併進未結案清單：結案移除、未結案更新或插入（新的在前）。
