@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -17,8 +18,28 @@ import '../core/ws/fleet_ws_client.dart';
 /// 定位串流的來源；測試以此換掉真 GPS（比照 `FleetWsClientFactory`）。
 typedef DriverPositionStreamFactory = Stream<Position> Function(LocationSettings);
 
+/// 上線前的權限確認（可能會彈系統視窗）；測試以此換掉平台對話框。
+typedef DriverLocationPermissionCheck = Future<bool> Function();
+
 Stream<Position> _geolocatorPositionStream(LocationSettings settings) =>
     Geolocator.getPositionStream(locationSettings: settings);
+
+/// 「現在的定位權限」——**只查不請求**，冷啟動自動恢復回報時用。
+/// `null` ＝ 查不到（平台不可用，例如單元測試沒有 platform channel）：
+/// **查不到與被拒絕是兩件事**，前者什麼都不該做，後者要跟司機說一聲。
+typedef DriverLocationPermissionProbe = Future<LocationPermission?> Function();
+
+Future<LocationPermission?> _geolocatorPermissionProbe() async {
+  // 測試環境沒有 platform channel，這支呼叫的 Future **永遠不會完成**——
+  // `init()` await 下去就把整個測試卡到 timeout（實測 driver_home_widget_test
+  // 從 4.8 秒變成 7 分鐘以上）。「查不到」正是這裡該有的答案。
+  if (Platform.environment.containsKey('FLUTTER_TEST')) return null;
+  try {
+    return await Geolocator.checkPermission();
+  } catch (_) {
+    return null;
+  }
+}
 
 /// 司機端狀態：登入、上線、WS 派單、行程操作。
 class DriverController extends ChangeNotifier {
@@ -28,11 +49,16 @@ class DriverController extends ChangeNotifier {
     FleetWsClientFactory? wsFactory,
     FleetPushService? push,
     DriverPositionStreamFactory? positionStream,
+    DriverLocationPermissionCheck? locationPermissions,
+    DriverLocationPermissionProbe? locationPermissionProbe,
   })  : _storage = storage ?? TokenStorage(),
         _api = api ?? FleetApiClient(),
         _wsFactory = wsFactory ?? FleetWsClient.new,
         _push = push ?? NoOpFleetPushService(),
         _positionStream = positionStream ?? _geolocatorPositionStream,
+        _ensurePermissions =
+            locationPermissions ?? ensureDriverLocationPermissions,
+        _permissionProbe = locationPermissionProbe ?? _geolocatorPermissionProbe,
         _ws = FleetWsClient(onEvent: (_) {}) {
     // token 過期／失效時把司機送回登入頁（見 _handleUnauthorized）。
     _api.onUnauthorized = _handleUnauthorized;
@@ -43,6 +69,8 @@ class DriverController extends ChangeNotifier {
   final FleetWsClientFactory _wsFactory;
   final FleetPushService _push;
   final DriverPositionStreamFactory _positionStream;
+  final DriverLocationPermissionCheck _ensurePermissions;
+  final DriverLocationPermissionProbe _permissionProbe;
   FleetWsClient _ws;
 
   AuthSession? _session;
@@ -222,8 +250,12 @@ class DriverController extends ChangeNotifier {
     if (_session == null) return;
     try {
       _vehicle = await _api.fetchVehicle();
+      // **只清自己造成的那則**：這裡原本無條件 `_setError(null)`，於是任何排在
+      // 它前面設好的訊息都會被洗掉——`init()` 裡「需要定位權限才能把位置回報給乘客」
+      // 就是這樣消失的（設了、也通知了，下一行就被抹掉，畫面上什麼都沒有）。
+      // 同一種病第二十一輪在位置回報探針上修過一次：清錯誤要指名清哪一則。
+      if (_vehicleLoadFailed) _setError(null);
       _vehicleLoadFailed = false;
-      _setError(null);
     } on ApiException catch (e) {
       _setApiError(e);
       _vehicleLoadFailed = true;
@@ -306,6 +338,7 @@ class DriverController extends ChangeNotifier {
     if (saved != null) {
       await _applySession(saved);
       await _restoreActiveRide();
+      await _resumeReportingForRestoredRide();
       await refreshLostItems();
       // O3 gate 的 App 端引導：一還原 session 就查車輛，_DriverRoot 才知道要不要跳設定頁。
       await refreshVehicle();
@@ -371,6 +404,39 @@ class DriverController extends ChangeNotifier {
       if (silent) return;
       _setApiError(e);
       notifyListeners();
+    }
+  }
+
+  /// 冷啟動還原到進行中行程時，把定位回報接回來。
+  ///
+  /// **這是行程中位置回報唯一會整段消失的路徑**：App 被系統收掉（省電模式殺前景服務、
+  /// 廠商清背景），或司機自己把它從最近工作清單滑掉，再打開——`_restoreActiveRide`
+  /// 會把行程還原、行程卡照樣顯示「導航／已上車／完成」，但 `_online` 一律從 false 起、
+  /// 定位串流也沒起來，於是**整趟零位置回報**：乘客端的司機 marker 定格、ETA 不再更新，
+  /// 後端的抵達圍籬不會觸發，F3 里程的軌跡缺一整段（車資會偏低）。
+  /// 而 hero 只寫「離線／目前不會收到派單」——在載客途中，那句話講的是接不接新單，
+  /// 司機不會從它聯想到「乘客看不到我在動」。
+  ///
+  /// **只在冷啟動做**：App 還活著時 `_online == false` 一定是司機自己按的，
+  /// 回前景時再自動上線等於那顆離線鈕按不掉。
+  ///
+  /// **而且只在已經有權限時做**：冷啟動就彈系統權限視窗太侵入（司機可能只是想看歷史），
+  /// 沒權限時留一則可行動的訊息，等他自己按上線再彈。
+  Future<void> _resumeReportingForRestoredRide() async {
+    if (_session == null || _online || _activeRide == null) return;
+    const denied = '需要定位權限才能把位置回報給乘客';
+    switch (await _permissionProbe()) {
+      case LocationPermission.always:
+      case LocationPermission.whileInUse:
+        await _goOnline(deniedMessage: denied);
+      case LocationPermission.denied:
+      case LocationPermission.deniedForever:
+      case LocationPermission.unableToDetermine:
+        // 不彈視窗，只說一聲——司機按上線時才會走到請求那條。
+        _setError(denied);
+        notifyListeners();
+      case null:
+        break; // 查不到權限狀態：不自動恢復，也不編故事。
     }
   }
 
@@ -557,11 +623,13 @@ class DriverController extends ChangeNotifier {
     }
   }
 
-  Future<void> goOnline() async {
+  Future<void> goOnline() => _goOnline(deniedMessage: '需要定位權限才能上線');
+
+  Future<void> _goOnline({required String deniedMessage}) async {
     if (_session == null) return;
-    final ok = await ensureDriverLocationPermissions();
+    final ok = await _ensurePermissions();
     if (!ok) {
-      _setError('需要定位權限才能上線');
+      _setError(deniedMessage);
       notifyListeners();
       return;
     }

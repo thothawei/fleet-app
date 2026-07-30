@@ -173,6 +173,27 @@ void main() {
       expect(ctrl.error, isNull);
     });
 
+    test('查車輛成功不可以順手清掉別人設的錯誤', () async {
+      // 這裡原本是無條件 `_setError(null)`：`init()` 裡排在 refreshVehicle 前面
+      // 設好的「需要定位權限才能把位置回報給乘客」就這樣被抹掉——設了、也通知了，
+      // 下一行清空，畫面上什麼都沒有。清錯誤要指名清哪一則。
+      final denied = DriverController(
+        storage: MemoryDriverAuthStore(),
+        api: api,
+        wsFactory: FleetWsClient.silent,
+        locationPermissions: () async => false,
+      );
+      addTearDown(denied.dispose);
+      await denied.init();
+      await denied.login(lineUserId: 'U', password: 'pw');
+      await denied.goOnline();
+      expect(denied.error, isNotNull, reason: '前置：權限被拒的訊息掛上去了');
+
+      await denied.refreshVehicle();
+
+      expect(denied.error, isNotNull);
+    });
+
     test('儲存後以後端回傳值為準（車牌已正規化）', () async {
       await ctrl.init();
       await ctrl.login(lineUserId: 'U', password: 'pw');
