@@ -583,6 +583,7 @@ class RideMessage {
     required this.senderId,
     required this.body,
     this.createdAt,
+    this.clientMsgId,
   });
 
   final int id;
@@ -594,6 +595,13 @@ class RideMessage {
   final String body;
   final DateTime? createdAt;
 
+  /// 送出時帶的冪等鍵（後端 `client_msg_id`）；null ＝這則沒帶
+  /// （對方送的、舊訊息、或 LINE 等非 App 來源）。
+  ///
+  /// **逾時後就是靠它認出「上一次其實送出了」**：訊息在後端沒有唯一狀態，
+  /// 「同內容再送一次」本來就合法，所以補讀時只能用這個鍵比對，不能比內容。
+  final String? clientMsgId;
+
   factory RideMessage.fromJson(Map<String, dynamic> json) {
     return RideMessage(
       id: (json['id'] as num).toInt(),
@@ -602,6 +610,7 @@ class RideMessage {
       senderId: (json['sender_id'] as num?)?.toInt() ?? 0,
       body: json['body'] as String? ?? '',
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),
+      clientMsgId: json['client_msg_id'] as String?,
     );
   }
 }

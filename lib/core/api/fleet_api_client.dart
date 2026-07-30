@@ -262,11 +262,23 @@ class FleetApiClient {
   }
 
   /// 發送訊息；即時遞送由後端透過 WS chat.message 推給雙方。
-  Future<RideMessage> sendMessage(int rideId, String body) async {
+  /// 送出一則訊息。
+  ///
+  /// [clientMsgId] 是**冪等鍵**（後端 dispatch #68）：帶同一個鍵重送，後端會回既有那筆、
+  /// 不會多一則訊息。送出逾時後的重試一定要沿用同一個鍵——不然對方會看到同一句話兩次。
+  Future<RideMessage> sendMessage(
+    int rideId,
+    String body, {
+    String? clientMsgId,
+  }) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>(
         '/rides/$rideId/messages',
-        data: {'body': body},
+        data: {
+          'body': body,
+          // null-aware element：沒帶鍵時整個欄位不出現（維持既有請求形狀）。
+          'client_msg_id': ?clientMsgId,
+        },
       );
       return RideMessage.fromJson(
         Map<String, dynamic>.from(res.data!['message'] as Map),

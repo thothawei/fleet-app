@@ -125,6 +125,7 @@ class _FakeChat {
     return history.where((m) => m.id > afterId).toList();
   }
 
-  Future<RideMessage> send(int rideId, String body) async =>
+  Future<RideMessage> send(int rideId, String body,
+          {String? clientMsgId}) async =>
       _msg(99, body);
 }

@@ -972,8 +972,9 @@ class CustomerController extends ChangeNotifier {
   Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) =>
       _api.fetchMessages(rideId, afterId: afterId);
 
-  Future<RideMessage> sendMessage(int rideId, String body) =>
-      _api.sendMessage(rideId, body);
+  Future<RideMessage> sendMessage(int rideId, String body,
+          {String? clientMsgId}) =>
+      _api.sendMessage(rideId, body, clientMsgId: clientMsgId);
 
   /// 叫車：以目前 GPS 為上車點，帶乘客輸入的上車/目的地地址；
   /// 若目的地由地圖選點取得，另帶精確座標（dropoffLat/Lng）。
