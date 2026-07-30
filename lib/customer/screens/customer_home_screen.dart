@@ -8,6 +8,14 @@ import '../widgets/customer_tracking_map.dart';
 import '../widgets/ride_phase_content.dart';
 import 'scheduled_rides_screen.dart';
 
+/// 卡片版乘客首頁。
+///
+/// ⚠️ **production 用的不是這個**——`app.dart` 掛的是 `CustomerMapHomeScreen`（地圖為底）。
+/// 這支目前只有 widget 測試在用（測 `OrderFormContent` 等共用元件比較好架設）。
+///
+/// **加任何入口／橫切呈現之前，先確認要加在哪一個**：只加在這裡的話，
+/// 功能寫完、測試全綠，使用者的畫面上卻什麼都沒有——預約司機那批就是這樣踩的。
+/// 兩份都加是刻意的（讓兩個畫面保持一致），但**地圖版才是必須的那一份**。
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
 
