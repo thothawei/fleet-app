@@ -472,6 +472,7 @@ class CustomerApiClient {
       return ScheduledRidesResult(
         rides: ScheduledRide.listFrom(res.data?['scheduled_rides']),
         leadMinutes: (res.data?['lead_minutes'] as num?)?.toInt() ?? 0,
+        minLeadMinutes: (res.data?['min_lead_minutes'] as num?)?.toInt() ?? 0,
       );
     } on DioException catch (e) {
       throw _wrap(e);
@@ -572,14 +573,23 @@ class CustomerApiClient {
   }
 }
 
-/// 預約清單查詢結果：清單本身＋後端的提前發動分鐘數。
+/// 預約清單查詢結果：清單本身＋後端的兩個時間參數。
 class ScheduledRidesResult {
-  const ScheduledRidesResult({required this.rides, required this.leadMinutes});
+  const ScheduledRidesResult({
+    required this.rides,
+    required this.leadMinutes,
+    this.minLeadMinutes = 0,
+  });
 
   final List<ScheduledRide> rides;
 
   /// 後端會提前這麼多分鐘開始派單（constants.ScheduledRideLeadMinutes）。
   final int leadMinutes;
+
+  /// 建立預約時，距現在至少要有的分鐘數（constants.ScheduledRideMinLeadMinutes）。
+  /// **不要在 UI 寫死**——後端把門檻調高之後，寫死的 App 會讓乘客選一個註定被 400
+  /// 拒絕的時間，而他要填完整張表才會知道。0 ＝還沒問過後端，UI 用自己的保底值。
+  final int minLeadMinutes;
 }
 
 /// 取消預約時撞上「已被轉成真訂單」（HTTP 409）。

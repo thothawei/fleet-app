@@ -330,12 +330,6 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
   double? _dropoffLng;
   final _note = TextEditingController();
 
-  /// 預約至少要比現在晚這麼多分鐘（與後端 ScheduledRideMinLeadMinutes 同一個數字）。
-  ///
-  /// 在 App 端也擋一次，是為了讓乘客**在按下送出之前**就知道時間太近，
-  /// 而不是填完整張表才收到 400。後端那道仍然是權威。
-  static const _minLeadMinutes = 20;
-
   @override
   void dispose() {
     _note.dispose();
@@ -362,7 +356,7 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
             child: ListTile(
               leading: const Icon(Icons.schedule),
               title: Text(_at == null ? '選擇時間' : formatScheduleTime(_at!)),
-              subtitle: Text('最早可預約 $_minLeadMinutes 分鐘後'),
+              subtitle: Text('最早可預約 ${ctrl.scheduleMinLeadMinutes} 分鐘後'),
               trailing: const Icon(Icons.chevron_right),
               onTap: _pickDateTime,
             ),
@@ -458,8 +452,12 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
   }
 
   Future<void> _pickDateTime() async {
+    // 門檻來自後端（見 CustomerController.scheduleMinLeadMinutes）——
+    // 在 App 端也擋一次，是為了讓乘客**在按下送出之前**就知道時間太近，
+    // 而不是填完整張表才收到 400。後端那道仍然是權威。
+    final minLead = context.read<CustomerController>().scheduleMinLeadMinutes;
     final now = DateTime.now();
-    final earliest = now.add(const Duration(minutes: _minLeadMinutes));
+    final earliest = now.add(Duration(minutes: minLead));
     final messenger = ScaffoldMessenger.of(context);
     final date = await showDatePicker(
       context: context,
@@ -479,7 +477,7 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            '預約時間至少要在 $_minLeadMinutes 分鐘後。想馬上用車請直接叫車。',
+            '預約時間至少要在 $minLead 分鐘後。想馬上用車請直接叫車。',
           ),
         ),
       );

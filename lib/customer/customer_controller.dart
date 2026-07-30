@@ -592,6 +592,7 @@ class CustomerController extends ChangeNotifier {
   bool _schedulesLoading = false;
   String? _schedulesError;
   int _scheduleLeadMinutes = 0;
+  int _scheduleMinLeadMinutes = 0;
 
   /// 我的預約（近的在前）。
   List<ScheduledRide> get scheduledRides => List.unmodifiable(_scheduledRides);
@@ -601,6 +602,16 @@ class CustomerController extends ChangeNotifier {
   /// 後端會提前這麼多分鐘開始派單；0 ＝還沒問過後端。
   /// **不要在 UI 寫死這個數字**——後端改了 App 就會說謊。
   int get scheduleLeadMinutes => _scheduleLeadMinutes;
+
+  /// 建立預約時距現在至少要有的分鐘數；還沒問過後端時退回保底值。
+  ///
+  /// 退路是「App 自己的保底值」而不是 0：0 會讓時間選擇器完全不擋，
+  /// 乘客選了 3 分鐘後，填完整張表才被後端以 400 拒絕。
+  int get scheduleMinLeadMinutes =>
+      _scheduleMinLeadMinutes > 0 ? _scheduleMinLeadMinutes : fallbackMinLeadMinutes;
+
+  /// 問不到後端時用的保底門檻（與後端當前的 ScheduledRideMinLeadMinutes 一致）。
+  static const fallbackMinLeadMinutes = 20;
 
   /// 還沒轉單的預約，供首頁那張「即將到來」的卡。
   List<ScheduledRide> get upcomingSchedules =>
@@ -618,6 +629,7 @@ class CustomerController extends ChangeNotifier {
       final res = await _api.fetchScheduledRides();
       _scheduledRides = res.rides;
       if (res.leadMinutes > 0) _scheduleLeadMinutes = res.leadMinutes;
+      if (res.minLeadMinutes > 0) _scheduleMinLeadMinutes = res.minLeadMinutes;
       _schedulesError = null;
     } on ApiException catch (e) {
       if (!silent) _schedulesError = e.message;
@@ -939,6 +951,7 @@ class CustomerController extends ChangeNotifier {
     _scheduledRides = const [];
     _schedulesError = null;
     _scheduleLeadMinutes = 0;
+    _scheduleMinLeadMinutes = 0;
     _completedRatingScore = null;
     _completedRatingRideId = null;
     _fcmToken = null;

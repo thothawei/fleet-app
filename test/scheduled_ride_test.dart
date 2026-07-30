@@ -17,6 +17,8 @@ CustomerController loggedInController(CustomerApiClient api) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  _minLeadTests();
+
   group('預約行程', () {
     test('載入清單後 upcoming 只留 pending，已轉單／取消／失敗都不算', () async {
       final api = _ScheduleApi(rides: [
@@ -213,6 +215,7 @@ class _ScheduleApi extends CustomerApiClient {
     this.cancelThrows,
     this.reloadAfterCancel,
     this.listThrows,
+    this.minLeadMinutes = 20,
   }) : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
   List<ScheduledRide> rides;
@@ -220,6 +223,7 @@ class _ScheduleApi extends CustomerApiClient {
   final ApiException? cancelThrows;
   final List<ScheduledRide>? reloadAfterCancel;
   final ApiException? listThrows;
+  final int minLeadMinutes;
   bool _cancelled = false;
 
   @override
@@ -242,7 +246,11 @@ class _ScheduleApi extends CustomerApiClient {
     final rows = _cancelled && reloadAfterCancel != null
         ? reloadAfterCancel!
         : rides;
-    return ScheduledRidesResult(rides: rows, leadMinutes: 15);
+    return ScheduledRidesResult(
+      rides: rows,
+      leadMinutes: 15,
+      minLeadMinutes: minLeadMinutes,
+    );
   }
 
   @override
@@ -290,4 +298,29 @@ class _ScheduleApi extends CustomerApiClient {
     ];
     return cancelled;
   }
+}
+
+/// 建立預約的最小前置時間必須來自後端，不能寫死在 App。
+///
+/// 後端把門檻調高之後，寫死的 App 仍會讓乘客選一個註定被 400 拒絕的時間，
+/// 而他要填完整張表才會知道。
+void _minLeadTests() {
+  group('最小前置時間', () {
+    test('後端給多少就用多少', () async {
+      final api = _ScheduleApi(rides: [], minLeadMinutes: 45);
+      final ctrl = loggedInController(api);
+      await ctrl.loadScheduledRides();
+      expect(ctrl.scheduleMinLeadMinutes, 45);
+    });
+
+    test('後端沒給（舊版）→ 退回保底值，不是 0', () async {
+      // 退回 0 會讓時間選擇器完全不擋，反而比寫死更糟。
+      final api = _ScheduleApi(rides: [], minLeadMinutes: 0);
+      final ctrl = loggedInController(api);
+      await ctrl.loadScheduledRides();
+      expect(ctrl.scheduleMinLeadMinutes,
+          CustomerController.fallbackMinLeadMinutes);
+      expect(ctrl.scheduleMinLeadMinutes, greaterThan(0));
+    });
+  });
 }
