@@ -2144,14 +2144,28 @@ App 這邊畫面還停在 open → 按「已找到」→ proxy log
   不是只看畫面。
 - dev DB：25 筆全部是 `status=9`（已取消）終態。
 
-### 這一輪踩到的兩條
+### 這一輪踩到的兩條（**都已修掉，不只是記下來**）
 
-1. **本機有兩個 redis 在搶 6379**：主機的 `redis-server` 綁 `127.0.0.1`、docker 綁 `*`，
-   `REDIS_ADDR=127.0.0.1:6379` 會連到**主機那個**。在 docker 容器裡 `redis-cli KEYS` 查不到
-   任何鍵、以為限流沒生效，其實只是查錯了那台。
-2. **造測試資料會撞到叫車限流**（`AllowRateLimit`，預設 5 次／分鐘、key 帶 `line_user_id`）：
-   25 筆要配速（本輪用 13 秒一筆）；而且每筆建完要**立刻取消**，
-   否則 `FindActiveByCustomer` 會擋掉下一筆。
+1. **本機有兩個 redis 在搶 6379** → 已在 dispatch 讓開埠號。
+   主機的 `redis-server` 綁 `127.0.0.1`、docker 綁 `*`，**localhost 一律由前者接手**，
+   所以服務跑在主機時吃的是本機那台；我在容器裡 `redis-cli KEYS` 查不到任何鍵，
+   一度以為限流沒生效——其實只是查錯了那台。
+   **當時只是推論，事後用 raw socket 對兩台各寫一個 `whoami` 鍵驗死**：
+   `127.0.0.1:6379` 回 `host_redis`。
+   **修法**（dispatch [PR #72](https://github.com/thothawei/fleet-dispatch/pull/72)）：
+   compose 把 redis 發布到 `${REDIS_HOST_PORT:-6380}`，與 postgis 讓開 5432 同一個做法；
+   README 補「只起相依服務、server 跑在主機」的正式段落。
+   改完實測：`6380` → `docker_redis_6380`、`6379` → `host_redis`；
+   用新埠跑一輪後 `ratelimit:*` **出現在容器那台**、主機那台是空的。
+   **主機跑法從此是 `REDIS_ADDR=127.0.0.1:6380`**（本檔下面那段指令已更正）。
+2. **造測試資料會撞到叫車限流** → 已寫成
+   [`tool/seed_customer_rides.sh`](../tool/seed_customer_rides.sh)。
+   三個東西缺一不可地擋在路上：`AllowRateLimit`（預設 5 次／分鐘、key 帶 `line_user_id`，
+   值由 admin 派單設定的 rate 決定）、`FindActiveByCustomer`（上一筆沒進終態就建不了下一筆）、
+   建單回應是 `{"ride_id":42}` **不是** `{"id":...}`。
+   **最糟的是這三個都不會讓迴圈停下來**——我第一版 25 次全跑空還印得像成功，
+   所以腳本在建單失敗時**直接 exit 1 並印出回應**。
+   已用 `tool/seed_customer_rides.sh 3` 實跑驗過（ride #66–#68，全部已取消）。
 
 ### 同族還沒碰的角落
 
@@ -2204,9 +2218,13 @@ App 這邊畫面還停在 open → 按「已找到」→ proxy log
 > 沒有任何管道能把一則推播送進 App。
 > **本機後端怎麼起**（實測有效，`.env` 是給 docker 內用的，跑在主機要覆寫三個變數）：
 > `docker compose up -d postgis redis` ＋
-> `DB_HOST=127.0.0.1 DB_PORT=5433 REDIS_ADDR=127.0.0.1:6379 go run ./cmd/server`
+> `DB_HOST=127.0.0.1 DB_PORT=5433 REDIS_ADDR=127.0.0.1:6380 go run ./cmd/server`
 > （dispatch repo；Docker registry 拉不到映像，別用 `--build`）。
+> **redis 是 6380 不是 6379**（2026-07-31 更正）：舊的 6379 會靜默連到 Mac 本機那台
+> `redis-server`，見第二十四輪「踩到的兩條」第 1 點；dispatch 已把容器改發布 6380。
 > **弱網／回應遺失要用 [`tool/lossy_proxy.py`](../tool/lossy_proxy.py)**，不要再試 `docker pause`。
+> **要造大量歷史行程用 [`tool/seed_customer_rides.sh`](../tool/seed_customer_rides.sh)**，
+> 別自己寫 for 迴圈打 API（會被限流與「已有進行中訂單」擋掉，而且不會報錯）。
 >
 > **這一輪學到的一條**：`StreamController.broadcast()` 在沒有訂閱者時 `add` 的事件會**靜默消失**。
 > 只要「發送點」與「訂閱點」不在同一個生命週期階段，就要問「**發送比訂閱早的那一次去哪了**」。
