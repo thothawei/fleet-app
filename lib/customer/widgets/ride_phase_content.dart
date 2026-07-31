@@ -10,6 +10,7 @@ import '../screens/lost_item_screen.dart';
 import '../screens/map_picker_screen.dart';
 import 'rating_sheet.dart';
 import 'ride_stops_progress.dart';
+import 'saved_places_bar.dart';
 import 'stops_editor.dart';
 
 /// 開啟與司機的即時聊天室（行程中與遺失物協尋共用同一條對話）。
@@ -371,6 +372,14 @@ class _OrderFormContentState extends State<OrderFormContent> {
         // 多乘客模式（N3）下每位乘客各自有上／下車點，單一目的地欄位不再適用——
         // 同時顯示兩者會讓人以為要各填一次。
         if (!ctrl.multiStopEnabled) ...[
+          // 常用地點快捷：一鍵把住家／公司帶進目的地。座標一起帶過來，
+          // 所以帶入後照樣算得出車資預估（手打地址是算不出來的）。
+          SavedPlacesBar(
+            ctrl: ctrl,
+            title: '常用目的地',
+            onPick: _applySavedPlace,
+          ),
+          const SizedBox(height: 8),
           TextField(
             controller: _dropoff,
             onChanged: (_) {
@@ -425,6 +434,19 @@ class _OrderFormContentState extends State<OrderFormContent> {
         ),
       ],
     );
+  }
+
+  /// 把常用地點帶進目的地欄。
+  ///
+  /// **程式化設定 `text` 不會觸發 `onChanged`**，所以座標不會被那段「手動編輯就丟棄座標」
+  /// 的邏輯清掉——這正是要的：常用地點本來就帶著跟地址對得上的座標。
+  void _applySavedPlace(SavedPlace place) {
+    setState(() {
+      _dropoff.text = place.address;
+      _dropoffLat = place.lat;
+      _dropoffLng = place.lng;
+    });
+    widget.ctrl.setEstimateDropoff(place.lat, place.lng);
   }
 
   Future<void> _pickOnMap(BuildContext context) async {

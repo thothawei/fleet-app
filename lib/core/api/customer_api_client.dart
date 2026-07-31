@@ -379,6 +379,188 @@ class CustomerApiClient {
     }
   }
 
+  // ---------- 常用地點（住家／公司／自訂）----------
+
+  /// 我的常用地點；後端已排好序（住家 → 公司 → 其他）。
+  Future<List<SavedPlace>> fetchSavedPlaces() async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>('/customer/places');
+      return SavedPlace.listFrom(res.data?['places']);
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 新增常用地點。
+  ///
+  /// **kind 為 home／work 時是覆蓋語意**：後端會更新既有那一筆而不是回錯，
+  /// 所以 UI 上「設定住家」可以直接送，不必先查有沒有、也不必先刪舊的。
+  Future<SavedPlace> createSavedPlace({
+    required String kind,
+    required String label,
+    required String address,
+    required double lat,
+    required double lng,
+  }) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/customer/places',
+        data: {
+          'kind': kind,
+          'label': label,
+          'address': address,
+          'lat': lat,
+          'lng': lng,
+        },
+      );
+      return SavedPlace.fromJson(
+        Map<String, dynamic>.from(res.data!['place'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 更新常用地點的名稱／地址／座標（kind 不可改，送了後端也會忽略）。
+  Future<SavedPlace> updateSavedPlace(
+    int id, {
+    required String label,
+    required String address,
+    required double lat,
+    required double lng,
+  }) async {
+    try {
+      final res = await _dio.put<Map<String, dynamic>>(
+        '/customer/places/$id',
+        data: {
+          'label': label,
+          'address': address,
+          'lat': lat,
+          'lng': lng,
+        },
+      );
+      return SavedPlace.fromJson(
+        Map<String, dynamic>.from(res.data!['place'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  Future<void> deleteSavedPlace(int id) async {
+    try {
+      await _dio.delete('/customer/places/$id');
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  // ---------- 預約行程 ----------
+
+  /// 我的預約。[upcomingOnly] 只回還沒轉單的（首頁那張卡）；否則含已轉單／已取消。
+  ///
+  /// 回傳同時帶後端的提前發動分鐘數——「我們會提前幾分鐘幫你找車」這句話要跟後端
+  /// 實際行為一致，寫死在 App 端的話改後端就會說謊。
+  Future<ScheduledRidesResult> fetchScheduledRides({
+    bool upcomingOnly = false,
+  }) async {
+    try {
+      final res = await _dio.get<Map<String, dynamic>>(
+        '/customer/scheduled-rides',
+        queryParameters: upcomingOnly ? {'upcoming': '1'} : null,
+      );
+      return ScheduledRidesResult(
+        rides: ScheduledRide.listFrom(res.data?['scheduled_rides']),
+        leadMinutes: (res.data?['lead_minutes'] as num?)?.toInt() ?? 0,
+        minLeadMinutes: (res.data?['min_lead_minutes'] as num?)?.toInt() ?? 0,
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 查單筆預約（取消撞 409 後用來重讀現況）。
+  Future<ScheduledRide> fetchScheduledRide(int id) async {
+    try {
+      final res =
+          await _dio.get<Map<String, dynamic>>('/customer/scheduled-rides/$id');
+      return ScheduledRide.fromJson(
+        Map<String, dynamic>.from(res.data!['scheduled_ride'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 建立預約。[scheduledAt] 為本地時間，送出前轉 UTC 的 RFC3339。
+  Future<ScheduledRide> createScheduledRide({
+    required DateTime scheduledAt,
+    required double pickupLat,
+    required double pickupLng,
+    required String pickupAddress,
+    String? dropoffAddress,
+    double? dropoffLat,
+    double? dropoffLng,
+    String? requiredVehicleType,
+    String note = '',
+  }) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/customer/scheduled-rides',
+        data: {
+          'scheduled_at': scheduledAt.toUtc().toIso8601String(),
+          'pickup_lat': pickupLat,
+          'pickup_lng': pickupLng,
+          'pickup_address': pickupAddress,
+          if (dropoffAddress != null && dropoffAddress.isNotEmpty)
+            'dropoff_address': dropoffAddress,
+          if (dropoffLat != null && dropoffLng != null) ...{
+            'dropoff_lat': dropoffLat,
+            'dropoff_lng': dropoffLng,
+          },
+          if (requiredVehicleType != null && requiredVehicleType.isNotEmpty)
+            'required_vehicle_type': requiredVehicleType,
+          if (note.isNotEmpty) 'note': note,
+        },
+      );
+      return ScheduledRide.fromJson(
+        Map<String, dynamic>.from(res.data!['scheduled_ride'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _wrap(e);
+    }
+  }
+
+  /// 取消預約。
+  ///
+  /// **409 代表它已經被轉成真訂單了**（排程器搶在取消之前發動）。這種情況後端會把
+  /// 該筆預約的現況一起回來——不能對乘客說「取消失敗，請稍後再試」，那張訂單已經在
+  /// 派單池裡，司機可能正在開過來。回傳的 [ScheduledRide] 讓 UI 直接切成「已為你派車」
+  /// 並引導去取消訂單。
+  Future<ScheduledRide> cancelScheduledRide(int id) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/customer/scheduled-rides/$id/cancel',
+      );
+      return ScheduledRide.fromJson(
+        Map<String, dynamic>.from(res.data!['scheduled_ride'] as Map),
+      );
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 409) {
+        final raw = e.response?.data;
+        if (raw is Map && raw['scheduled_ride'] is Map) {
+          throw ScheduledRideConflict(
+            ScheduledRide.fromJson(
+              Map<String, dynamic>.from(raw['scheduled_ride'] as Map),
+            ),
+            apiErrorMessage(e),
+          );
+        }
+      }
+      throw _wrap(e);
+    }
+  }
+
   /// 401（登入／註冊以外）＝ session 失效：通知 controller 清掉它。
   /// 詳見 `FleetApiClient._wrap`——兩端同一條規則。
   ApiException _wrap(DioException e) {
@@ -389,4 +571,36 @@ class CustomerApiClient {
     }
     return ApiException(apiErrorMessage(e), statusCode: code);
   }
+}
+
+/// 預約清單查詢結果：清單本身＋後端的兩個時間參數。
+class ScheduledRidesResult {
+  const ScheduledRidesResult({
+    required this.rides,
+    required this.leadMinutes,
+    this.minLeadMinutes = 0,
+  });
+
+  final List<ScheduledRide> rides;
+
+  /// 後端會提前這麼多分鐘開始派單（constants.ScheduledRideLeadMinutes）。
+  final int leadMinutes;
+
+  /// 建立預約時，距現在至少要有的分鐘數（constants.ScheduledRideMinLeadMinutes）。
+  /// **不要在 UI 寫死**——後端把門檻調高之後，寫死的 App 會讓乘客選一個註定被 400
+  /// 拒絕的時間，而他要填完整張表才會知道。0 ＝還沒問過後端，UI 用自己的保底值。
+  final int minLeadMinutes;
+}
+
+/// 取消預約時撞上「已被轉成真訂單」（HTTP 409）。
+///
+/// 帶著後端回來的最新狀態，讓 UI 能把畫面換成「已為你派車」而不是宣稱取消失敗。
+class ScheduledRideConflict implements Exception {
+  ScheduledRideConflict(this.current, this.message);
+
+  final ScheduledRide current;
+  final String message;
+
+  @override
+  String toString() => message;
 }

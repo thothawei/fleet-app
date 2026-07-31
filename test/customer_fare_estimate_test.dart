@@ -6,6 +6,16 @@ import 'package:line_fleet_app/customer/customer_controller.dart';
 
 /// 記錄 estimateFare 收到的參數，回一筆可控的預估；可設定為丟例外（測靜默失敗）。
 class _FakeEstimateApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _FakeEstimateApi();
 
   int calls = 0;

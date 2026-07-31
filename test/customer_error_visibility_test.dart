@@ -133,6 +133,16 @@ void main() {
 
 /// 模擬 token 失效的後端：任何查詢都回 401。
 class _FailingApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _FailingApi() : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 
   @override
@@ -142,6 +152,16 @@ class _FailingApi extends CustomerApiClient {
 
 /// 第一次查詢成功（回一筆進行中行程並啟動輪詢），之後一律斷線。
 class _FlakyAfterFirstApi extends CustomerApiClient {
+  // 預約／常用地點：controller.init() 會載這兩份。沒覆寫的話會走真實 Dio 打網路，
+  // 在測試裡變成不確定的非同步延遲，把不相干的測試拖成 flaky（實測會讓
+  // customer_location_exits 的預估 notifyListeners 落在 dispose 之後）。
+  @override
+  Future<List<SavedPlace>> fetchSavedPlaces() async => const [];
+
+  @override
+  Future<ScheduledRidesResult> fetchScheduledRides({bool upcomingOnly = false}) async =>
+      const ScheduledRidesResult(rides: [], leadMinutes: 15);
+
   _FlakyAfterFirstApi()
       : super(dio: Dio(BaseOptions(baseUrl: 'http://test.invalid/api')));
 

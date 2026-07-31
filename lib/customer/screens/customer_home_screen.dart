@@ -6,7 +6,16 @@ import '../customer_controller.dart';
 import '../widgets/lost_item_banner.dart';
 import '../widgets/customer_tracking_map.dart';
 import '../widgets/ride_phase_content.dart';
+import 'scheduled_rides_screen.dart';
 
+/// 卡片版乘客首頁。
+///
+/// ⚠️ **production 用的不是這個**——`app.dart` 掛的是 `CustomerMapHomeScreen`（地圖為底）。
+/// 這支目前只有 widget 測試在用（測 `OrderFormContent` 等共用元件比較好架設）。
+///
+/// **加任何入口／橫切呈現之前，先確認要加在哪一個**：只加在這裡的話，
+/// 功能寫完、測試全綠，使用者的畫面上卻什麼都沒有——預約司機那批就是這樣踩的。
+/// 兩份都加是刻意的（讓兩個畫面保持一致），但**地圖版才是必須的那一份**。
 class CustomerHomeScreen extends StatefulWidget {
   const CustomerHomeScreen({super.key});
 
@@ -27,6 +36,13 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         title: Text('你好，${ctrl.session?.name ?? '乘客'}'),
         actions: [
           IconButton(
+            tooltip: '預約司機',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ScheduledRidesScreen()),
+            ),
+            icon: const Icon(Icons.event),
+          ),
+          IconButton(
             tooltip: '登出',
             onPressed: ctrl.loading ? null : () => ctrl.logout(),
             icon: const Icon(Icons.logout),
@@ -37,6 +53,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
         onRefresh: () async {
           await ctrl.refreshActive();
           await ctrl.refreshLostItems();
+          await ctrl.loadScheduledRides(silent: true);
         },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -53,6 +70,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                   child: OrderFormContent(ctrl: ctrl),
                 ),
               ),
+            // 即將到來的預約。**只顯示最近一筆**——首頁是「現在要做什麼」的地方，
+            // 把整份預約清單攤在這裡會把叫車表單推到看不見的位置。
+            if (ctrl.upcomingSchedules.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _UpcomingScheduleCard(schedule: ctrl.upcomingSchedules.first),
+            ],
             // 進行中的遺失物協尋（WS 即時更新狀態）
             for (final item in ctrl.lostItems) ...[
               const SizedBox(height: 12),
@@ -167,6 +190,36 @@ class _ActiveRideCard extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 首頁的「即將到來的預約」卡：只提醒下一趟是什麼時候，詳細操作在預約頁。
+class _UpcomingScheduleCard extends StatelessWidget {
+  const _UpcomingScheduleCard({required this.schedule});
+
+  final ScheduledRide schedule;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.event),
+        title: Text('已預約 ${formatScheduleTime(schedule.scheduledAt)}'),
+        subtitle: Text(
+          schedule.dropoffAddress == null
+              ? schedule.pickupAddress
+              : '${schedule.pickupAddress} → ${schedule.dropoffAddress}',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall,
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ScheduledRidesScreen()),
         ),
       ),
     );
