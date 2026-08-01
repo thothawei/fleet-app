@@ -96,13 +96,12 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     _lastShownError = error;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
     });
   }
 }
-
 
 class _CompletedRideCard extends StatelessWidget {
   const _CompletedRideCard({required this.ctrl});
@@ -127,7 +126,8 @@ class _ActiveRideCard extends StatelessWidget {
 
   bool _showTrackingMap(CustomerRide ride, CustomerController ctrl) {
     if (ride.status != RideStatus.accepted || ctrl.driverArrived) return false;
-    final hasPickup = (ride.pickupLat != null && ride.pickupLng != null) ||
+    final hasPickup =
+        (ride.pickupLat != null && ride.pickupLng != null) ||
         ctrl.lastPosition != null;
     return hasPickup;
   }
@@ -142,7 +142,12 @@ class _ActiveRideCard extends StatelessWidget {
       case RideStatus.pickedUp:
         return OnTripContent(ctrl: ctrl);
       default:
-        return const SizedBox.shrink();
+        // 與地圖版（production 首頁）同一個答案：未知狀態碼＝「有事情在進行，
+        // 只是這版 App 不認得」，不可以把訂單藏起來。
+        // 這個卡片版目前沒被 app.dart 使用，但兩邊要一致——否則哪天換回來，
+        // 這個洞會安靜地回來（見 pitfall-error-set-but-never-shown：
+        // 「新功能加在沒被使用的那個首頁」是這個 repo 踩過的坑）。
+        return UnknownPhaseContent(ctrl: ctrl);
     }
   }
 
@@ -174,9 +179,9 @@ class _ActiveRideCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               phase,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
             _phaseWidget(ride),
@@ -218,9 +223,9 @@ class _UpcomingScheduleCard extends StatelessWidget {
           style: theme.textTheme.bodySmall,
         ),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ScheduledRidesScreen()),
-        ),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const ScheduledRidesScreen())),
       ),
     );
   }

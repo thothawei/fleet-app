@@ -14,7 +14,11 @@ import 'saved_places_bar.dart';
 import 'stops_editor.dart';
 
 /// 開啟與司機的即時聊天室（行程中與遺失物協尋共用同一條對話）。
-void openCustomerChat(BuildContext context, CustomerController ctrl, int rideId) {
+void openCustomerChat(
+  BuildContext context,
+  CustomerController ctrl,
+  int rideId,
+) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => RideChatScreen(
@@ -121,6 +125,59 @@ class SearchingContent extends StatelessWidget {
   }
 }
 
+/// 後端送來 App 不認得的狀態碼時的落腳處。
+///
+/// **先前這裡會掉進叫車表單**（`_sheetContent` 的 `default:`），那是所有選項裡最糟的一個：
+/// 手上明明有一張還沒結束的訂單（`isTerminal` 是白名單，未知碼不算終態，
+/// 所以 controller 會繼續輪詢它），畫面卻請乘客再叫一輛——而那一按必定被後端的
+/// 「已有進行中訂單」擋掉。更糟的是整張進行中的訂單在畫面上**完全消失**，
+/// 乘客不知道自己還有一趟車在跑。
+///
+/// 未知碼只會來自「後端比 App 新」。這種時候唯一安全的假設是
+/// **「有事情正在進行，只是這個版本的 App 不知道那是什麼」**：
+/// 據實說出狀態碼、保留取消這條退路（後端會自己判斷能不能取消），不提供叫車。
+class UnknownPhaseContent extends StatelessWidget {
+  const UnknownPhaseContent({required this.ctrl, super.key});
+
+  final CustomerController ctrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final ride = ctrl.activeRide;
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 8),
+        Center(
+          child: Icon(
+            Icons.local_taxi,
+            size: 40,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Center(child: Text('行程進行中', style: theme.textTheme.titleMedium)),
+        const SizedBox(height: 4),
+        Center(
+          child: Text(
+            // 據實把狀態碼寫出來：客服問「畫面上寫什麼」時，這是唯一能對帳的線索。
+            ride == null ? '請稍候' : '${ride.statusLabel}・請更新 App 以看到完整資訊',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+        const SizedBox(height: 16),
+        // 取消仍然給——這是唯一的脫身出口，能不能取消由後端判斷。
+        OutlinedButton(
+          onPressed: ctrl.busy ? null : () => ctrl.cancelOrder(),
+          child: const Text('取消行程'),
+        ),
+      ],
+    );
+  }
+}
+
 /// 司機途中／已抵達：司機名、ETA/距離 chip、取消。
 class DriverEnRouteContent extends StatelessWidget {
   const DriverEnRouteContent({required this.ctrl, super.key});
@@ -142,10 +199,7 @@ class DriverEnRouteContent extends StatelessWidget {
   }
 
   Widget _chip(BuildContext context, String label) {
-    return Chip(
-      label: Text(label),
-      visualDensity: VisualDensity.compact,
-    );
+    return Chip(label: Text(label), visualDensity: VisualDensity.compact);
   }
 
   @override
@@ -160,24 +214,18 @@ class DriverEnRouteContent extends StatelessWidget {
         if (ctrl.driverName != null) ...[
           Text(
             '司機：${ctrl.driverName}',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),
         ],
         // O4／O7：車種車牌供路邊對車、電話供直接聯絡（明碼，僅本趟乘客看得到）。
         DriverVehicleCard(info: ctrl.driverInfo),
         if (arrived) ...[
-          Text(
-            '請與司機會合',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('請與司機會合', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
-          Text(
-            '請盡快到上車點與司機會合',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
+          Text('請盡快到上車點與司機會合', style: Theme.of(context).textTheme.bodyMedium),
         ] else if (chips.isNotEmpty) ...[
           Wrap(spacing: 8, runSpacing: 4, children: chips),
         ] else ...[
@@ -211,10 +259,7 @@ class OnTripContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          '行程進行中',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
+        Text('行程進行中', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
         // 多停靠點行程的「目的地」只是最後一站，全程交給進度卡講；
         // 兩者都顯示會讓乘客以為現在正開往終點。
@@ -245,10 +290,7 @@ class CompletedContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          '行程已完成',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
+        Text('行程已完成', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
         Text('行程 #${summary.rideId}'),
         if (summary.driverName != null) ...[
@@ -270,7 +312,11 @@ class CompletedContent extends StatelessWidget {
             const Divider(height: 16),
             _FareRow(label: '合計', cents: summary.totalCents!, emphasize: true),
           ] else
-            _FareRow(label: '車資', cents: summary.fareAmountCents!, emphasize: true),
+            _FareRow(
+              label: '車資',
+              cents: summary.fareAmountCents!,
+              emphasize: true,
+            ),
         ],
         const SizedBox(height: 16),
         // 評分（B5）：評過就只剩星等，沒有「改評分」——後端一趟一評。
@@ -288,11 +334,11 @@ class CompletedContent extends StatelessWidget {
             onPressed: ctrl.ratingSubmitting
                 ? null
                 : () => showRatingSheet(
-                      context,
-                      ctrl: ctrl,
-                      rideId: summary.rideId,
-                      driverName: summary.driverName,
-                    ),
+                    context,
+                    ctrl: ctrl,
+                    rideId: summary.rideId,
+                    driverName: summary.driverName,
+                  ),
             icon: const Icon(Icons.star_outline),
             label: const Text('留下評分'),
           ),
@@ -374,11 +420,7 @@ class _OrderFormContentState extends State<OrderFormContent> {
         if (!ctrl.multiStopEnabled) ...[
           // 常用地點快捷：一鍵把住家／公司帶進目的地。座標一起帶過來，
           // 所以帶入後照樣算得出車資預估（手打地址是算不出來的）。
-          SavedPlacesBar(
-            ctrl: ctrl,
-            title: '常用目的地',
-            onPick: _applySavedPlace,
-          ),
+          SavedPlacesBar(ctrl: ctrl, title: '常用目的地', onPick: _applySavedPlace),
           const SizedBox(height: 8),
           TextField(
             controller: _dropoff,
@@ -473,9 +515,9 @@ class _OrderFormContentState extends State<OrderFormContent> {
   Future<void> _submit(BuildContext context) async {
     // 多乘客模式的目的地來自每位乘客的下車點，不看這個欄位（controller 會擋未填完）。
     if (!widget.ctrl.multiStopEnabled && _dropoff.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('請先輸入目的地地址')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('請先輸入目的地地址')));
       return;
     }
     await widget.ctrl.placeOrder(
@@ -510,7 +552,11 @@ class _CancelNoticeCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.info_outline, size: 20, color: scheme.onErrorContainer),
+                Icon(
+                  Icons.info_outline,
+                  size: 20,
+                  color: scheme.onErrorContainer,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -570,11 +616,18 @@ class _FareEstimateCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.receipt_long, size: 20, color: scheme.onSecondaryContainer),
+                Icon(
+                  Icons.receipt_long,
+                  size: 20,
+                  color: scheme.onSecondaryContainer,
+                ),
                 const SizedBox(width: 8),
-                Text('預估車資',
-                    style: theme.textTheme.titleSmall
-                        ?.copyWith(color: scheme.onSecondaryContainer)),
+                Text(
+                  '預估車資',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: scheme.onSecondaryContainer,
+                  ),
+                ),
                 const Spacer(),
                 if (ctrl.estimating)
                   const SizedBox(
@@ -597,8 +650,9 @@ class _FareEstimateCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 '約 ${_km(est.distanceM)} 公里・${_min(est.durationSec)} 分鐘',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: scheme.onSecondaryContainer),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSecondaryContainer,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -645,7 +699,12 @@ class _FareRow extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: emphasize ? theme.textTheme.titleMedium : theme.textTheme.bodyMedium),
+        Text(
+          label,
+          style: emphasize
+              ? theme.textTheme.titleMedium
+              : theme.textTheme.bodyMedium,
+        ),
         Text(formatCentsAsNtd(cents), style: style),
       ],
     );
@@ -666,9 +725,9 @@ class DriverVehicleCard extends StatelessWidget {
     final uri = Uri(scheme: 'tel', path: phone);
     if (!await launchUrl(uri)) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('無法撥號，司機電話：$phone')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('無法撥號，司機電話：$phone')));
     }
   }
 
@@ -738,7 +797,9 @@ class VehicleTypePicker extends StatelessWidget {
     if (bps == 0) return '目前不加收清潔費';
     // bps → 百分比；1 位小數但整數時不留 .0（2000 → 20%，1550 → 15.5%）。
     final pct = bps / 100;
-    final text = pct == pct.roundToDouble() ? pct.toStringAsFixed(0) : pct.toStringAsFixed(1);
+    final text = pct == pct.roundToDouble()
+        ? pct.toStringAsFixed(0)
+        : pct.toStringAsFixed(1);
     return '將加收清潔費 $text%（依車資比例）';
   }
 
@@ -769,7 +830,11 @@ class VehicleTypePicker extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              Icon(Icons.info_outline, size: 16, color: theme.colorScheme.primary),
+              Icon(
+                Icons.info_outline,
+                size: 16,
+                color: theme.colorScheme.primary,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
