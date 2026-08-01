@@ -55,6 +55,10 @@ class CustomerController extends ChangeNotifier {
   String? _error;
   bool _busy = false;
   bool _wsConnected = false;
+
+  /// 這條 session 曾經連上過 WS。用來分辨「第一次連上」與「重連」——
+  /// 只有後者需要對帳（第一次連上時 init／登入路徑才剛問過）。
+  bool _everConnected = false;
   Position? _lastPosition;
   CustomerRide? _activeRide;
   // 最近一筆進行中訂單的鏡像：即使輪詢對帳先把 _activeRide 清成 null，仍能在稍後才到的
@@ -792,8 +796,16 @@ class CustomerController extends ChangeNotifier {
     _ws = _wsFactory(
       onEvent: _handleWsEvent,
       onConnectionChanged: (connected) {
+        // 與司機端同一個理由：WS 重連不補送斷線期間的事件。乘客端有輪詢，
+        // 但**輪詢只在有進行中訂單時才跑**（`_applyActiveRide` 沒有單就 `_stopPolling`）——
+        // 所以「閒置時另一台裝置叫了車」這條（第二十八輪修的那個情境）
+        // 若剛好卡在斷線視窗裡，事件收不到、輪詢也沒開，就沒有任何人會發現。
+        final reconnected = connected && !_wsConnected && _everConnected;
         _wsConnected = connected;
+        if (connected) _everConnected = true;
         notifyListeners();
+        // 第一次連上不對帳——`init()`／登入路徑才剛 `refreshActive` 過。
+        if (reconnected) unawaited(refreshActive(silent: true));
       },
     );
     final saved = await _storage.read();

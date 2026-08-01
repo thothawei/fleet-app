@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:line_fleet_app/core/api/customer_api_client.dart';
 import 'package:line_fleet_app/core/config/app_config.dart';
 import 'package:line_fleet_app/core/models/models.dart';
+import 'package:line_fleet_app/core/storage/customer_token_storage.dart';
 import 'package:line_fleet_app/core/ws/fleet_ws_client.dart';
 import 'package:line_fleet_app/customer/customer_controller.dart';
 
@@ -38,6 +39,22 @@ class _TwoDeviceApi extends CustomerApiClient {
   Future<List<LostItemRequest>> fetchLostItems() async => const [];
 }
 
+/// 讓測試自己驅動連線狀態的假 WS（與 driver_ws_reconnect_test 同一招）。
+class _CapturingWs extends FleetWsClient {
+  _CapturingWs({required super.onEvent, super.onConnectionChanged});
+
+  @override
+  Future<void> connect(String url, {String? token}) async {}
+
+  @override
+  void ensureConnected() {}
+
+  @override
+  Future<void> disconnect() async {}
+
+  void setConnected(bool connected) => onConnectionChanged?.call(connected);
+}
+
 CustomerController _deviceB(_TwoDeviceApi api) {
   final ctrl = CustomerController(api: api);
   ctrl.setSessionForTest(
@@ -47,6 +64,8 @@ CustomerController _deviceB(_TwoDeviceApi api) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('同一帳號的第二台裝置', () {
     test('B 台閒置時 A 台叫車：B 台收到事件要去跟後端對一次帳', () async {
       final api = _TwoDeviceApi();
@@ -144,6 +163,51 @@ void main() {
       expect(ctrl.activeRide?.rideId, 42, reason: '這一趟不該被別的單的事件動到');
     });
 
+    test('斷線視窗裡叫的車：WS 重連後 B 台仍然要跟上', () async {
+      final api = _TwoDeviceApi();
+      late _CapturingWs ws;
+      final ctrl = CustomerController(
+        api: api,
+        // init() 會讀 session；不給記憶體版就會打到真的 secure storage
+        // （沒有 platform channel，直接炸）。
+        storage: _MemoryCustomerStorage()
+          ..save(
+            const CustomerSession(customerId: 1, token: 'tok', name: '小美'),
+          ),
+        wsFactory: ({required onEvent, onConnectionChanged}) {
+          ws = _CapturingWs(
+            onEvent: onEvent,
+            onConnectionChanged: onConnectionChanged,
+          );
+          return ws;
+        },
+      );
+      addTearDown(ctrl.dispose);
+      await ctrl.init();
+      ws.setConnected(true); // 第一次連上
+      await ctrl.refreshActive();
+      expect(ctrl.activeRide, isNull, reason: '前置條件：B 台停在叫車表單');
+
+      // 斷線。上一案靠的是「事件送到 B 台」，但事件**送不到**斷線中的裝置，
+      // 而輪詢在沒有進行中訂單時是停著的——沒有任何人會發現。
+      ws.setConnected(false);
+      api.backendActive = const CustomerRide(
+        rideId: 42,
+        status: RideStatus.accepted,
+      );
+      final callsBefore = api.activeCalls;
+
+      ws.setConnected(true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        api.activeCalls,
+        greaterThan(callsBefore),
+        reason: '重連後要補一次對帳，這是斷線視窗唯一的補救',
+      );
+      expect(ctrl.activeRide?.rideId, 42);
+    });
+
     test('位置串流與無 rideId 的事件不觸發對帳（避免連續打點）', () async {
       final api = _TwoDeviceApi();
       final ctrl = _deviceB(api);
@@ -166,4 +230,17 @@ void main() {
       expect(api.activeCalls, callsBefore);
     });
   });
+}
+
+class _MemoryCustomerStorage extends CustomerTokenStorage {
+  CustomerSession? _saved;
+
+  @override
+  Future<CustomerSession?> read() async => _saved;
+
+  @override
+  Future<void> save(CustomerSession session) async => _saved = session;
+
+  @override
+  Future<void> clear() async => _saved = null;
 }
