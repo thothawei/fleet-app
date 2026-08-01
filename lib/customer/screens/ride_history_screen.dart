@@ -67,11 +67,87 @@ class _CustomerRideHistoryScreenState extends State<CustomerRideHistoryScreen> {
         ],
       );
     }
+    // 尾巴那一格：還有更舊的行程時放「載入中」，載入更多失敗時放重試。
+    final hasFooter = ctrl.historyHasMore || ctrl.historyMoreError != null;
     return ListView.builder(
       padding: const EdgeInsets.all(12),
-      itemCount: ctrl.rideHistory.length,
-      itemBuilder: (context, i) =>
-          _RideHistoryCard(ctrl: ctrl, ride: ctrl.rideHistory[i]),
+      itemCount: ctrl.rideHistory.length + (hasFooter ? 1 : 0),
+      itemBuilder: (context, i) {
+        if (i == ctrl.rideHistory.length) return _HistoryFooter(ctrl: ctrl);
+        return _RideHistoryCard(ctrl: ctrl, ride: ctrl.rideHistory[i]);
+      },
+    );
+  }
+}
+
+/// 清單尾巴：被建出來就代表使用者已經捲到底，直接去要下一頁。
+///
+/// **不是按鈕**——舊行程是「想起有東西掉在車上」時才會去翻的，
+/// 多一次點擊就多一個放棄點；失敗時才退化成看得懂的重試按鈕。
+class _HistoryFooter extends StatefulWidget {
+  const _HistoryFooter({required this.ctrl});
+
+  final CustomerController ctrl;
+
+  @override
+  State<_HistoryFooter> createState() => _HistoryFooterState();
+}
+
+class _HistoryFooterState extends State<_HistoryFooter> {
+  @override
+  void initState() {
+    super.initState();
+    // build 期間不可改 provider 狀態，排到下一影格（同畫面 initState 的作法）。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoLoad());
+  }
+
+  @override
+  void didUpdateWidget(covariant _HistoryFooter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // **只靠 initState 會卡死**：尾巴被建出來的那一刻若剛好有別的請求在飛
+    //（下拉刷新、或首載還沒回來），controller 的重入防護會把這次補讀擋掉，
+    // 而擋掉之後沒有任何人再試一次——尾巴就永遠停在轉圈，第 21 筆之後再也進不來。
+    // 尾巴還在畫面上代表使用者仍停在底部，所以每次重建都補問一次。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoLoad());
+  }
+
+  /// 自動補讀。**失敗過就停手**交給重試按鈕：`didUpdateWidget` 會跟著每一次
+  /// `notifyListeners` 觸發，自動重試在後端還沒恢復時會變成連續打點。
+  void _autoLoad() {
+    if (!mounted || widget.ctrl.historyMoreError != null) return;
+    _load();
+  }
+
+  void _load() {
+    if (!mounted) return;
+    // 重入由 controller 擋（有請求在飛就直接 return）。
+    widget.ctrl.loadMoreRideHistory();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final err = widget.ctrl.historyMoreError;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Center(
+        child: err == null
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            : Column(
+                children: [
+                  Text(err, textAlign: TextAlign.center),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('載入更多'),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }
@@ -93,7 +169,11 @@ class _RideHistoryCard extends StatelessWidget {
     final local = t.toLocal();
     final hh = local.hour.toString().padLeft(2, '0');
     final mm = local.minute.toString().padLeft(2, '0');
-    return '${_months[local.month]}${local.day}日 $hh:$mm';
+    // **跨年的行程從分頁上線後才翻得到**（在那之前只看得到最近 20 趟）。
+    // 「1月5日」看不出是今年還是去年，而這頁是事後申報遺失物、補評分的入口——
+    // 找錯年份就等於找錯那一趟。今年的不加年份，免得每張卡都變長。
+    final year = local.year == DateTime.now().year ? '' : '${local.year}年';
+    return '$year${_months[local.month]}${local.day}日 $hh:$mm';
   }
 
   void _openChat(BuildContext context) {

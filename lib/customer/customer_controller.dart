@@ -47,6 +47,9 @@ class CustomerController extends ChangeNotifier {
   // WS 即時到手後只做保底對帳，輪詢間隔放寬。
   static const _pollInterval = Duration(seconds: 15);
 
+  /// 「我的行程」一次要幾筆；捲到底再多要一頁。
+  static const historyPageSize = 20;
+
   CustomerSession? _session;
   bool _loading = false;
   String? _error;
@@ -110,6 +113,13 @@ class CustomerController extends ChangeNotifier {
   List<CustomerRideSummary> _rideHistory = [];
   bool _historyLoading = false;
   String? _historyError;
+  // 分頁：目前跟後端要幾筆、還有沒有更舊的、載入更多的進行中/失敗狀態。
+  // 沒有這一組的話清單就只有最近 20 筆——而「我的行程」是事後聯絡司機、
+  // 申報遺失物、補評分的**唯一入口**，第 21 趟以前的行程等於再也打不開。
+  int _historyWindow = historyPageSize;
+  bool _historyHasMore = false;
+  bool _historyLoadingMore = false;
+  String? _historyMoreError;
   // session 失效清理中；並發的 401（輪詢＋使用者操作同時）不重入清理。
   bool _sessionExpiring = false;
 
@@ -366,18 +376,65 @@ class CustomerController extends ChangeNotifier {
   bool get historyLoading => _historyLoading;
   String? get historyError => _historyError;
 
-  /// 載入歷史行程（進「我的行程」畫面時呼叫）。
+  /// 是否還有更舊的行程沒載進來（捲到底時要不要繼續要）。
+  bool get historyHasMore => _historyHasMore;
+
+  /// 正在載入更舊的行程（首載／下拉刷新走 `historyLoading`，兩者不共用）。
+  bool get historyLoadingMore => _historyLoadingMore;
+
+  /// 「載入更多」那一次失敗的訊息。**與 `historyError` 分開**：已經載進來的
+  /// 行程還在畫面上，錯誤只該長在清單尾巴，不能讓整頁變成錯誤畫面。
+  String? get historyMoreError => _historyMoreError;
+
+  /// 載入歷史行程（進「我的行程」畫面時呼叫；下拉刷新也是這支）。
+  ///
+  /// **刷新時要求的是目前已展開的筆數**（`_historyWindow`），不是固定第一頁——
+  /// 已經捲到第 60 筆的人下拉刷新，清單不該縮回 20 筆。
   Future<void> loadRideHistory() async {
     if (_session == null) return;
     _historyLoading = true;
     _historyError = null;
+    _historyMoreError = null;
     notifyListeners();
+    final want = _historyWindow;
     try {
-      _rideHistory = await _api.fetchRideHistory();
+      final rows = await _api.fetchRideHistory(limit: want);
+      _rideHistory = rows;
+      _historyHasMore = rows.length >= want;
     } on ApiException catch (e) {
       _historyError = e.message;
     } finally {
       _historyLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// 再往下要一頁更舊的行程（捲到清單底部時觸發）。
+  ///
+  /// 後端 `GET /api/customer/rides` **只有 `limit`、沒有 offset/cursor**，
+  /// 所以這裡是「把 limit 加大重讀一次」而不是接續抓下一段：回來的永遠是
+  /// 完整的前 N 筆，順帶把已顯示那幾筆的評分／協尋狀態一起更新。
+  /// 筆數量級到上百筆（後端上限 `MaxListRows`=5000）再改 cursor 才划算。
+  Future<void> loadMoreRideHistory() async {
+    if (_session == null) return;
+    // 沒有更多、或已經有一個請求在飛，就不要再發（捲動會連續觸發很多次）。
+    if (!_historyHasMore || _historyLoading || _historyLoadingMore) return;
+    _historyLoadingMore = true;
+    _historyMoreError = null;
+    notifyListeners();
+    final want = _historyWindow + historyPageSize;
+    try {
+      final rows = await _api.fetchRideHistory(limit: want);
+      _rideHistory = rows;
+      _historyWindow = want;
+      // 回滿 = 後面可能還有。剛好整除時會多要一次、下一次才收掉尾巴，
+      // 這是沒有 cursor 的必然代價，比「少一頁永遠看不到」好。
+      _historyHasMore = rows.length >= want;
+    } on ApiException catch (e) {
+      // 視窗**不推進**：重試時才會重新要同一段，已載入的清單原樣留著。
+      _historyMoreError = e.message;
+    } finally {
+      _historyLoadingMore = false;
       notifyListeners();
     }
   }
@@ -949,6 +1006,9 @@ class CustomerController extends ChangeNotifier {
     // 就會在自己的資料載入前先看到前一位乘客的行程與車資。
     _rideHistory = [];
     _historyError = null;
+    _historyMoreError = null;
+    _historyWindow = historyPageSize;
+    _historyHasMore = false;
     // 常用地點與預約同一個道理，而且更敏感——住家與公司是**實體位置**，
     // 預約則是「這個人什麼時候會不在家」。不清的話，下一位在這台裝置登入的人
     // 一打開叫車頁，快捷列上就是上一位乘客的住家地址。

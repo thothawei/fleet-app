@@ -75,6 +75,8 @@
 - [📍 第二十二輪：乘客端的定位出口（＋第二十一輪的實跑尾巴）](#-2026-07-30-第二十二輪乘客端的定位出口本批修掉-31-個並補完第二十一輪的實跑尾巴)
 - [🚗 第二十三輪：App 被收掉再開，行程還在但位置回報整段消失](#-2026-07-30-第二十三輪app-被收掉再開行程還在但位置回報整段消失本批修掉-2-個)
 - [🗓️ 預約司機＋常用地點（跨端新功能，含 debug 兩個）](#-預約司機常用地點2026-07-31跨端新功能)
+- [📜 第二十四輪：「我的行程」只看得到最近 20 趟](#-2026-07-31-第二十四輪我的行程只看得到最近-20-趟本批修掉)
+- [🔁 第二十五輪：分頁尾巴會卡死在轉圈（回頭 debug 第二十四輪自己）](#-2026-08-01-第二十五輪分頁的尾巴會卡死在轉圈回頭-debug-第二十四輪自己本批修掉-2-個)
 
 **四、維護、決策與待辦**
 - [🧹 清開發殘留 worktree／舊分支（維護項 5）](#-清開發殘留-worktree舊分支維護項-52026-07-28-完成)
@@ -91,7 +93,8 @@
 - **UI/UX 翻新（2026-07-10）**：LINE 綠亮暗雙主題；司機駕駛情境 UI；乘客地圖為底＋卡片降級。靜態驗收 49 tests 通過；模擬器主鏈路待後端 docker 可起後補跑。
   **登入／註冊頁 2026-07-23 補齊翻新**（先前是唯一漏網畫面），詳見下方「🔐 登入頁 UI/UX 翻新＋驗證」。
 - **座標導航（2026-07-10）**：司機端目的地導航改吃後端 `dropoff_point` 座標，地址僅供顯示與退路。
-- 單元測試：**54 個測試檔、`flutter test` 414 passed**（2026-07-31 第二十三輪與預約司機那批合併後實測；`flutter analyze` 無 issue）。
+- 單元測試：**54 個測試檔、`flutter test` 425 passed**（2026-08-01 第二十四輪併回 main 並修完尾巴那兩個洞後實測；
+  `flutter analyze` 無 issue、`flutter build apk --debug --flavor customer` 成功）。
   ~~（54 項）~~ 是 2026-07-10 的數字，長期沒更新，已更正——**本節的數字請跟著最後盤點日一起改**。
 - 遠端：`github.com/thothawei/fleet-app`。**2026-07-29 實查**：`git ls-remote --heads origin` 只有 `main`、
   `gh pr list` 三個 repo 的 open PR 皆為 0（開工前請自己再跑一次，見「下次任務」第 1 點）。
@@ -2303,8 +2306,192 @@ PSQL_DSN='postgres://fleet:change_me@127.0.0.1:5433/fleet?sslmode=disable' \
   **條件**：等實際跑過幾趟預約單、司機真的回報「到太早不知道要不要等」再做——
   現在做等於猜一個還沒發生的問題。
 
+## 📜 2026-07-31 第二十四輪：「我的行程」只看得到最近 20 趟（本批修掉）
+
+> **開工先撞到的事**：TODO 寫的下一輪首選（前景服務被系統收走）**已經被別的 session 認領**
+> （[app #94](https://github.com/thothawei/fleet-app/pull/94)，open 中），另一支
+> [#95](https://github.com/thothawei/fleet-app/pull/95) 在做預約司機＋常用地點。
+> 這正是 2026-07-29 那條「開工第一件事是 `gh pr list`」救到的情況——所以本輪換族，
+> 盤點「**清單的資料量上限**」這個從沒碰過的角。
+
+### 根因一句話
+
+`fetchRideHistory()` 固定要 20 筆、畫面沒有任何「載入更多」，
+而「我的行程」是**事後聯絡司機／申報遺失物／補評分的唯一入口**——
+第 21 趟以前的行程在乘客端永遠打不開。
+
+### 盤點：這一族只有一個真洞
+
+| 清單 | 上限 | 判定 |
+|---|---|---|
+| 乘客「我的行程」 | App 寫死 `limit=20`、無載入更多 | ❌ **真洞** |
+| 行程內對話 | App 不帶 limit → 後端 `MaxListRows`=5000 | ✅ |
+| 協尋單（兩端） | 同上 5000 | ✅ |
+| 司機收入頁 | 依月聚合，可無限往回切 | ✅ |
+
+後端 `GET /api/customer/rides` 的 `limit` **照單全收**（`ListRecentByCustomer`：
+`limit<=0` 用預設、超過 5000 才收斂），所以這輪**不用動 dispatch**。
+
+### 修法
+
+- `CustomerController` 加 `_historyWindow`（目前要幾筆）／`historyHasMore`／
+  `historyLoadingMore`／`historyMoreError`，新增 `loadMoreRideHistory()`。
+- **沒有 cursor 就別假裝有**：後端只有 `limit`、沒有 offset，所以「載入更多」是
+  **把 limit 加大重讀**，不是接續抓下一段。代價是剛好整除時會多要一次；
+  好處是順帶更新已顯示那幾筆的評分／協尋狀態。筆數上百再改 cursor 才划算。
+- **失敗訊息分兩條**：`historyMoreError` 與 `historyError` 分開——已經載進來的行程
+  還在畫面上，錯誤只該長在清單尾巴（整頁換成錯誤畫面等於把使用者已經拿到的東西收走）。
+  失敗時**視窗不推進**，重試要的是同一段。
+- **下拉刷新保持已展開的筆數**：已經捲到第 60 筆的人刷新後不該被縮回 20 筆；
+  登出才收回一頁（換人登入不該替他要 60 筆）。
+- 尾巴**不是按鈕是自動載入**：舊行程是「想起有東西掉在車上」時才會去翻的，
+  多一次點擊就多一個放棄點；只有失敗時才退化成看得懂的重試按鈕。
+
+### 驗收
+
+- `flutter analyze` 無 issue、`flutter test` **386 passed**（377 ＋新 9）。
+- **反向驗證兩半各一次**：拿掉 `loadMoreRideHistory` 的補讀 → 6 案 FAIL；
+  拿掉畫面尾巴那一格（觸發點） → 2 案 FAIL。兩半各自釘不同的洞。
+- **模擬器實跑**（`m6_pixel` ＋本機 dispatch，customer flavor，乘客 `customer_id=17`，
+  以 API 造 25 筆行程 #41–#65／`pickup point 1`–`25`）：
+
+| 情境 | 後端實際收到的查詢 | 畫面 |
+|---|---|---|
+| 修好的版本：開畫面、**不捲動** | 只有 `LIMIT 20` | 最新 #65 起 20 筆 |
+| 修好的版本：捲到底 | `LIMIT 20` → `LIMIT 40`（rows 20 → 25） | **最舊 #41／`pickup point 1` 進得來**，尾巴自動收掉 |
+| **修改前的版本**：同樣捲到底 14 次 | **只有一次 `LIMIT 20`** | 停在 #46／`pickup point 6`，**第 21～25 筆沒有任何入口** |
+
+- 證據來自後端 GORM 的 SQL log（`... WHERE rides.customer_id = 17 ORDER BY rides.id DESC LIMIT 40`），
+  不是只看畫面。
+- dev DB：25 筆全部是 `status=9`（已取消）終態。
+
+### 這一輪踩到的兩條（**都已修掉，不只是記下來**）
+
+1. **本機有兩個 redis 在搶 6379** → 已在 dispatch 讓開埠號。
+   主機的 `redis-server` 綁 `127.0.0.1`、docker 綁 `*`，**localhost 一律由前者接手**，
+   所以服務跑在主機時吃的是本機那台；我在容器裡 `redis-cli KEYS` 查不到任何鍵，
+   一度以為限流沒生效——其實只是查錯了那台。
+   **當時只是推論，事後用 raw socket 對兩台各寫一個 `whoami` 鍵驗死**：
+   `127.0.0.1:6379` 回 `host_redis`。
+   **修法**（dispatch [PR #72](https://github.com/thothawei/fleet-dispatch/pull/72)）：
+   compose 把 redis 發布到 `${REDIS_HOST_PORT:-6380}`，與 postgis 讓開 5432 同一個做法；
+   README 補「只起相依服務、server 跑在主機」的正式段落。
+   改完實測：`6380` → `docker_redis_6380`、`6379` → `host_redis`；
+   用新埠跑一輪後 `ratelimit:*` **出現在容器那台**、主機那台是空的。
+   **主機跑法從此是 `REDIS_ADDR=127.0.0.1:6380`**（本檔下面那段指令已更正）。
+2. **造測試資料會撞到叫車限流** → 已寫成
+   [`tool/seed_customer_rides.sh`](../tool/seed_customer_rides.sh)。
+   三個東西缺一不可地擋在路上：`AllowRateLimit`（預設 5 次／分鐘、key 帶 `line_user_id`，
+   值由 admin 派單設定的 rate 決定）、`FindActiveByCustomer`（上一筆沒進終態就建不了下一筆）、
+   建單回應是 `{"ride_id":42}` **不是** `{"id":...}`。
+   **最糟的是這三個都不會讓迴圈停下來**——我第一版 25 次全跑空還印得像成功，
+   所以腳本在建單失敗時**直接 exit 1 並印出回應**。
+   已用 `tool/seed_customer_rides.sh 3` 實跑驗過（ride #66–#68，全部已取消）。
+
+### 同族還沒碰的角落
+
+- **司機端沒有行程歷史畫面**：司機事後想聯絡乘客／查過去趟次沒有入口
+  （收入頁只有聚合數字）。這是**功能缺口**不是 bug，要不要做是產品決定。
+  **2026-08-01 補查**：後端也還沒有這支端點——`cmd/server/main.go` 的 driver 路由只有
+  `/driver/rides/active`，沒有列表。要做的話是跨端，不是 App 單邊。
+
+---
+
+## 🔁 2026-08-01 第二十五輪：分頁的尾巴會卡死在轉圈（回頭 debug 第二十四輪自己）（本批修掉 2 個）
+
+> 這一輪的題目是**上一輪自己**。第二十四輪的 PR #97 與 main 分岔了三處，
+> 解完衝突之後沒有直接收工，而是把那段新程式碼當成沒驗過的東西重查一遍——
+> 結果它有一個會**永久卡死**的狀態。
+
+### 根因一句話
+
+`_HistoryFooter` **只在 `initState` 觸發一次**補讀，而 `loadMoreRideHistory()`
+有「已經有請求在飛就直接 return」的重入防護：尾巴被建出來的那一刻若剛好有
+下拉刷新在飛，這唯一的一次觸發就被吞掉了，**之後沒有任何人再試一次**——
+尾巴永遠停在轉圈，第 21 筆之後再也進不來。
+
+### 為什麼原本的測試抓不到
+
+原本 9 個案子測的是「補讀本身對不對」（視窗推進、錯誤分兩條、登出收回），
+**沒有一個案子讓兩個請求在時間上重疊**。這與預約那輪的教訓是同一條：
+沒有真的重疊的併發測試，測到的只是循序重跑。
+
+### 修法
+
+- `_HistoryFooter` 加 `didUpdateWidget`：尾巴還在畫面上就代表使用者仍停在底部，
+  所以**每一次 rebuild 都補問一次**（rebuild 由 controller 的 `notifyListeners` 帶動，
+  刷新一結束就會走到）。重入仍由 controller 擋，多問不會多打。
+- 但自動補讀**失敗過就停手**，交給既有的重試按鈕：`didUpdateWidget` 跟著每一次
+  `notifyListeners` 觸發，少了這道 guard 會在後端還沒恢復時變成**連續打點**。
+  兩個半邊都是防線，見下面的反向驗證。
+- 順手補上**跨年行程的年份**：`_dateLabel()` 只印「1月5日 08:00」。
+  跨年的行程是**分頁上線後才翻得到的**（在那之前只看得到最近 20 趟），
+  而這一頁是事後申報遺失物、補評分的入口——找錯年份就是找錯那一趟。
+  今年的不加年份，免得每張卡都變長。
+
+### 驗收
+
+- `flutter analyze` 無 issue、`flutter test` **425 passed**（423 ＋新 2）。
+- **抓 bug 的順序是先紅再修**：新測試在修改前就是紅的，而且紅的方式本身就是證據——
+  `pumpAndSettle timed out`，因為尾巴那顆 `CircularProgressIndicator` **永遠不會停**。
+- **反向驗證兩個半邊各一次**：
+  - 拿掉 `didUpdateWidget` → 新測試 FAIL（`pumpAndSettle` 逾時）。
+  - 拿掉「失敗就停手」那道 guard → **既有**的「載入更多失敗時清單還在，尾巴給重試」
+    那案 FAIL，而且是 27 秒才逾時——正是自動重試打成迴圈的樣子。
+- `flutter build apk --debug --flavor customer -t lib/main_customer.dart` 成功
+  （`app-customer-debug.apk`）——`analyze` 綠不代表打得包出來。
+
+### 這一輪掃過但**沒有**發現問題的（寫下來，免得下一輪重掃）
+
+| 掃的東西 | 結論 |
+|---|---|
+| 時區：全 repo 的 `DateTime.parse`／`tryParse` 與顯示點 | ✅ 送出 `.toUtc()`、顯示 `.toLocal()`，兩個方向都對 |
+| 預約清單排序 | ✅ 後端 `scheduled_at ASC, id ASC`、App 的 `_mergeScheduledRide` 也 sort，兩邊一致 |
+| 常用地點／預約的載入路徑 | ✅ `init()` 與 `_authenticate()` 都載（#95 補過），登出也清 |
+| 每個 `*Error` 欄位有沒有顯示點 | ✅ 6 個 getter 全部有對應畫面 |
+| `.first`／`.last` 有沒有空集合保護 | ✅ 7 處全部有 `isNotEmpty` 或三元退路 |
+| `Timer`／`StreamSubscription`／`TextEditingController` 的 dispose | ✅ 有建就有 dispose |
+| 其他「一次性 initState 觸發＋重入防護」的組合 | ✅ 只有尾巴這一處，其餘被觸發的方法都沒有重入防護 |
+
+### 同族還沒碰的角落
+
+- **刷新與補讀真正同時回來時，清單會先縮回 20 筆再長回去**（畫面閃一下，資料不會錯）。
+  要修得在 controller 記一個請求序號，把晚出發卻早回來的那次丟掉。
+  **條件**：等有人回報看到清單跳動再做——現在改要多一組狀態，代價大於症狀。
+
+---
+
 ## 下次任務
 
+> **🎯 2026-08-01 第二十五輪之後的狀態（開工先看這段）**
+>
+> 1. **`gh pr list`（三個 repo）照樣是第一件事。** 本輪開工時：app 只有 #97（就是本輪在收的那支）、
+>    dispatch #72（redis 讓開埠號）、admin 0。
+> 2. **第八次實查三個外部卡點：依然都不在**（`android/app/google-services.json`、
+>    `ios/Runner/GoogleService-Info.plist` 不存在、`xcrun devicectl list devices` → No devices found）。
+> 3. **功能清單目前沒有「不需前置條件就能做」的項目**——實查過了：
+>    唯一還沒勾的 `[ ]`（車種供給為零）等產品拍板＋後端查詢、
+>    A2 等 Firebase、A5 階段 5-6 等實機／付費帳號、B5 付款等金流、
+>    司機端行程歷史後端也還沒有端點。**所以本輪照 2026-07-28 立的規矩改做 debug。**
+> 4. **下一輪建議**：本輪示範了一個便宜又有效的取材法——
+>    **把上一輪剛寫完的程式碼當成沒驗過的東西重查一遍**。
+>    新程式碼是全 repo 最沒被實跑過的部分，而寫它的人剛好最不會懷疑它。
+
+
+> **🎯 2026-07-31 第二十四輪之後的狀態（開工先看這三行）**
+>
+> 1. **開工第一件事仍然是 `gh pr list`（三個 repo）**——這一輪就是靠它才發現
+>    「前景服務被系統收走」已被 [#94](https://github.com/thothawei/fleet-app/pull/94) 認領，
+>    另有 [#95](https://github.com/thothawei/fleet-app/pull/95)（預約司機＋常用地點）
+>    ＋ dispatch [#70](https://github.com/thothawei/fleet-dispatch/pull/70) 在飛。
+>    **要認領題目就在本檔當場劃掉**，不然平行 session 一定撞。
+> 2. **第二十四輪開工前第七次實查三個外部卡點：依然都不在**
+>    （`android/app/google-services.json`、`ios/Runner/GoogleService-Info.plist` 不存在、
+>    `xcrun devicectl list devices` → No devices found）。
+> 3. **下一輪的候選**：定位族最後一角在 #94 手上；本輪盤點的「清單資料量」族只有
+>    一個真洞、已修完，剩下的是**司機端沒有行程歷史畫面**（功能缺口，需產品決定）。
+>    真的要再挖 debug，建議先重新盤點一個新族，別回頭挖逾時對帳那條線（三端已清完）。
+>
 > **🎯 2026-07-31 這一輪（預約司機＋常用地點）——開工先看這段**
 >
 > 這輪不是 debug 輪，是**跨端新功能**：`scheduled_rides`（預約行程）與
@@ -2363,9 +2550,13 @@ PSQL_DSN='postgres://fleet:change_me@127.0.0.1:5433/fleet?sslmode=disable' \
 > 沒有任何管道能把一則推播送進 App。
 > **本機後端怎麼起**（實測有效，`.env` 是給 docker 內用的，跑在主機要覆寫三個變數）：
 > `docker compose up -d postgis redis` ＋
-> `DB_HOST=127.0.0.1 DB_PORT=5433 REDIS_ADDR=127.0.0.1:6379 go run ./cmd/server`
+> `DB_HOST=127.0.0.1 DB_PORT=5433 REDIS_ADDR=127.0.0.1:6380 go run ./cmd/server`
 > （dispatch repo；Docker registry 拉不到映像，別用 `--build`）。
+> **redis 是 6380 不是 6379**（2026-07-31 更正）：舊的 6379 會靜默連到 Mac 本機那台
+> `redis-server`，見第二十四輪「踩到的兩條」第 1 點；dispatch 已把容器改發布 6380。
 > **弱網／回應遺失要用 [`tool/lossy_proxy.py`](../tool/lossy_proxy.py)**，不要再試 `docker pause`。
+> **要造大量歷史行程用 [`tool/seed_customer_rides.sh`](../tool/seed_customer_rides.sh)**，
+> 別自己寫 for 迴圈打 API（會被限流與「已有進行中訂單」擋掉，而且不會報錯）。
 >
 > **這一輪學到的一條**：`StreamController.broadcast()` 在沒有訂閱者時 `add` 的事件會**靜默消失**。
 > 只要「發送點」與「訂閱點」不在同一個生命週期階段，就要問「**發送比訂閱早的那一次去哪了**」。
