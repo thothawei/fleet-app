@@ -16,7 +16,8 @@ import '../core/storage/token_storage.dart';
 import '../core/ws/fleet_ws_client.dart';
 
 /// 定位串流的來源；測試以此換掉真 GPS（比照 `FleetWsClientFactory`）。
-typedef DriverPositionStreamFactory = Stream<Position> Function(LocationSettings);
+typedef DriverPositionStreamFactory =
+    Stream<Position> Function(LocationSettings);
 
 /// 上線前的權限確認（可能會彈系統視窗）；測試以此換掉平台對話框。
 typedef DriverLocationPermissionCheck = Future<bool> Function();
@@ -51,15 +52,15 @@ class DriverController extends ChangeNotifier {
     DriverPositionStreamFactory? positionStream,
     DriverLocationPermissionCheck? locationPermissions,
     DriverLocationPermissionProbe? locationPermissionProbe,
-  })  : _storage = storage ?? TokenStorage(),
-        _api = api ?? FleetApiClient(),
-        _wsFactory = wsFactory ?? FleetWsClient.new,
-        _push = push ?? NoOpFleetPushService(),
-        _positionStream = positionStream ?? _geolocatorPositionStream,
-        _ensurePermissions =
-            locationPermissions ?? ensureDriverLocationPermissions,
-        _permissionProbe = locationPermissionProbe ?? _geolocatorPermissionProbe,
-        _ws = FleetWsClient(onEvent: (_) {}) {
+  }) : _storage = storage ?? TokenStorage(),
+       _api = api ?? FleetApiClient(),
+       _wsFactory = wsFactory ?? FleetWsClient.new,
+       _push = push ?? NoOpFleetPushService(),
+       _positionStream = positionStream ?? _geolocatorPositionStream,
+       _ensurePermissions =
+           locationPermissions ?? ensureDriverLocationPermissions,
+       _permissionProbe = locationPermissionProbe ?? _geolocatorPermissionProbe,
+       _ws = FleetWsClient(onEvent: (_) {}) {
     // token 過期／失效時把司機送回登入頁（見 _handleUnauthorized）。
     _api.onUnauthorized = _handleUnauthorized;
   }
@@ -79,6 +80,10 @@ class DriverController extends ChangeNotifier {
   bool _errorIsConnectivity = false;
   bool _online = false;
   bool _wsConnected = false;
+
+  /// 這條 session 曾經連上過 WS。用來分辨「第一次連上」與「重連」——
+  /// 只有後者需要對帳（第一次連上時 `init()` 才剛問過）。
+  bool _everConnected = false;
   RideOffer? _pendingOffer;
   ActiveRide? _activeRide;
   Position? _lastPosition;
@@ -137,6 +142,7 @@ class DriverController extends ChangeNotifier {
     _error = e.message;
     _errorIsConnectivity = e.statusCode == null;
   }
+
   bool get online => _online;
   bool get wsConnected => _wsConnected;
 
@@ -157,6 +163,7 @@ class DriverController extends ChangeNotifier {
     return DateTime.now().difference(since) >
         const Duration(seconds: AppConfig.driverOfflineSec);
   }
+
   RideOffer? get pendingOffer => _pendingOffer;
   ActiveRide? get activeRide => _activeRide;
   Position? get lastPosition => _lastPosition;
@@ -172,13 +179,17 @@ class DriverController extends ChangeNotifier {
   List<LostItemRequest> get lostItems => _lostItems;
 
   /// 標記已到達某停靠點（N7）。成功回 true。
-  Future<bool> markStopArrived(int stopId) => _markStop(stopId, _api.arriveStop);
+  Future<bool> markStopArrived(int stopId) =>
+      _markStop(stopId, _api.arriveStop);
 
   /// 標記跳過某停靠點（乘客未出現，N7）。成功回 true。
   /// **被跳過的站不計入車資**——後端 N5 的計費路線會排除它。
   Future<bool> markStopSkipped(int stopId) => _markStop(stopId, _api.skipStop);
 
-  Future<bool> _markStop(int stopId, Future<void> Function(int, int) action) async {
+  Future<bool> _markStop(
+    int stopId,
+    Future<void> Function(int, int) action,
+  ) async {
     final ride = _activeRide;
     if (ride == null) return false;
     _busy = true;
@@ -320,6 +331,7 @@ class DriverController extends ChangeNotifier {
     }
     notifyListeners();
   }
+
   String? get fcmTokenPrefix {
     final t = _fcmToken;
     if (t == null || t.length <= 8) return t;
@@ -330,8 +342,18 @@ class DriverController extends ChangeNotifier {
     _ws = _wsFactory(
       onEvent: _handleWsEvent,
       onConnectionChanged: (connected) {
+        // **重連之後要跟後端對一次帳**：WS 重連不補送斷線期間的事件（見第四輪），
+        // 而司機端**沒有任何行程輪詢**（只有定位健康度那支 timer），
+        // `onAppResumed` 又要 App 真的進過背景——開車時 App 全程在前景，走不到。
+        // 少了這一段，斷線視窗裡的 `ride.cancelled` 就永遠送不到：
+        // 司機會繼續開往一個已經取消的上車點。
+        // 乘客端不會踩到，因為它有進行中訂單時每 15 秒輪詢一次，天然會校正。
+        final reconnected = connected && !_wsConnected && _everConnected;
         _wsConnected = connected;
+        if (connected) _everConnected = true;
         notifyListeners();
+        // 第一次連上不對帳——`init()` 才剛 `_restoreActiveRide` 過，再問只是多打一支。
+        if (reconnected) unawaited(_restoreActiveRide(silent: true));
       },
     );
     final saved = await _storage.read();
@@ -462,10 +484,9 @@ class DriverController extends ChangeNotifier {
     required String lineUserId,
     required String password,
   }) async {
-    await _authenticate(() => _api.login(
-          lineUserId: lineUserId,
-          password: password,
-        ));
+    await _authenticate(
+      () => _api.login(lineUserId: lineUserId, password: password),
+    );
   }
 
   Future<void> register({
@@ -473,11 +494,10 @@ class DriverController extends ChangeNotifier {
     required String name,
     required String password,
   }) async {
-    await _authenticate(() => _api.register(
-          lineUserId: lineUserId,
-          name: name,
-          password: password,
-        ));
+    await _authenticate(
+      () =>
+          _api.register(lineUserId: lineUserId, name: name, password: password),
+    );
   }
 
   Future<void> _authenticate(Future<LoginResult> Function() action) async {
@@ -661,10 +681,9 @@ class DriverController extends ChangeNotifier {
     await _stopLocationStream();
     if (!_online || _session == null) return;
 
-    _positionSub = _positionStream(driverLocationSettings()).listen(
-      (pos) => _reportPosition(pos),
-      onError: _handlePositionError,
-    );
+    _positionSub = _positionStream(
+      driverLocationSettings(),
+    ).listen((pos) => _reportPosition(pos), onError: _handlePositionError);
     _startLocationHealthTimer();
 
     // 立即回報一筆，不必等第一個 stream tick；不 await 以免上線鈕卡在等 GPS fix。
@@ -1002,9 +1021,11 @@ class DriverController extends ChangeNotifier {
   Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) =>
       _api.fetchMessages(rideId, afterId: afterId);
 
-  Future<RideMessage> sendMessage(int rideId, String body,
-          {String? clientMsgId}) =>
-      _api.sendMessage(rideId, body, clientMsgId: clientMsgId);
+  Future<RideMessage> sendMessage(
+    int rideId,
+    String body, {
+    String? clientMsgId,
+  }) => _api.sendMessage(rideId, body, clientMsgId: clientMsgId);
 
   /// 重新拉未結案協尋工作清單（登入後、遺失物頁下拉）。
   Future<void> refreshLostItems() async {
@@ -1018,28 +1039,31 @@ class DriverController extends ChangeNotifier {
   }
 
   /// 標記已尋獲（open → found）。
-  Future<LostItemRequest> markLostItemFound(int itemId, {required int rideId}) =>
-      _writeLostItem(
-        () => _api.markLostItemFound(itemId),
-        rideId: rideId,
-        // 「已經越過 open」＝這次標記生效了（乘客可能已接著付款）。
-        // 不能只寫 `!= open`：被結案（closed）也符合那個條件，但那不是標尋獲。
-        applied: (fresh) =>
-            fresh.id == itemId &&
-            (fresh.status == LostItemStatus.found ||
-                fresh.status == LostItemStatus.paid ||
-                fresh.status == LostItemStatus.returned),
-      );
+  Future<LostItemRequest> markLostItemFound(
+    int itemId, {
+    required int rideId,
+  }) => _writeLostItem(
+    () => _api.markLostItemFound(itemId),
+    rideId: rideId,
+    // 「已經越過 open」＝這次標記生效了（乘客可能已接著付款）。
+    // 不能只寫 `!= open`：被結案（closed）也符合那個條件，但那不是標尋獲。
+    applied: (fresh) =>
+        fresh.id == itemId &&
+        (fresh.status == LostItemStatus.found ||
+            fresh.status == LostItemStatus.paid ||
+            fresh.status == LostItemStatus.returned),
+  );
 
   /// 付訖後標記已歸還（paid → returned）。
-  Future<LostItemRequest> markLostItemReturned(int itemId,
-          {required int rideId}) =>
-      _writeLostItem(
-        () => _api.markLostItemReturned(itemId),
-        rideId: rideId,
-        applied: (fresh) =>
-            fresh.id == itemId && fresh.status == LostItemStatus.returned,
-      );
+  Future<LostItemRequest> markLostItemReturned(
+    int itemId, {
+    required int rideId,
+  }) => _writeLostItem(
+    () => _api.markLostItemReturned(itemId),
+    rideId: rideId,
+    applied: (fresh) =>
+        fresh.id == itemId && fresh.status == LostItemStatus.returned,
+  );
 
   /// 未尋獲結案（open/found → closed）。
   Future<LostItemRequest> closeLostItem(int itemId, {required int rideId}) =>
@@ -1167,8 +1191,9 @@ class DriverController extends ChangeNotifier {
           final dropoff = event.payload?['dropoff_address'] as String?;
           _activeRide = _activeRide!.copyWith(
             phase: DriverRidePhase.enRouteToPickup,
-            dropoffAddress:
-                (dropoff != null && dropoff.isNotEmpty) ? dropoff : null,
+            dropoffAddress: (dropoff != null && dropoff.isNotEmpty)
+                ? dropoff
+                : null,
             dropoffLat: (event.payload?['dropoff_lat'] as num?)?.toDouble(),
             dropoffLng: (event.payload?['dropoff_lng'] as num?)?.toDouble(),
           );
