@@ -343,6 +343,64 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('行程 #5'), findsOneWidget);
     });
+
+    testWidgets('下拉刷新還在飛的時候捲到底，刷新結束後尾巴仍會補上更舊的行程', (tester) async {
+      final api = _FakeApi()..history = _rides(25);
+      final ctrl = _loggedIn(api);
+      addTearDown(ctrl.dispose);
+
+      await pump(tester, ctrl);
+      await tester.pumpAndSettle();
+      expect(api.requestedLimits, [20]);
+
+      // 刷新卡在網路上時捲到底：尾巴的自動補讀會被 controller 的
+      // 「已經有請求在飛就 return」擋掉。擋掉之後沒有人再試一次的話，
+      // 尾巴就永遠停在轉圈，第 21 筆之後再也進不來。
+      api.gate = Completer<void>();
+      unawaited(ctrl.loadRideHistory());
+      await tester.pump();
+
+      await tester.scrollUntilVisible(find.text('行程 #6'), 400, maxScrolls: 60);
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -400));
+      await tester.pump();
+
+      api.gate!.complete();
+      api.gate = null;
+      await tester.pumpAndSettle();
+
+      expect(api.requestedLimits, [20, 20, 40],
+          reason: '刷新結束後尾巴要自己再要一次，不能停在轉圈');
+      expect(ctrl.rideHistory.length, 25);
+      expect(ctrl.historyHasMore, isFalse);
+    });
+
+    testWidgets('往年的行程要帶年份，今年的不帶（分頁上線後才翻得到跨年行程）', (tester) async {
+      final now = DateTime.now();
+      final api = _FakeApi()
+        ..history = [
+          CustomerRideSummary(
+            rideId: 2,
+            status: 4,
+            pickupAddress: '今年那趟',
+            completedAt: DateTime(now.year, 3, 4, 9, 5),
+          ),
+          CustomerRideSummary(
+            rideId: 1,
+            status: 4,
+            pickupAddress: '去年那趟',
+            completedAt: DateTime(now.year - 1, 1, 5, 8, 0),
+          ),
+        ];
+      final ctrl = _loggedIn(api);
+      addTearDown(ctrl.dispose);
+
+      await pump(tester, ctrl);
+      await tester.pumpAndSettle();
+
+      expect(find.text('${now.year - 1}年1月5日 08:00'), findsOneWidget);
+      expect(find.text('3月4日 09:05'), findsOneWidget,
+          reason: '今年的不加年份，免得每張卡都變長');
+    });
   });
 }
 

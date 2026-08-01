@@ -98,7 +98,24 @@ class _HistoryFooterState extends State<_HistoryFooter> {
   void initState() {
     super.initState();
     // build 期間不可改 provider 狀態，排到下一影格（同畫面 initState 的作法）。
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoLoad());
+  }
+
+  @override
+  void didUpdateWidget(covariant _HistoryFooter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // **只靠 initState 會卡死**：尾巴被建出來的那一刻若剛好有別的請求在飛
+    //（下拉刷新、或首載還沒回來），controller 的重入防護會把這次補讀擋掉，
+    // 而擋掉之後沒有任何人再試一次——尾巴就永遠停在轉圈，第 21 筆之後再也進不來。
+    // 尾巴還在畫面上代表使用者仍停在底部，所以每次重建都補問一次。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _autoLoad());
+  }
+
+  /// 自動補讀。**失敗過就停手**交給重試按鈕：`didUpdateWidget` 會跟著每一次
+  /// `notifyListeners` 觸發，自動重試在後端還沒恢復時會變成連續打點。
+  void _autoLoad() {
+    if (!mounted || widget.ctrl.historyMoreError != null) return;
+    _load();
   }
 
   void _load() {
@@ -152,7 +169,11 @@ class _RideHistoryCard extends StatelessWidget {
     final local = t.toLocal();
     final hh = local.hour.toString().padLeft(2, '0');
     final mm = local.minute.toString().padLeft(2, '0');
-    return '${_months[local.month]}${local.day}日 $hh:$mm';
+    // **跨年的行程從分頁上線後才翻得到**（在那之前只看得到最近 20 趟）。
+    // 「1月5日」看不出是今年還是去年，而這頁是事後申報遺失物、補評分的入口——
+    // 找錯年份就等於找錯那一趟。今年的不加年份，免得每張卡都變長。
+    final year = local.year == DateTime.now().year ? '' : '${local.year}年';
+    return '$year${_months[local.month]}${local.day}日 $hh:$mm';
   }
 
   void _openChat(BuildContext context) {
