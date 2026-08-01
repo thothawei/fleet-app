@@ -22,12 +22,12 @@ class CustomerController extends ChangeNotifier {
     FleetWsClientFactory? wsFactory,
     FleetPushService? push,
     CustomerLocator? locator,
-  })  : _storage = storage ?? CustomerTokenStorage(),
-        _api = api ?? CustomerApiClient(),
-        _wsFactory = wsFactory ?? FleetWsClient.new,
-        _push = push ?? NoOpFleetPushService(),
-        _locator = locator ?? const GeolocatorCustomerLocator(),
-        _ws = FleetWsClient(onEvent: (_) {}) {
+  }) : _storage = storage ?? CustomerTokenStorage(),
+       _api = api ?? CustomerApiClient(),
+       _wsFactory = wsFactory ?? FleetWsClient.new,
+       _push = push ?? NoOpFleetPushService(),
+       _locator = locator ?? const GeolocatorCustomerLocator(),
+       _ws = FleetWsClient(onEvent: (_) {}) {
     // token 過期／失效時把乘客送回登入頁（見 _handleUnauthorized）。
     _api.onUnauthorized = _handleUnauthorized;
   }
@@ -150,8 +150,9 @@ class CustomerController extends ChangeNotifier {
 
   /// 待呈現的取消通知文案（P4）；null ＝ 沒有要顯示的取消。
   /// 文案由機器可讀的 cancel_reason 產生（cancelMessage），不 parse 後端字串。
-  String? get cancelNotice =>
-      _rideCancelled ? cancelMessage(_cancelReason, _cancelledVehicleType) : null;
+  String? get cancelNotice => _rideCancelled
+      ? cancelMessage(_cancelReason, _cancelledVehicleType)
+      : null;
 
   /// 是否該給「改用不指定車種重新叫車」快捷（P4：只有指定車種找不到才建議）。
   bool get suggestAnyVehicle =>
@@ -355,9 +356,9 @@ class CustomerController extends ChangeNotifier {
   /// 只在星等確實屬於**目前這張完成卡**時才回傳，換一趟就自動失效。
   int? get completedRatingScore =>
       _completedRatingRideId != null &&
-              _completedRatingRideId == _completedSummary?.rideId
-          ? _completedRatingScore
-          : null;
+          _completedRatingRideId == _completedSummary?.rideId
+      ? _completedRatingScore
+      : null;
 
   /// 評分送出中（按鈕轉圈、防連點）。
   bool get ratingSubmitting => _ratingSubmitting;
@@ -456,7 +457,11 @@ class CustomerController extends ChangeNotifier {
     _ratingSubmitting = true;
     notifyListeners();
     try {
-      final rating = await _api.rateRide(rideId, score: score, comment: comment);
+      final rating = await _api.rateRide(
+        rideId,
+        score: score,
+        comment: comment,
+      );
       _applySubmittedRating(rideId, rating.score);
       return null;
     } on ApiException catch (e) {
@@ -664,8 +669,9 @@ class CustomerController extends ChangeNotifier {
   ///
   /// 退路是「App 自己的保底值」而不是 0：0 會讓時間選擇器完全不擋，
   /// 乘客選了 3 分鐘後，填完整張表才被後端以 400 拒絕。
-  int get scheduleMinLeadMinutes =>
-      _scheduleMinLeadMinutes > 0 ? _scheduleMinLeadMinutes : fallbackMinLeadMinutes;
+  int get scheduleMinLeadMinutes => _scheduleMinLeadMinutes > 0
+      ? _scheduleMinLeadMinutes
+      : fallbackMinLeadMinutes;
 
   /// 問不到後端時用的保底門檻（與後端當前的 ScheduledRideMinLeadMinutes 一致）。
   static const fallbackMinLeadMinutes = 20;
@@ -820,8 +826,9 @@ class CustomerController extends ChangeNotifier {
       unawaited(_handlePushEvent());
     });
     await _tokenRefreshSub?.cancel();
-    _tokenRefreshSub =
-        _push.tokenRefresh.listen((_) => unawaited(_syncDeviceToken()));
+    _tokenRefreshSub = _push.tokenRefresh.listen(
+      (_) => unawaited(_syncDeviceToken()),
+    );
   }
 
   /// 收到推播（前景或點通知喚醒）→ **跟後端對一次帳**。
@@ -884,10 +891,9 @@ class CustomerController extends ChangeNotifier {
     required String lineUserId,
     required String password,
   }) async {
-    await _authenticate(() => _api.login(
-          lineUserId: lineUserId,
-          password: password,
-        ));
+    await _authenticate(
+      () => _api.login(lineUserId: lineUserId, password: password),
+    );
   }
 
   Future<void> register({
@@ -895,11 +901,10 @@ class CustomerController extends ChangeNotifier {
     required String name,
     required String password,
   }) async {
-    await _authenticate(() => _api.register(
-          lineUserId: lineUserId,
-          name: name,
-          password: password,
-        ));
+    await _authenticate(
+      () =>
+          _api.register(lineUserId: lineUserId, name: name, password: password),
+    );
   }
 
   Future<void> _authenticate(
@@ -1114,14 +1119,37 @@ class CustomerController extends ChangeNotifier {
         driverName: _driverName,
         fareAmountCents: (event.payload?['fare_amount_cents'] as num?)?.toInt(),
         // O6：只有乘客指定寵物車的行程才有；後端未加收時**不帶這個鍵** → null。
-        cleaningFeeCents: (event.payload?['cleaning_fee_cents'] as num?)?.toInt(),
+        cleaningFeeCents: (event.payload?['cleaning_fee_cents'] as num?)
+            ?.toInt(),
       );
       // WS 事件觸發，不是使用者按的 → 失敗靜默，交給輪詢補
       refreshActive(silent: true);
       return;
     }
     final active = _activeRide;
-    if (active == null || event.rideId != active.rideId) return;
+    if (active == null || event.rideId != active.rideId) {
+      // **不認得的行程事件不能直接丟掉**：後端的 WS Hub 依 (角色, id) 扇出，
+      // 同一個帳號的每一條連線都收得到這位乘客的行程事件。所以「不認得」最常見的
+      // 原因是**同一個帳號的另一台裝置**動了行程（手機叫車、平板還開著叫車表單）。
+      //
+      // 這台的輪詢在「沒有進行中訂單」時是停著的（`_applyActiveRide` 會 `_stopPolling`），
+      // 丟掉事件就等於**永遠**停在叫車表單：畫面上看不到那趟正在跑的車，
+      // 按下叫車還會拿到「已有進行中訂單」。司機端早就處理過同一件事
+      // （`DriverController` 的 rideAccepted：另一台裝置接走了這張單 → 重讀 active）。
+      //
+      // **只在「我手上什麼都沒有」時對帳**。已經有一張進行中訂單、事件卻是別的
+      // rideId，那是舊單的落隊事件（乘客一次只會有一張進行中訂單）——那種要照舊忽略，
+      // 否則「別的行程的取消事件不該影響這一趟」那條既有防線會被打破。
+      //
+      // `driver.location` 也不觸發：它是每幾秒一則的串流，會把一次對帳變成連續打點；
+      // 真正要跟上的是生命週期事件，而那些一定會跟著來。
+      if (active == null &&
+          event.rideId != null &&
+          event.type != FleetEventTypes.driverLocation) {
+        refreshActive(silent: true);
+      }
+      return;
+    }
     switch (event.type) {
       case FleetEventTypes.rideStopUpdated:
         // N8：payload 帶**整趟** stops，直接覆蓋——不在客戶端套用差異，
@@ -1172,8 +1200,11 @@ class CustomerController extends ChangeNotifier {
         // P4：以機器可讀的 cancel_reason 判斷，不 parse 後端文案（文案會改）。
         // 只有逾時取消會帶這兩個鍵；乘客主動取消／司機放棄不帶 → 解析為 null，
         // UI 走泛用訊息。
-        _cancelReason = CancelReason.fromCode(event.payload?['cancel_reason'] as String?);
-        _cancelledVehicleType = event.payload?['required_vehicle_type'] as String?;
+        _cancelReason = CancelReason.fromCode(
+          event.payload?['cancel_reason'] as String?,
+        );
+        _cancelledVehicleType =
+            event.payload?['required_vehicle_type'] as String?;
         _rideCancelled = true;
         // 行程真的結束了，「正在重新派車」不能再留著（重派沒成功才會走到這裡）。
         _redispatchNotice = null;
@@ -1328,9 +1359,11 @@ class CustomerController extends ChangeNotifier {
   Future<List<RideMessage>> fetchMessages(int rideId, {int afterId = 0}) =>
       _api.fetchMessages(rideId, afterId: afterId);
 
-  Future<RideMessage> sendMessage(int rideId, String body,
-          {String? clientMsgId}) =>
-      _api.sendMessage(rideId, body, clientMsgId: clientMsgId);
+  Future<RideMessage> sendMessage(
+    int rideId,
+    String body, {
+    String? clientMsgId,
+  }) => _api.sendMessage(rideId, body, clientMsgId: clientMsgId);
 
   /// 叫車：以目前 GPS 為上車點，帶乘客輸入的上車/目的地地址；
   /// 若目的地由地圖選點取得，另帶精確座標（dropoffLat/Lng）。
@@ -1375,7 +1408,7 @@ class CustomerController extends ChangeNotifier {
         pickup = pickupAddress.trim().isNotEmpty
             ? pickupAddress.trim()
             : '目前位置 (${pos.latitude.toStringAsFixed(5)}, '
-                '${pos.longitude.toStringAsFixed(5)})';
+                  '${pos.longitude.toStringAsFixed(5)})';
       }
       final ride = await _api.createRide(
         pickupLat: pickupLat,
@@ -1644,7 +1677,10 @@ class CustomerController extends ChangeNotifier {
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(_pollInterval, (_) => refreshActive(silent: true));
+    _pollTimer = Timer.periodic(
+      _pollInterval,
+      (_) => refreshActive(silent: true),
+    );
   }
 
   void _stopPolling() {
