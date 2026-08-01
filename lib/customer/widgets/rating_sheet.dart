@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../shared/widgets/rune_limit.dart';
 
 import '../customer_controller.dart';
 
@@ -109,7 +112,12 @@ class _RatingSheetState extends State<_RatingSheet> {
             controller: _commentCtrl,
             enabled: !_submitting,
             maxLines: 3,
-            maxLength: 200, // 與後端 ratingCommentMaxRunes 對齊
+            // 與後端 ratingCommentMaxRunes（200）對齊。**用 rune 不用 maxLength**：
+            // maxLength 數的是 grapheme cluster，emoji 會讓計數器說沒超過而後端擋下。
+            inputFormatters: const [RuneLimitingTextInputFormatter(200)],
+            maxLength: 200,
+            maxLengthEnforcement: MaxLengthEnforcement.none,
+            buildCounter: runeCounter(200, _commentCtrl),
             decoration: const InputDecoration(
               labelText: '想說的話（選填）',
               border: OutlineInputBorder(),

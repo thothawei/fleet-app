@@ -219,8 +219,8 @@ REST 一定完整，而推播要傳達的資訊只有「有事發生了」。
   至此三端齊備：**乘客評 → 司機看得到自己的平均分 → 營運看得出誰評價低**。
   詳見 [`docs/TODO.md`](docs/TODO.md)「⭐ 乘客評分司機」。
 
-**目前**：`flutter analyze` 無 issue、`flutter test` **425 passed**（54 個測試檔，2026-08-01 實跑）。
-~~414 passed~~／~~383 passed~~／~~377 passed~~／~~361 passed~~／~~356 passed~~／~~351 passed~~／~~339 passed~~ 是漏更新的舊數字——**這一行請跟著最後一次實跑一起改**。
+**目前**：`flutter analyze` 無 issue、`flutter test` **434 passed**（55 個測試檔，2026-08-01 實跑）。
+~~425 passed~~／~~414 passed~~／~~383 passed~~／~~377 passed~~／~~361 passed~~／~~356 passed~~／~~351 passed~~／~~339 passed~~ 是漏更新的舊數字——**這一行請跟著最後一次實跑一起改**。
 
 **2026-07-30 弱網逾時對帳的實跑收尾**（詳見 [`docs/TODO.md`](docs/TODO.md) 第十四～十五輪）：
 先做了一支「請求照送、回應吃掉」的代理 [`tool/lossy_proxy.py`](tool/lossy_proxy.py)——

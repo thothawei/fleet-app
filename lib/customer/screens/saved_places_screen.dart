@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/models/models.dart';
+import '../../shared/widgets/rune_limit.dart';
 import '../customer_controller.dart';
 import '../widgets/saved_places_bar.dart' show savedPlaceIcon;
 import 'map_picker_screen.dart';
@@ -335,6 +337,12 @@ class _PlaceEditorSheetState extends State<_PlaceEditorSheet> {
           TextField(
             controller: _label,
             onChanged: (_) => setState(() {}),
+            // 先前**完全沒有上限**：後端 maxPlaceLabelRunes 是 40，超過會回
+            // 「地點名稱過長」，但那句話沒說上限是多少，使用者只能亂猜著砍。
+            inputFormatters: const [RuneLimitingTextInputFormatter(40)],
+            maxLength: 40,
+            maxLengthEnforcement: MaxLengthEnforcement.none,
+            buildCounter: runeCounter(40, _label),
             decoration: const InputDecoration(
               labelText: '名稱',
               hintText: '例如：健身房、媽媽家',

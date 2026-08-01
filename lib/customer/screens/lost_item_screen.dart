@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api/fleet_api_client.dart' show ApiException;
 import '../../core/models/models.dart';
 import '../../core/util/money.dart';
 import '../../shared/screens/ride_chat_screen.dart';
+import '../../shared/widgets/rune_limit.dart';
 import '../customer_controller.dart';
 
 /// 乘客端遺失物協尋：對已完成行程回報遺失 → 顯示處理費 → 與司機即時對話 →
@@ -222,7 +224,12 @@ class _ReportForm extends StatelessWidget {
             TextField(
               controller: description,
               maxLines: 3,
+              // 與後端 lostItemDescMaxRunes（300）對齊，且數的是 rune 不是 grapheme
+              // （見 RuneLimitingTextInputFormatter 的說明）。
+              inputFormatters: const [RuneLimitingTextInputFormatter(300)],
               maxLength: 300,
+              maxLengthEnforcement: MaxLengthEnforcement.none,
+              buildCounter: runeCounter(300, description),
               decoration: const InputDecoration(
                 labelText: '物品描述（例：黑色錢包掉在後座）',
                 border: OutlineInputBorder(),
