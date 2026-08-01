@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/fleet_api_client.dart' show ApiException;
 import '../../core/models/models.dart';
 import '../widgets/app_lifecycle_reactor.dart';
+import '../widgets/rune_limit.dart';
 
 /// 乘客↔司機共用聊天室。
 /// - 歷史：進場以 REST 載入，之後以 afterId 增量補讀（WS 斷線重連保底）。
@@ -264,6 +265,14 @@ class _RideChatScreenState extends State<RideChatScreen> {
                       controller: _input,
                       minLines: 1,
                       maxLines: 4,
+                      // 先前**完全沒有上限**：後端 chatMaxRunes 是 500，超過回 400
+                      // 「訊息長度超過上限」——訊息會留在輸入框（送出路徑本來就這樣設計），
+                      // 但那句話沒說上限是多少，只能一段一段刪著試。
+                      // 這裡不放計數器：聊天輸入框下面多一行 `x/500` 太吵，
+                      // 而 500 字對一則訊息來說平常打不到。
+                      inputFormatters: const [
+                        RuneLimitingTextInputFormatter(500),
+                      ],
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => _send(),
                       decoration: const InputDecoration(

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/models/models.dart';
+import '../../shared/widgets/rune_limit.dart';
 import '../customer_controller.dart';
 import '../widgets/saved_places_bar.dart';
 import 'map_picker_screen.dart';
@@ -428,7 +430,12 @@ class _ScheduleEditorScreenState extends State<_ScheduleEditorScreen> {
           const SizedBox(height: 20),
           TextField(
             controller: _note,
+            // 與後端 maxScheduleNoteRunes（200）對齊，且數的是 rune 不是 grapheme
+            // （見 RuneLimitingTextInputFormatter 的說明）。
+            inputFormatters: const [RuneLimitingTextInputFormatter(200)],
             maxLength: 200,
+            maxLengthEnforcement: MaxLengthEnforcement.none,
+            buildCounter: runeCounter(200, _note),
             decoration: const InputDecoration(
               labelText: '給司機的備註（選填）',
               hintText: '例如：有一件大行李',
