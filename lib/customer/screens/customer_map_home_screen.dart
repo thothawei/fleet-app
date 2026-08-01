@@ -95,8 +95,9 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
             builder: (context, scrollCtrl) => DecoratedBox(
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
                 boxShadow: const [
                   BoxShadow(blurRadius: 12, color: Colors.black26),
                 ],
@@ -129,7 +130,8 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
                   // 但乘客一拉開 sheet 就該看得到。
                   if (ctrl.upcomingSchedules.isNotEmpty) ...[
                     _UpcomingScheduleTile(
-                        schedule: ctrl.upcomingSchedules.first),
+                      schedule: ctrl.upcomingSchedules.first,
+                    ),
                     const SizedBox(height: 12),
                   ],
                   _sheetContent(ctrl),
@@ -172,9 +174,9 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
     if (error == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
       ctrl.clearError();
     });
   }
@@ -192,7 +194,11 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
       case RideStatus.pickedUp:
         return OnTripContent(ctrl: ctrl);
       default:
-        return OrderFormContent(ctrl: ctrl);
+        // 走到這裡代表「有一張還沒進終態的訂單，但狀態碼 App 不認得」——
+        // 終態的訂單根本不會到這裡（controller 會把 activeRide 清成 null）。
+        // **不可以退回叫車表單**：那會把進行中的訂單藏起來，還請乘客去按一個
+        // 必定被「已有進行中訂單」擋下的按鈕。
+        return UnknownPhaseContent(ctrl: ctrl);
     }
   }
 
@@ -212,19 +218,19 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
       final pickupLat = ride?.pickupLat ?? ctrl.lastPosition?.latitude;
       final pickupLng = ride?.pickupLng ?? ctrl.lastPosition?.longitude;
       if (ride != null && pickupLat != null && pickupLng != null) {
-        markers.add(_pin(
-          LatLng(pickupLat, pickupLng),
-          Icons.location_on,
-          Colors.red,
-        ));
+        markers.add(
+          _pin(LatLng(pickupLat, pickupLng), Icons.location_on, Colors.red),
+        );
       }
     }
     if (ctrl.liveDriverLat != null && ctrl.liveDriverLng != null) {
-      markers.add(_pin(
-        LatLng(ctrl.liveDriverLat!, ctrl.liveDriverLng!),
-        Icons.local_taxi,
-        Colors.green,
-      ));
+      markers.add(
+        _pin(
+          LatLng(ctrl.liveDriverLat!, ctrl.liveDriverLng!),
+          Icons.local_taxi,
+          Colors.green,
+        ),
+      );
     }
     return markers;
   }
@@ -237,9 +243,7 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
         : null;
     final points = routePolylinePoints(driver, ride.stops);
     if (points.isEmpty) return const [];
-    return [
-      Polyline(points: points, strokeWidth: 3, color: Colors.blueAccent),
-    ];
+    return [Polyline(points: points, strokeWidth: 3, color: Colors.blueAccent)];
   }
 
   /// 多停靠點的標記：**下一站全彩醒目、之後的站半透明、已到達灰色、已跳過不畫**
@@ -249,10 +253,7 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
     final next = nextPendingStop(ride.stops);
     return [
       for (final s in visible)
-        _stopPin(
-          s,
-          isNext: next != null && next.id == s.id,
-        ),
+        _stopPin(s, isNext: next != null && next.id == s.id),
     ];
   }
 
@@ -293,12 +294,12 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
   }
 
   Marker _pin(LatLng point, IconData icon, Color color) => Marker(
-        point: point,
-        width: 40,
-        height: 40,
-        alignment: Alignment.topCenter,
-        child: Icon(icon, color: color, size: 36),
-      );
+    point: point,
+    width: 40,
+    height: 40,
+    alignment: Alignment.topCenter,
+    child: Icon(icon, color: color, size: 36),
+  );
 
   @override
   void dispose() {
@@ -306,7 +307,6 @@ class _CustomerMapHomeScreenState extends State<CustomerMapHomeScreen> {
     super.dispose();
   }
 }
-
 
 /// Bottom Sheet 裡的「即將到來的預約」列。
 ///

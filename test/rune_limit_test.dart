@@ -7,7 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:line_fleet_app/core/api/customer_api_client.dart';
 import 'package:line_fleet_app/core/models/models.dart';
 import 'package:line_fleet_app/customer/customer_controller.dart';
+import 'package:line_fleet_app/customer/screens/lost_item_screen.dart';
 import 'package:line_fleet_app/customer/screens/saved_places_screen.dart';
+import 'package:line_fleet_app/customer/screens/scheduled_rides_screen.dart';
+import 'package:line_fleet_app/customer/widgets/rating_sheet.dart';
 import 'package:line_fleet_app/shared/screens/ride_chat_screen.dart';
 import 'package:line_fleet_app/shared/widgets/rune_limit.dart';
 import 'package:line_fleet_app/core/theme/app_theme.dart';
@@ -185,6 +188,116 @@ void main() {
       );
       expect(text.characters.length, 20, reason: '40 ÷ 2 ＝ 20 面完整的旗子');
       expect(find.text('40/40'), findsOneWidget, reason: '計數器要說出 rune 數');
+    });
+
+    // 第二十六輪只補了常用地點與聊天室的接線測試，另外三個畫面留了缺口
+    // （寫在該輪的「同族還沒碰的角落」）。第二十七輪把它補完：
+    // 三個接法相同、analyze 也綠，但少了這三案，任何一個畫面漏掉
+    // `inputFormatters` 都不會有測試變紅。
+    testWidgets('遺失物描述：真畫面接上去了，擋在 300 rune', (tester) async {
+      final ctrl = CustomerController(api: _EmptyPlacesApi());
+      addTearDown(ctrl.dispose);
+      ctrl.setSessionForTest(
+        const CustomerSession(customerId: 1, token: 'tok', name: '小美'),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: appLightTheme,
+          home: ChangeNotifierProvider<CustomerController>.value(
+            value: ctrl,
+            child: const CustomerLostItemScreen(rideId: 1),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final field = find.widgetWithText(TextField, '物品描述（例：黑色錢包掉在後座）');
+      expect(field, findsOneWidget, reason: '前置條件：回報表單有出現');
+      await tester.enterText(field, _family * 60); // 60 clusters ＝ 420 runes
+      await tester.pump();
+
+      final text = tester.widget<TextField>(field).controller!.text;
+      expect(text.runes.length, lessThanOrEqualTo(300));
+      expect(
+        find.text('294/300'),
+        findsOneWidget,
+        reason: '300 ÷ 7 ＝ 42 個完整的家庭 emoji ＝ 294 runes',
+      );
+    });
+
+    testWidgets('預約備註：真畫面接上去了，擋在 200 rune', (tester) async {
+      final ctrl = CustomerController(api: _EmptyPlacesApi());
+      addTearDown(ctrl.dispose);
+      ctrl.setSessionForTest(
+        const CustomerSession(customerId: 1, token: 'tok', name: '小美'),
+      );
+      // Provider 要放在 MaterialApp **之上**——比照 production 的
+      // `CustomerApp`。預約表單是 `Navigator.push` 出去的新 route，
+      // provider 若放在 `home:` 底下，那條 route 的 context 看不到它。
+      await tester.pumpWidget(
+        ChangeNotifierProvider<CustomerController>.value(
+          value: ctrl,
+          child: MaterialApp(
+            theme: appLightTheme,
+            home: const ScheduledRidesScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FloatingActionButton, '新增預約'));
+      await tester.pumpAndSettle();
+
+      final field = find.widgetWithText(TextField, '給司機的備註（選填）');
+      expect(field, findsOneWidget, reason: '前置條件：預約表單有打開');
+      await tester.enterText(field, _flag * 150); // 150 clusters ＝ 300 runes
+      await tester.pump();
+
+      final text = tester.widget<TextField>(field).controller!.text;
+      expect(text.runes.length, lessThanOrEqualTo(200));
+      expect(find.text('200/200'), findsOneWidget);
+    });
+
+    testWidgets('評分評論：真畫面接上去了，擋在 200 rune', (tester) async {
+      final ctrl = CustomerController(api: _EmptyPlacesApi());
+      addTearDown(ctrl.dispose);
+      ctrl.setSessionForTest(
+        const CustomerSession(customerId: 1, token: 'tok', name: '小美'),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: appLightTheme,
+          home: ChangeNotifierProvider<CustomerController>.value(
+            value: ctrl,
+            child: Builder(
+              builder: (context) => Scaffold(
+                body: Center(
+                  child: ElevatedButton(
+                    onPressed: () =>
+                        showRatingSheet(context, ctrl: ctrl, rideId: 42),
+                    child: const Text('開評分'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('開評分'));
+      await tester.pumpAndSettle();
+
+      final field = find.widgetWithText(TextField, '想說的話（選填）');
+      expect(field, findsOneWidget, reason: '前置條件：評分對話框有打開');
+      await tester.enterText(field, _family * 50); // 50 clusters ＝ 350 runes
+      await tester.pump();
+
+      final text = tester.widget<TextField>(field).controller!.text;
+      expect(text.runes.length, lessThanOrEqualTo(200));
+      expect(
+        find.text('196/200'),
+        findsOneWidget,
+        reason: '200 ÷ 7 ＝ 28 個完整的家庭 emoji ＝ 196 runes',
+      );
     });
   });
 }
