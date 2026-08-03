@@ -1,14 +1,24 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 /// App 設定：API 位址可透過 --dart-define=API_BASE=... 覆寫。
 /// 未覆寫時依平台給「模擬器連本機後端」的預設值：
 /// Android 模擬器是 10.0.2.2，iOS／macOS 模擬器是 127.0.0.1（10.0.2.2 只有 Android 模擬器認得）。
+/// Web 是瀏覽器直接連，用 localhost。
 /// 真機一律請帶 --dart-define=API_BASE=http://<電腦區網 IP>:8080。
 class AppConfig {
   static const _apiBaseOverride = String.fromEnvironment('API_BASE');
 
   static String get apiBase {
     if (_apiBaseOverride.isNotEmpty) return _apiBaseOverride;
+
+    // kIsWeb 是編譯期常數，這一行讓下面的 dart:io 分支在 web build 被整段
+    // 消除。少了它，沒帶 --dart-define=API_BASE 在瀏覽器開啟就會噴
+    // 「Unsupported operation: Platform._operatingSystem」——那個訊息完全
+    // 看不出跟 API 位址有關，排查成本很高。
+    if (kIsWeb) return 'http://localhost:8080';
+
     return (Platform.isIOS || Platform.isMacOS)
         ? 'http://127.0.0.1:8080'
         : 'http://10.0.2.2:8080';
